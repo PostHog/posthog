@@ -517,6 +517,36 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(bucketed.filter((query) => !query.includes('toString(dateTrunc('))).toEqual([])
         })
 
+        // Each card reads its own flag, so a reducer that marks the wrong loader puts the error on
+        // the wrong card, and one that never clears leaves a card stuck after a successful retry.
+        it.each([
+            ['users', 'loadUsers', (node: any) => node.query?.includes('current_users')],
+            ['harnessRows', 'loadHarnessRows', (node: any) => node.kind === 'MCPHarnessBreakdownQuery'],
+            ['activityRows', 'loadActivityRows', (node: any) => node.kind === 'MCPToolCallsAndErrorsQuery'],
+            ['toolDailyRows', 'loadToolDailyRows', (node: any) => node.kind === 'MCPToolCallBreakdownQuery'],
+        ] as const)('flags only %s when its query fails, and clears it on retry', async (loader, retry, isFailing) => {
+            mockApi.query.mockImplementation(async (node: any) => {
+                if (isFailing(node)) {
+                    throw { status: 504, detail: 'Query timed out' }
+                }
+                return { results: [] } as any
+            })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(Object.entries(logic.values.failedLoads).filter(([, failed]) => failed)).toEqual([[loader, true]])
+            expect(logic.values.feedbackLoadFailed).toBe(true)
+
+            mockApi.query.mockResolvedValue({ results: [] } as any)
+            await expectLogic(logic, () => {
+                logic.actions[retry]()
+            }).toFinishAllListeners()
+
+            expect(logic.values.failedLoads[loader]).toBe(false)
+            expect(logic.values.feedbackLoadFailed).toBe(false)
+        })
+
         it('reloads every tile when the date filter changes', async () => {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()

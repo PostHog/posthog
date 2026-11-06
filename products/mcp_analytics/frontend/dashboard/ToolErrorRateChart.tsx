@@ -29,13 +29,17 @@ function niceErrorAxisMax(maxRate: number): number {
 export function ToolErrorRateChart({
     rows,
     loading,
+    failed,
+    onRetry,
     theme,
     onToolClick,
     title = 'Tools with the highest error rate',
-    emptyMessage = 'No tool calls yet.',
+    emptyMessage = 'No tool calls in this date range. Try a wider range.',
 }: {
     rows: ToolRow[]
     loading: boolean
+    failed?: boolean
+    onRetry?: () => void
     theme: ChartTheme
     onToolClick?: (tool: string) => void
     title?: string
@@ -100,14 +104,21 @@ export function ToolErrorRateChart({
             <CardState
                 loading={loading}
                 isEmpty={rows.length === 0}
+                failed={failed}
+                onRetry={onRetry}
+                className="min-h-80"
                 skeleton={
-                    <div className="space-y-2 py-3">
+                    <div className="flex flex-1 flex-col justify-around py-3">
                         {Array.from({ length: 5 }).map((_, i) => (
                             <Skeleton key={i} className="h-7 w-full" />
                         ))}
                     </div>
                 }
-                empty={<div className="py-6 text-center text-[12px] text-secondary">{emptyMessage}</div>}
+                empty={
+                    <div className="flex flex-1 items-center justify-center py-6 text-center text-[12px] text-secondary">
+                        {emptyMessage}
+                    </div>
+                }
             >
                 <div className="flex min-h-80 flex-1 flex-col">
                     <BarChart

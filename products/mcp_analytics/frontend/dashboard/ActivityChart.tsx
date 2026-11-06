@@ -17,6 +17,8 @@ import { Card, CardState } from './Card'
 export function ActivityChart({
     daily,
     loading,
+    failed,
+    onRetry,
     theme,
     timezone,
     interval,
@@ -24,6 +26,8 @@ export function ActivityChart({
 }: {
     daily: DailyActivity
     loading: boolean
+    failed?: boolean
+    onRetry?: () => void
     theme: ChartTheme
     timezone: string
     interval: TimeInterval
@@ -63,16 +67,17 @@ export function ActivityChart({
             <CardState
                 loading={loading}
                 isEmpty={daily.successes.every((v) => v === 0) && daily.errors.every((v) => v === 0)}
-                skeleton={<Skeleton className="min-h-[300px] flex-1" />}
+                failed={failed}
+                onRetry={onRetry}
+                className="min-h-[300px]"
+                skeleton={<Skeleton className="flex-1" />}
                 empty={
                     <div className="flex flex-1 items-center justify-center py-6 text-center text-[12px] text-secondary">
-                        No activity yet.
+                        No tool calls in this date range. Try a wider range.
                     </div>
                 }
             >
-                <div className="flex min-h-[300px] flex-1 flex-col">
-                    <TimeSeriesLineChart series={series} labels={daily.labels} config={config} theme={theme} />
-                </div>
+                <TimeSeriesLineChart series={series} labels={daily.labels} config={config} theme={theme} />
             </CardState>
         </Card>
     )

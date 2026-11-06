@@ -20,6 +20,8 @@ interface TileSpec {
     format: (n: number) => string
     color: string
     loading: boolean
+    failed?: boolean
+    onRetry?: () => void
     summaryLabel: string
     // Overrides the summary caption — used to flag a tile whose value isn't
     // scoped by the dashboard filters.
@@ -62,6 +64,8 @@ function KPITile({
                 className="transition-transform group-hover/tile:-translate-y-0.5"
                 label={tile.label}
                 loading={tile.loading}
+                failed={tile.failed}
+                onRetry={tile.onRetry}
                 value={metric.value}
                 data={metric.sparkline}
                 labels={metric.sparklineLabels}
@@ -91,6 +95,10 @@ export function KpiTiles({
     intentClusterCount,
     kpisLoading,
     usersLoading,
+    kpisFailed,
+    usersFailed,
+    onRetryKpis,
+    onRetryUsers,
     showIntentClusters,
     theme,
     interval,
@@ -101,6 +109,10 @@ export function KpiTiles({
     intentClusterCount: KPIMetric
     kpisLoading: boolean
     usersLoading: boolean
+    kpisFailed?: boolean
+    usersFailed?: boolean
+    onRetryKpis?: () => void
+    onRetryUsers?: () => void
     showIntentClusters: boolean
     theme: ChartTheme
     interval: IntervalType
@@ -125,6 +137,8 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[2],
             loading: usersLoading,
+            failed: usersFailed,
+            onRetry: onRetryUsers,
             summaryLabel: 'Total',
         },
         {
@@ -134,6 +148,8 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            failed: kpisFailed,
+            onRetry: onRetryKpis,
             summaryLabel: 'Total',
         },
         {
@@ -143,6 +159,8 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            failed: kpisFailed,
+            onRetry: onRetryKpis,
             summaryLabel: 'Total',
         },
         {
@@ -152,6 +170,8 @@ export function KpiTiles({
             format: (n) => formatPercentage(n, { compact: true }),
             color: theme.colors[4],
             loading: kpisLoading,
+            failed: kpisFailed,
+            onRetry: onRetryKpis,
             summaryLabel: 'Overall',
         },
         {
@@ -161,6 +181,11 @@ export function KpiTiles({
             format: formatMs,
             color: theme.colors[0],
             loading: kpisLoading || usersLoading,
+            failed: kpisFailed || usersFailed,
+            onRetry: () => {
+                onRetryKpis?.()
+                onRetryUsers?.()
+            },
             summaryLabel: 'Overall',
         },
         ...(showIntentClusters

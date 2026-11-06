@@ -40,11 +40,15 @@ function renderTooltip(ctx: TooltipContext<HarnessChartRow & { share: number }>)
 export function HarnessBarChart({
     rows,
     loading,
+    failed,
+    onRetry,
     theme,
     fillHeight = false,
 }: {
     rows: HarnessRow[]
     loading: boolean
+    failed?: boolean
+    onRetry?: () => void
     theme: ChartTheme
     fillHeight?: boolean
 }): JSX.Element {
@@ -86,15 +90,18 @@ export function HarnessBarChart({
             <CardState
                 loading={loading}
                 isEmpty={rows.length === 0}
+                failed={failed}
+                onRetry={onRetry}
+                className="min-h-80"
                 skeleton={
-                    <div className="h-80 space-y-6 py-3">
+                    <div className="flex-1 space-y-6 py-3">
                         {Array.from({ length: 6 }).map((_, index) => (
                             <LemonSkeleton key={index} className="h-4 w-full" />
                         ))}
                     </div>
                 }
                 empty={
-                    <div className="flex h-80 items-center justify-center text-xs text-secondary">
+                    <div className="flex flex-1 items-center justify-center text-xs text-secondary">
                         No harness data yet.
                     </div>
                 }
