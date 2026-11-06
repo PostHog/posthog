@@ -92,6 +92,9 @@ export default {
             let pendingFetches = 0
             const untrackedSetTimeout = window.setTimeout.bind(window)
             const untrackedClearTimeout = window.clearTimeout.bind(window)
+            // Some stories freeze `performance.now` to pin a query timer. The runner keeps its own clock, or the
+            // quiet window and the deadline never pass on those pages and only the hard cap ends the wait.
+            const untrackedNow = performance.now.bind(performance)
             const untrackedFetch = window.fetch.bind(window)
             window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
                 if (typeof handler !== 'function') {
@@ -105,7 +108,7 @@ export default {
                     timeout,
                     ...args
                 )
-                pendingTimers.set(id, performance.now() + (Number(timeout) || 0))
+                pendingTimers.set(id, untrackedNow() + (Number(timeout) || 0))
                 return id
             }) as typeof window.setTimeout
             window.clearTimeout = ((id?: number) => {
@@ -122,6 +125,7 @@ export default {
                 pendingBefore: (time: number): boolean =>
                     pendingFetches > 0 || Array.from(pendingTimers.values()).some((due) => due <= time),
                 setTimeout: untrackedSetTimeout,
+                now: untrackedNow,
             }
 
             const patchedUserAgent = `${navigator.userAgent} StorybookTestRunner`
@@ -503,16 +507,18 @@ async function waitForQuiet(page: Page, timeout: number, loaderTimeoutMs: number
                             __testRunnerWork?: {
                                 pendingBefore: (time: number) => boolean
                                 setTimeout: typeof setTimeout
+                                now: () => number
                             }
                         }
                     ).__testRunnerWork
-                    const startedAt = performance.now()
+                    const clock = work?.now ?? (() => performance.now())
+                    const startedAt = clock()
                     const deadlineAt = startedAt + timeoutMs
                     const loaderDeadlineAt = startedAt + Math.max(timeoutMs, loaderMs)
                     let lastChange = startedAt
                     let lastSize = ''
                     const observer = new MutationObserver(() => {
-                        lastChange = performance.now()
+                        lastChange = clock()
                     })
                     let resolved = false
                     let visibleLoader: string | null = null
@@ -553,7 +559,7 @@ async function waitForQuiet(page: Page, timeout: number, loaderTimeoutMs: number
                         characterData: true,
                     })
                     const check = (): void => {
-                        const now = performance.now()
+                        const now = clock()
                         const size = `${document.body.scrollWidth}:${document.body.scrollHeight}`
                         if (size !== lastSize) {
                             lastSize = size
