@@ -49,3 +49,7 @@ class GroupTypesUnavailable(Exception):
 
 class GroupTypeNotFound(Exception):
     pass
+
+
+class GroupTypeChanged(Exception):
+    pass

@@ -51,9 +51,15 @@ def group_type_changes(current: contracts.GroupType, edit: contracts.GroupTypeEd
     return group_types.changed_fields(current, edit)
 
 
-def update_group_type(project_id: int, index: int, edit: contracts.GroupTypeEdit) -> contracts.GroupType:
+def group_type_fingerprint(group_type: contracts.GroupType) -> str:
+    """A hash of the editable fields, for update_group_type to check that nothing changed since staff read them."""
+    return group_types.fingerprint(group_type)
+
+
+def update_group_type(project_id: int, index: int, edit: contracts.GroupTypeEdit, baseline: str) -> contracts.GroupType:
     """Saves the fields that differ from what is stored and returns the group type as it was before.
 
-    Raises like get_group_type.
+    Raises GroupTypeChanged when the stored group type no longer matches the baseline fingerprint, else like
+    get_group_type.
     """
-    return group_types.update_group_type(project_id, index, edit)
+    return group_types.update_group_type(project_id, index, edit, baseline)

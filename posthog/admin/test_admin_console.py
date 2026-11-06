@@ -30,7 +30,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.personhog_client.fake_client import get_active_fake
-from posthog.test.persons import create_group_type_mapping
+from posthog.test.persons import create_group_type_mapping, update_group_type_mapping
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
 from products.workflows.backend.facade.api import get_email_sending_state
@@ -555,6 +555,15 @@ class TestAdminConsoleViews(BaseTest):
         assert "cache/team_tokens/config.json" in content
         assert expected in content
 
+    @parameterized.expand([("missing", ""), ("not_a_number", "abc"), ("unicode_digit", "²")])
+    def test_the_remote_config_cache_tool_asks_for_a_team_when_the_team_is_not_a_team_id(
+        self, _name: str, team: str
+    ) -> None:
+        response = self.client.get("/admin/console/tools/remote-config-cache/", {"team": team})
+
+        assert response.status_code == 200
+        assert "Open this page from the Remote config cache panel" in response.content.decode()
+
     @parameterized.expand(
         [
             (
@@ -587,6 +596,7 @@ class TestAdminConsoleViews(BaseTest):
             ),
             ("unchanged_form", {}, None, None, ""),
             ("invalid_created_time", {"created_at": "not-a-datetime"}, None, None, ""),
+            ("impossible_created_time", {"created_at": "2026-02-30 10:30:00"}, None, None, ""),
         ]
     )
     def test_editing_a_group_type_previews_then_writes_only_the_changed_fields(
@@ -626,3 +636,33 @@ class TestAdminConsoleViews(BaseTest):
         if "created_at" in expected_mask:
             assert (updates[0].created_at if updates[0].HasField("created_at") else None) == expected_created_at
         assert expected_message in " ".join(str(message) for message in get_messages(saved.wsgi_request))
+
+    @parameterized.expand([("before_the_preview", True), ("before_the_confirm", False)])
+    def test_editing_a_group_type_refuses_when_the_group_type_changed_since_the_form_opened(
+        self, _name: str, change_before_preview: bool
+    ) -> None:
+        mapping = create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            default_columns=["name"],
+        )
+        url = f"/admin/console/teams/{self.team.pk}/group-types/edit-0/"
+        prefilled = self.client.get(url).context["form"].initial
+        mapping.default_columns = ["name", "email"]
+
+        if change_before_preview:
+            update_group_type_mapping(mapping)
+        preview = self.client.post(url, {**prefilled, "name_singular": "Company", "reason": "Customer asked"})
+        if change_before_preview:
+            assert preview.status_code == 400
+            assert "changed since you opened this form" in preview.content.decode()
+            return
+        update_group_type_mapping(mapping)
+        saved = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert saved.status_code == 409
+        assert "changed since you opened this form" in saved.content.decode()
+        updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
+        assert updates == []

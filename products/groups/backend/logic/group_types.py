@@ -1,4 +1,5 @@
 import json
+import hashlib
 from typing import Any
 
 import structlog
@@ -9,9 +10,16 @@ from posthog.personhog_client.client import personhog_call, require_personhog_cl
 from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
 from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest, UpdateGroupTypeMappingRequest
 
-from products.groups.backend.facade.contracts import GroupType, GroupTypeEdit, GroupTypeNotFound, GroupTypesUnavailable
+from products.groups.backend.facade.contracts import (
+    GroupType,
+    GroupTypeChanged,
+    GroupTypeEdit,
+    GroupTypeNotFound,
+    GroupTypesUnavailable,
+)
 
 CALLER_TAG = "groups/staff_console"
+EDITABLE_FIELDS = ["name_singular", "name_plural", "default_columns", "created_at"]
 
 logger = structlog.get_logger(__name__)
 
@@ -49,13 +57,7 @@ def read_group_type(project_id: int, index: int) -> GroupType:
 
 
 def changed_fields(current: GroupType, edit: GroupTypeEdit) -> list[str]:
-    candidates = {
-        "name_singular": (current.name_singular, edit.name_singular),
-        "name_plural": (current.name_plural, edit.name_plural),
-        "default_columns": (current.default_columns, edit.default_columns),
-        "created_at": (current.created_at, edit.created_at),
-    }
-    return [field for field, (before, after) in candidates.items() if before != after]
+    return [field for field in EDITABLE_FIELDS if getattr(current, field) != getattr(edit, field)]
 
 
 def _field_values(item: GroupType | GroupTypeEdit, fields: list[str]) -> dict[str, Any]:
@@ -65,9 +67,20 @@ def _field_values(item: GroupType | GroupTypeEdit, fields: list[str]) -> dict[st
     return values
 
 
-def update_group_type(project_id: int, index: int, edit: GroupTypeEdit) -> GroupType:
-    """Writes the fields that differ from what personhog holds now, and returns the group type as it was before."""
+def fingerprint(group_type: GroupType) -> str:
+    values = json.dumps(_field_values(group_type, EDITABLE_FIELDS), sort_keys=True)
+    return hashlib.sha256(values.encode()).hexdigest()
+
+
+def update_group_type(project_id: int, index: int, edit: GroupTypeEdit, baseline: str) -> GroupType:
+    """Writes the fields that differ from what personhog holds now, and returns the group type as it was before.
+
+    The edit carries every editable field, so it would also write back the old value of a field that changed
+    after staff read the group type. A baseline fingerprint that no longer matches the stored row refuses that.
+    """
     previous = read_group_type(project_id, index)
+    if fingerprint(previous) != baseline:
+        raise GroupTypeChanged(f"Group type {index} of project {project_id} changed since it was read")
     fields = changed_fields(previous, edit)
     if not fields:
         return previous

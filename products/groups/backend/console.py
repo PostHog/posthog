@@ -13,7 +13,13 @@ from posthog.admin.console.tools import Cell, Notice, Page, Row, Table
 from posthog.models.team.team import Team
 
 from products.groups.backend.facade import api
-from products.groups.backend.facade.contracts import GroupType, GroupTypeEdit, GroupTypeNotFound, GroupTypesUnavailable
+from products.groups.backend.facade.contracts import (
+    GroupType,
+    GroupTypeChanged,
+    GroupTypeEdit,
+    GroupTypeNotFound,
+    GroupTypesUnavailable,
+)
 
 PRODUCT_ANALYTICS = Owner(name="Product analytics", crest="product-analytics")
 NOT_SET = "Not set"
@@ -24,6 +30,7 @@ FIELD_LABELS = {
     "created_at": "Created (UTC)",
 }
 CREATED_AT_EFFECT = "Queries leave this group off events from before the created time."
+CHANGED_SINCE_READ = "This group type changed since you opened this form. Go back and open the edit again to review it."
 
 
 def format_created_at(value: datetime | None) -> str:
@@ -45,6 +52,8 @@ class EditGroupTypeForm(forms.Form):
         help_text=f"For example 2026-01-15 10:30:00. {CREATED_AT_EFFECT} Leave it empty to keep the group on every event.",
     )
     reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log.")
+    # The group type as staff saw it when the form opened. The confirmation token carries it to the save.
+    baseline = forms.CharField(widget=forms.HiddenInput)
 
     def clean_default_columns(self) -> list[str] | None:
         raw = self.cleaned_data["default_columns"].strip()
@@ -62,7 +71,11 @@ class EditGroupTypeForm(forms.Form):
         raw = self.cleaned_data["created_at"].strip()
         if not raw:
             return None
-        parsed = parse_datetime(raw)
+        # parse_datetime returns None for text that is not a date, and raises ValueError for an impossible date.
+        try:
+            parsed = parse_datetime(raw)
+        except ValueError:
+            parsed = None
         if parsed is None:
             raise forms.ValidationError("Enter a date and time, for example 2026-01-15 10:30:00.")
         if parsed.tzinfo is None:
@@ -112,6 +125,9 @@ class GroupTypeEditor:
         except GroupTypesUnavailable:
             form.add_error(None, "Could not load the group type from personhog. Try again.")
             return Page(blocks=())
+        if api.group_type_fingerprint(current) != form.cleaned_data["baseline"]:
+            form.add_error(None, CHANGED_SINCE_READ)
+            return Page(blocks=())
         edit = form.edit()
         fields = api.group_type_changes(current, edit)
         if not fields:
@@ -133,7 +149,10 @@ class GroupTypeEditor:
         assert isinstance(obj, Team) and isinstance(form, EditGroupTypeForm)
         edit = form.edit()
         try:
-            previous = api.update_group_type(obj.project_id, self.index, edit)
+            previous = api.update_group_type(obj.project_id, self.index, edit, form.cleaned_data["baseline"])
+        except GroupTypeChanged:
+            messages.error(request, CHANGED_SINCE_READ)
+            return HttpResponse(status=409)
         except GroupTypeNotFound:
             messages.error(request, f"This project has no group type with index {self.index} anymore.")
             return HttpResponse(status=404)
@@ -196,6 +215,7 @@ class GroupTypesPanel(Panel):
                 if group_type.default_columns is not None
                 else "",
                 "created_at": format_created_at(group_type.created_at),
+                "baseline": api.group_type_fingerprint(group_type),
             },
             description=f"The team sees the new names in the app. {CREATED_AT_EFFECT}",
             undo_hint="To undo, edit the group type again and enter the old values. The message after saving lists them.",

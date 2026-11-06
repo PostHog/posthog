@@ -41,7 +41,7 @@ class RemoteConfigCacheTool(ConsoleTool):
 
     def page(self, request: HttpRequest) -> Page:
         team_id = request.GET.get("team", "").strip()
-        team = Team.objects.filter(pk=int(team_id)).first() if team_id.isdigit() else None
+        team = Team.objects.filter(pk=int(team_id)).first() if team_id.isascii() and team_id.isdigit() else None
         if team is None:
             return Page(
                 blocks=(
