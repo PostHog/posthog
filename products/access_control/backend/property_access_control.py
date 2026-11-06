@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.core.signals import request_finished, request_started
+from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -212,6 +213,7 @@ def get_non_writable_property_names(
     team_id: int,
     user: User | None,
     property_type: int,
+    group_type_index: int | None = None,
 ) -> set[str]:
     """
     Returns property names where the user does not have write access (i.e., the effective
@@ -220,6 +222,8 @@ def get_non_writable_property_names(
     :param team_id: The team whose restrictions to check.
     :param user: The user making the request.
     :param property_type: PropertyDefinition.Type value (e.g., PropertyDefinition.Type.PERSON).
+    :param group_type_index: For group properties, limits the rules to this group type (definitions
+        without a group type index apply to every group type).
     :returns: Set of property name strings that the user cannot write to.
     """
     from posthog.models import OrganizationMembership
@@ -236,6 +240,11 @@ def get_non_writable_property_names(
         .exclude(property_definition__isnull=True)
         .filter(property_definition__type=property_type)
     )
+    if group_type_index is not None:
+        rules = rules.filter(
+            Q(property_definition__group_type_index=group_type_index)
+            | Q(property_definition__group_type_index__isnull=True)
+        )
 
     rules_by_property: dict[UUID, list[PropertyAccessControl]] = {}
     for rule in rules:

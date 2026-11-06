@@ -1,5 +1,6 @@
 import json as _json
 import base64
+from collections.abc import Iterable
 from typing import Any, Literal, Optional, cast, overload
 from urllib.parse import urlencode
 
@@ -523,6 +524,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
         group_key = request_data.validated_data["group_key"]
         group_type_index = request_data.validated_data["group_type_index"]
+        group_properties = request_data.validated_data["group_properties"]
+        if isinstance(group_properties, dict):
+            self._raise_if_properties_not_writable(request, group_type_index, group_properties.keys())
 
         # create_group writes ClickHouse before personhog reports a duplicate. Reject a known
         # duplicate here so that it never reaches that write.
@@ -662,6 +666,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 raise ValidationError({"key": ["This field is required."]})
             if property_value is None:
                 raise ValidationError({"value": ["This field is required."]})
+            self._raise_if_properties_not_writable(request, group.group_type_index, [property_key])
             create_or_update = "update" if property_key in group.group_properties else "create"
             original_value = group.group_properties.get(property_key, None)
             group.group_properties[property_key] = property_value
@@ -748,6 +753,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 raise ValidationError(
                     {"$unset": ["This field is required and must be a string (the property name to delete)."]}
                 )
+            self._raise_if_properties_not_writable(request, group.group_type_index, [property_key])
             if property_key not in group.group_properties:
                 raise ValidationError({"$unset": [f"Property '{property_key}' does not exist on this group."]})
             group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
@@ -905,6 +911,14 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             span.set_attribute("property_key", key)
             span.set_attribute("has_value_filter", value_filter is not None)
 
+            user = request.user if request.user.is_authenticated else None
+            restricted = access_control_api.get_restricted_group_property_names_by_type_index(
+                user=cast(Optional[User], user), team_id=self.team_id
+            )
+            if key in restricted.get(int(group_type_index), frozenset()) | restricted.get(None, frozenset()):
+                span.set_attribute("result_count", 0)
+                return response.Response({"results": [], "refreshing": False})
+
             where_extra = ""
             placeholders: dict[str, ast.Expr] = {
                 "group_type_index": ast.Constant(value=int(group_type_index)),
@@ -943,6 +957,17 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             return response.Response(
                 {"results": [{"name": name, "count": count} for name, count in rows], "refreshing": False}
             )
+
+    def _raise_if_properties_not_writable(
+        self, request: request.Request, group_type_index: int, keys: Iterable[str]
+    ) -> None:
+        user = request.user if request.user.is_authenticated else None
+        non_writable = access_control_api.get_non_writable_group_property_names(
+            user=cast(Optional[User], user), team_id=self.team_id, group_type_index=group_type_index
+        )
+        blocked = sorted(set(keys) & non_writable)
+        if blocked:
+            raise ValidationError(f"You do not have write access to the following properties: {', '.join(blocked)}.")
 
     def _is_crm_enabled(self, user: User) -> bool:
         return feature_enabled_or_false(

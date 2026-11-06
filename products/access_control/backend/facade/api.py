@@ -50,6 +50,7 @@ from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
 from ..models.team_access_control_config import TeamAccessControlConfig
 from ..property_access_control import (
+    get_non_writable_property_names as _get_non_writable_property_names,
     get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
     is_property_access_control_enabled,
 )
@@ -172,6 +173,18 @@ def get_restricted_group_property_names_by_type_index(
         if restriction.property_type == PropertyDefinition.Type.GROUP:
             names_by_index[restriction.group_type_index].add(restriction.name)
     return {index: frozenset(names) for index, names in names_by_index.items()}
+
+
+def get_non_writable_group_property_names(*, user: User | None, team_id: int, group_type_index: int) -> frozenset[str]:
+    """Return group property names of this group type that the user cannot write."""
+    return frozenset(
+        _get_non_writable_property_names(
+            team_id=team_id,
+            user=user,
+            property_type=PropertyDefinition.Type.GROUP,
+            group_type_index=group_type_index,
+        )
+    )
 
 
 def get_property_access_state(

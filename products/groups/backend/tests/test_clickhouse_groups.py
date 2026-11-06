@@ -2579,3 +2579,73 @@ class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         self.organization.save()
         self.assertEqual(self._list_properties(0), {"name": "Acme", "arr": 1000})
         self.assertEqual(self._find_properties(0, "org:1"), {"name": "Acme", "arr": 1000})
+
+    def _grant_member_access(self, access_level: PropertyAccessLevel) -> None:
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.restricted_def,
+            access_level=access_level.value,
+            organization_member=self.organization_membership,
+        )
+
+    @parameterized.expand([("restricted", None, 0), ("allowed", PropertyAccessLevel.READ, 1)])
+    def test_property_values_respects_restrictions(
+        self, _name: str, member_level: PropertyAccessLevel | None, expected_count: int
+    ) -> None:
+        if member_level is not None:
+            self._grant_member_access(member_level)
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/property_values/?key=arr&group_type_index=0")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), expected_count)
+
+    @parameterized.expand(
+        [
+            (f"{operation}_{level_name}", operation, member_level, expected_status)
+            for operation, allowed_status in [
+                ("update_property", status.HTTP_200_OK),
+                ("delete_property", status.HTTP_200_OK),
+                ("create", status.HTTP_201_CREATED),
+            ]
+            for level_name, member_level, expected_status in [
+                ("default_none", None, status.HTTP_400_BAD_REQUEST),
+                ("read", PropertyAccessLevel.READ, status.HTTP_400_BAD_REQUEST),
+                ("read_write", PropertyAccessLevel.READ_WRITE, allowed_status),
+            ]
+        ]
+    )
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
+    def test_writes_require_write_access(
+        self,
+        _name: str,
+        operation: str,
+        member_level: PropertyAccessLevel | None,
+        expected_status: int,
+        _mock_capture: mock.MagicMock,
+    ) -> None:
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
+        )
+        if member_level is not None:
+            self._grant_member_access(member_level)
+
+        base_url = f"/api/projects/{self.team.id}/groups"
+        if operation == "update_property":
+            response = self.client.post(
+                f"{base_url}/update_property?group_key=org:1&group_type_index=0", {"key": "arr", "value": 2000}
+            )
+        elif operation == "delete_property":
+            response = self.client.post(
+                f"{base_url}/delete_property?group_key=org:1&group_type_index=0", {"$unset": "arr"}
+            )
+        else:
+            response = self.client.post(
+                base_url,
+                {"group_key": "org:2", "group_type_index": 0, "group_properties": {"arr": 1}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(
+                response.json()["detail"], "You do not have write access to the following properties: arr."
+            )
