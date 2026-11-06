@@ -485,7 +485,7 @@ class ExperimentHealthReleaseCondition:
 class ExperimentHealthSetup:
     """The settings of the experiment's flag that decide who gets the flag and which variant a user gets."""
 
-    # The condition sets that can serve a request, in evaluation order.
+    # The flag's condition sets as stored, in evaluation order.
     release_conditions: tuple[ExperimentHealthReleaseCondition, ...]
     early_exit: bool
     bucketing_identifier: str

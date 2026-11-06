@@ -66,33 +66,8 @@ def pinned_variant(condition: Mapping[str, Any], variant_keys: Collection[str]) 
     return variant if variant is not None and variant in variant_keys else None
 
 
-def condition_needs_bucketing_hash(condition: Mapping[str, Any], variants: Sequence[Mapping[str, Any]]) -> bool:
-    """Whether the bucketing hash decides what a release condition serves: a rollout below 100%, or a split of the
-    variants that the condition does not pin. The same rule as ``condition_needs_bucketing_hash`` in
-    ``rust/feature-flags/src/flags/flag_operations.rs``.
-    """
-    if condition_rollout_percentage(condition) < 100:
-        return True
-    first_live_variant = next((variant for variant in variants if _variant_rollout(variant) > 0), None)
-    return (
-        first_live_variant is not None
-        and _variant_rollout(first_live_variant) < 100
-        and pinned_variant(condition, {key for variant in variants if isinstance(key := variant.get("key"), str)})
-        is None
-    )
-
-
-def _variant_rollout(variant: Mapping[str, Any]) -> float:
-    return float(variant.get("rollout_percentage") or 0)
-
-
 def reachable_conditions(
-    conditions: Sequence[Mapping[str, Any]],
-    *,
-    flag_aggregation: int | None,
-    early_exit: bool,
-    device_id_bucketing: bool,
-    variants: Sequence[Mapping[str, Any]],
+    conditions: Sequence[Mapping[str, Any]], *, flag_aggregation: int | None, early_exit: bool
 ) -> tuple[int, ...]:
     """The indexes of the release conditions that can serve a request, in evaluation order.
 
@@ -107,13 +82,9 @@ def reachable_conditions(
     without properties therefore ends the evaluation only for the requests of its group type, and
     a person condition without properties ends it for every request.
 
-    With device-id bucketing, a request without a device id skips each person condition that
-    needs the hash (``condition_needs_bucketing_hash``). Such a condition without properties
-    therefore ends the evaluation only for the requests that send a device id.
-
-    Not modeled: the flag service also skips a condition after a failure at request time, such as
-    a failed group lookup, a cohort it did not evaluate, or a failed flag dependency. No stored
-    setting causes those.
+    Not modeled: with device-id bucketing, a request without a device id skips each person
+    condition whose result depends on the hash, so it can reach conditions after a person
+    condition without properties.
     """
     ended_group_types: set[int] = set()
     reachable: list[int] = []
@@ -124,10 +95,7 @@ def reachable_conditions(
         rollout = condition_rollout_percentage(condition)
         if rollout > 0:
             reachable.append(index)
-        skipped_without_device_id = (
-            device_id_bucketing and group_type is None and condition_needs_bucketing_hash(condition, variants)
-        )
-        if not condition.get("properties") and (rollout >= 100 or early_exit) and not skipped_without_device_id:
+        if not condition.get("properties") and (rollout >= 100 or early_exit):
             if group_type is None:
                 break
             ended_group_types.add(group_type)

@@ -380,8 +380,8 @@ class ExperimentHealthSetupSerializer(serializers.Serializer):
     release_conditions = ExperimentHealthReleaseConditionSerializer(
         many=True,
         help_text=(
-            "The flag's condition sets that can serve a request, in the order the flag evaluates them. Sets at 0%, and "
-            "sets after a set that ends the evaluation, are left out."
+            "The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a "
+            "request depends on the sets before it and on `early_exit`."
         ),
     )
     early_exit = serializers.BooleanField(

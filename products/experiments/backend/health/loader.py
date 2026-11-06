@@ -12,7 +12,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
-from products.experiments.backend.health.context import FlagState, HealthContext, load_health_context
+from products.experiments.backend.health.context import HealthContext, load_health_context
 from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
@@ -47,9 +47,8 @@ def evaluate_experiment_health(
     metrics, the compile of their queries and their latest calculation, the changes of the flag since launch and the
     flag's recent calls, as far as `reader_access` and `user`'s warehouse access allow."""
     experiment = _load_experiment(team_id, experiment_id)
-    context = _health_context(experiment, reader_access, user)
-    health = evaluate(context, EXPERIMENT_HEALTH_CHECKS)
-    return replace(health, setup=_health_setup(experiment, context.flag))
+    health = evaluate(_health_context(experiment, reader_access, user), EXPERIMENT_HEALTH_CHECKS)
+    return replace(health, setup=_health_setup(experiment))
 
 
 def load_experiment_health_inputs(
@@ -74,20 +73,20 @@ def load_experiment_health_inputs(
     )
 
 
-def _health_setup(experiment: Experiment, flag_state: FlagState | None) -> ExperimentHealthSetup | None:
+def _health_setup(experiment: Experiment) -> ExperimentHealthSetup | None:
     # django-stubs types the id as int, but an unsaved instance can carry None.
     feature_flag_id: int | None = experiment.feature_flag_id
     if feature_flag_id is None:
         return None
     flag = experiment.feature_flag
-    conditions = flag.conditions
-    # The flag checks read the same reachable conditions, so the setup and the checks agree on which sets serve.
-    reachable = flag_state.reachable_conditions if flag_state else ()
+    conditions = flag.conditions if isinstance(flag.conditions, list) else []
+    # The sets as stored, not the users they reach: the checks judge what the configuration does.
     # A null column means the model default, which the flag service applies too.
     return ExperimentHealthSetup(
         release_conditions=tuple(
-            _release_condition(conditions[condition.number - 1], flag.aggregation_group_type_index)
-            for condition in reachable
+            _release_condition(condition, flag.aggregation_group_type_index)
+            for condition in conditions
+            if isinstance(condition, dict)
         ),
         early_exit=flag.early_exit,
         bucketing_identifier=flag.bucketing_identifier or "distinct_id",

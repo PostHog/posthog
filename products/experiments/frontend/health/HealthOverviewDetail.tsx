@@ -27,16 +27,16 @@ function joinWithOr(items: string[]): string {
 }
 
 function releaseConditionsText(
-    { release_conditions, early_exit }: ExperimentHealthSetupApi,
+    conditions: ExperimentHealthSetupApi['release_conditions'],
     pluralOf: (groupTypeIndex: number | null) => string
 ): string {
-    if (release_conditions.length === 0) {
-        return 'No one'
+    if (conditions.length === 0) {
+        return 'None'
     }
-    if (release_conditions.length > MAX_LISTED_CONDITIONS) {
-        return `${release_conditions.length} condition sets`
+    if (conditions.length > MAX_LISTED_CONDITIONS) {
+        return `${conditions.length} condition sets`
     }
-    const sets = release_conditions.map(({ rollout_percentage, property_count, aggregation_group_type_index }) => {
+    const sets = conditions.map(({ rollout_percentage, property_count, aggregation_group_type_index }) => {
         const entities = pluralOf(aggregation_group_type_index)
         const matching = property_count > 0 ? ` matching ${pluralize(property_count, 'filter')}` : ''
         if (rollout_percentage >= 100) {
@@ -45,8 +45,10 @@ function releaseConditionsText(
         const share = Math.round(rollout_percentage * 100) / 100
         return `${share}% of ${matching ? entities : `all ${entities}`}${matching}`
     })
-    // With early exit, a user who matches the filters of a set never reaches a later one, so the sets read in order.
-    return capitalizeFirstLetter(early_exit ? sets.join(', otherwise ') : joinWithOr(sets))
+    // Numbered as on the flag page, because the sets are the stored configuration, not the users they reach.
+    return sets.length === 1
+        ? capitalizeFirstLetter(sets[0])
+        : sets.map((set, index) => `Set ${index + 1}: ${set}`).join(' · ')
 }
 
 export function HealthOverviewDetail({
@@ -76,7 +78,11 @@ export function HealthOverviewDetail({
     ]
     const setupReadings: HealthReading[] = setup
         ? [
-              { label: 'Release conditions', text: releaseConditionsText(setup, pluralOf) },
+              { label: 'Release conditions', text: releaseConditionsText(setup.release_conditions, pluralOf) },
+              // The flag page describes early exit in these words.
+              ...(setup.early_exit
+                  ? [{ label: 'Early exit', text: 'Stops evaluation at first matching condition set' }]
+                  : []),
               ...(assignmentUnits.length > 0
                   ? [{ label: 'Assigns variants by', text: joinWithOr(assignmentUnits) }]
                   : []),

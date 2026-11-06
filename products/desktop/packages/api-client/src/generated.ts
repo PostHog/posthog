@@ -10452,7 +10452,7 @@ export namespace Schemas {
     };
     export type ExperimentHealthSetup = {
         /**
-         * The flag's condition sets that can serve a request, in the order the flag evaluates them. Sets at 0%, and sets after a set that ends the evaluation, are left out.
+         * The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a request depends on the sets before it and on `early_exit`.
          */
         release_conditions: Array<ExperimentHealthReleaseCondition>;
         /**

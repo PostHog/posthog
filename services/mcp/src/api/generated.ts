@@ -44008,7 +44008,7 @@ export namespace Schemas {
     }
 
     export interface ExperimentHealthSetup {
-      /** The flag's condition sets that can serve a request, in the order the flag evaluates them. Sets at 0%, and sets after a set that ends the evaluation, are left out. */
+      /** The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a request depends on the sets before it and on `early_exit`. */
       release_conditions: ExperimentHealthReleaseCondition[];
       /** Whether the flag stops at the first condition set whose filters match, also when its rollout leaves the user out. Otherwise such a user goes on to the next set. */
       early_exit: boolean;

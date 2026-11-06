@@ -647,18 +647,11 @@ def parse_flag_state(
     variants: object,
     aggregation_group_type_index: int | None = None,
     early_exit: bool = False,
-    device_id_bucketing: bool = False,
 ) -> FlagState:
     conditions = groups if isinstance(groups, list) else []
     flag_variants = parse_variants(variants)
     variant_keys = {variant.key for variant in flag_variants if variant.key}
-    reachable = reachable_conditions(
-        conditions,
-        flag_aggregation=aggregation_group_type_index,
-        early_exit=early_exit,
-        device_id_bucketing=device_id_bucketing,
-        variants=[variant for variant in variants if isinstance(variant, dict)] if isinstance(variants, list) else [],
-    )
+    reachable = reachable_conditions(conditions, flag_aggregation=aggregation_group_type_index, early_exit=early_exit)
     return FlagState(
         active=active,
         deleted=deleted,
@@ -776,7 +769,6 @@ def _load_flag_state(experiment: Experiment) -> FlagState | None:
         variants=flag.variants,
         aggregation_group_type_index=flag.aggregation_group_type_index,
         early_exit=flag.early_exit,
-        device_id_bucketing=flag.bucketing_identifier == "device_id",
     )
 
 

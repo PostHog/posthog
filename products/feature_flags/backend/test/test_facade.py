@@ -959,9 +959,6 @@ STAFF: dict[str, Any] = {
 }
 
 
-SPLIT: list[dict[str, Any]] = [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
-
-
 class TestReachableConditions:
     @parameterized.expand(
         [
@@ -987,59 +984,12 @@ class TestReachableConditions:
                 False,
                 (0, 2),
             ),
-            (
-                "device_id_catch_all_with_a_split_continues",
-                [EVERYONE, {**EVERYONE, "aggregation_group_type_index": 0}],
-                False,
-                (0, 1),
-                True,
-                SPLIT,
-            ),
-            (
-                "device_id_partial_catch_all_continues_with_early_exit",
-                [{**EVERYONE, "rollout_percentage": 50}, STAFF],
-                True,
-                (0, 1),
-                True,
-                SPLIT,
-            ),
-            (
-                "device_id_catch_all_with_a_pinned_variant_ends",
-                [{**EVERYONE, "variant": "control"}, STAFF],
-                False,
-                (0,),
-                True,
-                SPLIT,
-            ),
-            (
-                "device_id_catch_all_without_a_split_ends",
-                [EVERYONE, STAFF],
-                False,
-                (0,),
-                True,
-                [{"key": "control", "rollout_percentage": 100}],
-            ),
         ]
     )
     def test_reachable_conditions(
-        self,
-        _name: str,
-        conditions: list[dict[str, Any]],
-        early_exit: bool,
-        expected: tuple[int, ...],
-        device_id_bucketing: bool = False,
-        variants: list[dict[str, Any]] | None = None,
+        self, _name: str, conditions: list[dict[str, Any]], early_exit: bool, expected: tuple[int, ...]
     ) -> None:
-        assert (
-            reachable_conditions(
-                conditions,
-                flag_aggregation=None,
-                early_exit=early_exit,
-                device_id_bucketing=device_id_bucketing,
-                variants=variants or [],
-            )
-            == expected
-        )
+        assert reachable_conditions(conditions, flag_aggregation=None, early_exit=early_exit) == expected
 
 
 class TestExperimentRuleFromFilters:
