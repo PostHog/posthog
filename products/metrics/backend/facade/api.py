@@ -18,6 +18,8 @@ from django.db import connection
 
 import structlog
 
+from rest_framework.request import Request
+
 from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
 
 from posthog.hogql import ast
@@ -78,6 +80,7 @@ from products.metrics.backend.metric_query_runner import (
 )
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.prometheus_usage import report_prometheus_api_usage as _report_prometheus_api_usage
 from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.query_counts import (
@@ -460,6 +463,11 @@ def list_metric_query_counts(*, team: Team, days: int, limit: int) -> list[Metri
 def record_promql_query(*, team: Team, expr: str) -> None:
     """Count one query for each metric that a PromQL expression selects. A failed write never raises."""
     _record_promql_query(team, expr)
+
+
+def report_prometheus_api_usage(*, request: Request, team: Team) -> None:
+    """Report use of the Prometheus-compatible API as an analytics event, at most once an hour for each team, user and client."""
+    _report_prometheus_api_usage(request, team)
 
 
 def run_promql_query(

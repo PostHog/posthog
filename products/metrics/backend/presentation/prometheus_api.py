@@ -6,8 +6,7 @@ from rest_framework.response import Response
 
 from posthog.api.snuffle_proxy import SnuffleProxyViewSet
 
-from products.metrics.backend.facade.api import record_promql_query
-from products.metrics.backend.prometheus_usage import report_prometheus_api_usage
+from products.metrics.backend.facade.api import record_promql_query, report_prometheus_api_usage
 
 _LABEL_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 
@@ -45,5 +44,5 @@ class PrometheusQueryViewSet(SnuffleProxyViewSet):
 
     def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Any:
         if self.action == "proxy" and response.status_code < 400:
-            report_prometheus_api_usage(request, self.team)
+            report_prometheus_api_usage(request=request, team=self.team)
         return super().finalize_response(request, response, *args, **kwargs)

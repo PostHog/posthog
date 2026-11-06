@@ -126,7 +126,7 @@ export const metricsPrometheusConnectLogic = kea<metricsPrometheusConnectLogicTy
             {
                 testConnection: async (): Promise<PrometheusConnectionTest> => {
                     try {
-                        // The OpenAPI schema excludes this Prometheus passthrough, so it has no generated client.
+                        // nosemgrep: prefer-codegen-api -- the OpenAPI schema excludes this Prometheus passthrough, so it has no generated client
                         await api.get(`${values.apiPath}/api/v1/query?query=${encodeURIComponent(TEST_QUERY)}`)
                         return { status: 'success' }
                     } catch (error) {
