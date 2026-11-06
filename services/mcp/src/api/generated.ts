@@ -73470,6 +73470,8 @@ export namespace Schemas {
       input_schema: ResolvedToolPolicyInputSchema;
       /** Whether the canonical gateway heuristic treats this tool as destructive. */
       is_destructive: boolean;
+      /** Whether the tool only reads data: the server marks it readOnlyHint and its name starts with a read verb and has no write or destructive verb. */
+      is_read_only: boolean;
       /** Effective state for the scope.
        *
        * * `approved` - Approved
