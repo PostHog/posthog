@@ -69,3 +69,20 @@ export const PendingForAMember: Story = {
             requested_via_verified: false,
         }),
 }
+
+export const CustomIssuerForAnAdmin: Story = {
+    render: () =>
+        renderWith({
+            can_approve: true,
+            approvers: [],
+            issuer: 'https://auth.example.com',
+            provider: 'custom',
+            provider_name: 'Custom OIDC provider',
+            subject_claim: 'sub',
+            subject_name_claim: '',
+            subject: 'deploy-bot',
+            subject_name: 'Deploy bot',
+            conditions: { env: 'production' },
+            claim_labels: { subject: 'sub', subject_name: 'Name', conditions: { env: 'env' } },
+        }),
+}

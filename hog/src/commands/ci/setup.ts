@@ -1,10 +1,20 @@
-import { CI_SETUP_COMMAND, policyRequestFlow, policyRequestWait, resolveSubject } from '@/ci/policy-request'
+import {
+    CI_SETUP_COMMAND,
+    policyRequestFlow,
+    policyRequestWait,
+    resolveSubject,
+    type PolicyRequestInput,
+} from '@/ci/policy-request'
+import { CUSTOM_OIDC } from '@/ci/providers/custom/custom'
 import { WORKLOAD_PROVIDERS, type WorkloadConditions, type WorkloadProvider } from '@/ci/providers/registry'
 import { detectRepositoryProvider, pickProviderHint, readRepository } from '@/ci/repository'
 import { clearPending, printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
+import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls, type Output } from '@/core/output'
+import { kebabCase } from '@/core/text'
+import type { PostHogApi } from '@/posthog/api'
 import { cloudRegion, type Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 
@@ -51,21 +61,26 @@ function scopesFrom(raw: readonly string[] | undefined): string[] {
     return [...new Set(scopes.filter(Boolean))].sort()
 }
 
-function extraConditions(provider: WorkloadProvider, raw: readonly string[]): WorkloadConditions {
-    const given = Object.fromEntries(
+// `--condition claim=value`, repeatable.
+function conditionPairs(raw: readonly string[]): WorkloadConditions {
+    return Object.fromEntries(
         raw.map((entry) => {
             const separator = entry.indexOf('=')
             if (separator < 1 || separator === entry.length - 1) {
                 throw new HogError(
                     'invalid_condition',
                     `--condition ${entry} isn't claim=value.`,
-                    'Pass it like --condition org_id=abcd1234.',
+                    'Pass it like --condition environment=production.',
                     EXIT_USAGE
                 )
             }
             return [entry.slice(0, separator), entry.slice(separator + 1)]
         })
     )
+}
+
+function extraConditions(provider: WorkloadProvider, raw: readonly string[]): WorkloadConditions {
+    const given = conditionPairs(raw)
     for (const required of provider.requiredConditions ?? []) {
         const value = given[required.claim] ?? required.defaultValue
         if (!value) {
@@ -118,6 +133,95 @@ function conditionsFrom(
     return { ...extra, ...runs }
 }
 
+// Flags that only make sense for one kind of provider, so passing them to the other is a mistake, not a no-op.
+const CUSTOM_FLAGS = ['issuer', 'subjectClaim', 'subject'] as const
+const REGISTRY_FLAGS = ['branch', 'environment', 'repository', 'subjectId'] as const
+
+function rejectFlags(
+    options: Partial<Record<string, unknown>>,
+    flags: readonly string[],
+    code: string,
+    rule: string,
+    hint: string
+): void {
+    const passed = flags.find((flag) => options[flag] !== undefined)
+    if (passed) {
+        throw new HogError(code, `--${kebabCase(passed)} ${rule}`, hint, EXIT_USAGE)
+    }
+}
+
+function issuerHost(issuer: string): string {
+    const url = URL.parse(issuer)
+    if (url?.protocol !== 'https:') {
+        throw new HogError(
+            'invalid_issuer',
+            `--issuer ${issuer} isn't an https:// URL.`,
+            'Pass the issuer exactly as its tokens carry it in iss, like --issuer https://auth.example.com.',
+            EXIT_USAGE
+        )
+    }
+    return url.host
+}
+
+interface CustomOptions {
+    issuer?: string
+    subjectClaim?: string
+    subject?: string
+    condition?: string[]
+    name?: string
+}
+
+// A custom OIDC provider has no repository to read and no lookup, so every value comes from a flag.
+function customRequest(options: CustomOptions, scopes: string[]): PolicyRequestInput {
+    const missing = (flag: string, example: string): HogError =>
+        new HogError(
+            'missing_custom_option',
+            `--provider custom needs ${flag}.`,
+            `Pass it like ${example}.`,
+            EXIT_USAGE
+        )
+    if (!options.issuer) {
+        throw missing('--issuer', '--issuer https://auth.example.com')
+    }
+    const host = issuerHost(options.issuer)
+    if (!options.subject) {
+        throw missing('--subject', '--subject deploy-bot')
+    }
+    const conditions = conditionPairs(options.condition ?? [])
+    if (Object.keys(conditions).length === 0) {
+        throw new HogError(
+            'missing_conditions',
+            'Say which tokens may get a PostHog token, so the policy never trusts every token the issuer signs for the subject.',
+            'Pass --condition with a claim the issuer sets, like --condition environment=production.',
+            EXIT_USAGE
+        )
+    }
+    return {
+        provider: CUSTOM_OIDC,
+        issuer: options.issuer,
+        subjectClaim: options.subjectClaim ?? 'sub',
+        name: options.name ?? `${options.subject} on ${host}`,
+        subject: { subject: options.subject, subject_name: options.name ?? options.subject },
+        conditions,
+        scopes,
+    }
+}
+
+async function requestPolicy(
+    ctx: Context,
+    api: PostHogApi,
+    target: { host: Host; projectId: ProjectId },
+    input: PolicyRequestInput
+): Promise<SetupResult> {
+    const result = await runApproval(ctx, policyRequestFlow(api, target, input))
+    const setup = setupFor(input.provider, target)
+    if (result.status === 'pending') {
+        return { ...result, ...setup }
+    }
+    await clearPending(ctx.runtime, CI_SETUP_COMMAND)
+    return { status: 'approved', policyId: result.value.policyId, ...setup }
+}
+
 function printSnippet(out: Output, result: Setup): void {
     out.line('')
     out.line('Add this to posthog.json in the repository:')
@@ -163,13 +267,29 @@ export default defineCommand({
             type: 'string',
             multiple: true,
             placeholder: 'claim=value',
-            description: 'Another claim the token must carry, like org_id=abcd1234 for Depot CI. Repeat for more',
+            description:
+                'A claim the token must carry with this exact value, like org_id=abcd1234 for Depot CI. Repeat for more. --provider custom needs at least one',
         },
         scope: {
             type: 'string',
             multiple: true,
             description:
                 'The scopes the job gets, like error_tracking:write. Separate several with commas, as in --scope error_tracking:write,query:read, or repeat the flag',
+        },
+        issuer: {
+            type: 'string',
+            placeholder: 'url',
+            description: 'With --provider custom: the OIDC issuer URL, exactly as its tokens carry it',
+        },
+        subjectClaim: {
+            type: 'string',
+            placeholder: 'claim',
+            description: 'With --provider custom: the claim that names the workload. Defaults to sub',
+        },
+        subject: {
+            type: 'string',
+            placeholder: 'value',
+            description: 'With --provider custom: the exact value the subject claim must have',
         },
         name: { type: 'string', description: 'What to call the policy in PostHog' },
         wait: { type: 'boolean', description: 'Wait for the request an earlier run started to be approved' },
@@ -183,6 +303,7 @@ export default defineCommand({
     examples: [
         'hog ci setup --branch main --scope error_tracking:write',
         'hog ci setup --environment production --scope endpoint:write,query:read',
+        'hog ci setup --provider custom --issuer https://auth.example.com --subject deploy-bot --condition env=production --scope error_tracking:write',
         'hog ci setup --wait',
     ],
 
@@ -209,6 +330,26 @@ export default defineCommand({
                 EXIT_USAGE
             )
         }
+        if (options.provider === CUSTOM_OIDC.key) {
+            rejectFlags(
+                options,
+                REGISTRY_FLAGS,
+                'option_not_for_custom_provider',
+                "doesn't work with --provider custom.",
+                'Pass --subject for the workload and --condition claim=value for each claim to check.'
+            )
+            const input = customRequest(options, scopes)
+            const api = await ctx.posthog()
+            const { host, projectId } = (await ctx.session()).current
+            return await requestPolicy(ctx, api, { host, projectId }, input)
+        }
+        rejectFlags(
+            options,
+            CUSTOM_FLAGS,
+            'custom_option_without_custom_provider',
+            'only works with --provider custom.',
+            'Pass --provider custom, or leave the flag out.'
+        )
         const repository = await readRepository(ctx.runtime)
         const provider = options.provider
             ? providerByKey(options.provider)
@@ -251,16 +392,14 @@ export default defineCommand({
             : await resolveSubject(api, projectId, provider, subjectName)
         const name = options.name ?? `${subject.subject_name} on ${provider.name}`
 
-        const result = await runApproval(
-            ctx,
-            policyRequestFlow(api, target, { provider, name, subject, conditions, scopes })
-        )
-        const setup = setupFor(provider, target)
-        if (result.status === 'pending') {
-            return { ...result, ...setup }
-        }
-        await clearPending(ctx.runtime, CI_SETUP_COMMAND)
-        return { status: 'approved', policyId: result.value.policyId, ...setup }
+        return await requestPolicy(ctx, api, target, {
+            provider,
+            issuer: provider.issuer,
+            name,
+            subject,
+            conditions,
+            scopes,
+        })
     },
 
     human({ result, out }) {

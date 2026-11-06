@@ -23,8 +23,8 @@ export function WorkloadSetupSnippet({
     return (
         <div className="deprecated-space-y-2">
             <p className="mb-0">
-                The job then gets a short-lived token for this project on each run, with no key stored in {providerName}
-                .
+                Set up the job in two steps. Each run then gets a short-lived token for this project, with no key stored
+                in {providerName}.
             </p>
             <p className="mb-0 font-semibold">1. Add this to posthog.json in the repository</p>
             <CodeSnippet language={Language.JSON} thing="posthog.json settings" onCopy={copied('posthog_json')}>

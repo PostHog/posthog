@@ -3,6 +3,7 @@ import type { Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 import type { ProviderIdToken } from '@/posthog/tokens'
 
+import { CUSTOM_OIDC } from './custom/custom'
 import { DEPOT_CI } from './depot/depot-ci'
 import { GITHUB_ACTIONS } from './github-actions/github-actions'
 import { GITLAB } from './gitlab/gitlab'
@@ -32,7 +33,8 @@ export interface WorkloadProvider {
     snippet(target: { host: Host; projectId: ProjectId }): string
 }
 
-export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = [GITHUB_ACTIONS, GITLAB, DEPOT_CI]
+// The custom provider comes last, because it takes any job that sets HOG_ID_TOKEN.
+export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = [GITHUB_ACTIONS, GITLAB, DEPOT_CI, CUSTOM_OIDC]
 
 export function detectWorkloadProvider(
     env: Env,

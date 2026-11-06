@@ -200,7 +200,7 @@ hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/
 ### CI without a stored key
 
 A CI job can trade the OIDC token its provider issues for a PostHog token, so no key is stored in the CI provider.
-hog supports GitHub Actions, GitLab.com and Depot CI.
+hog supports GitHub Actions, GitLab.com, Depot CI and any other OIDC issuer an admin trusts.
 An organization admin trusts the repository once, and each run of the job then gets a token that lives a few minutes.
 
 1. In the repository, logged in with `hog auth login`, run `hog ci setup --branch main --scope error_tracking:write`. Pass `--environment production` instead of, or as well as, `--branch` to trust only deploy jobs, and list every scope the job needs, separated by commas, like `--scope error_tracking:write,query:read`.
@@ -215,6 +215,11 @@ In the job:
 - A `host` in `posthog.json` counts here only when it is PostHog Cloud (`https://us.posthog.com` or `https://eu.posthog.com`), so a change to the file can't send the job's token elsewhere. A self-hosted PostHog needs `HOG_HOST`, and a job stops when posthog.json names one without it. Without either, hog uses `https://us.posthog.com`.
 - The token lives a few minutes. hog keeps it in memory for the run, never on disk, and exchanges again before it expires.
 - `HOG_PERSONAL_API_KEY` still wins when it is set.
+
+Any other OIDC issuer works too, as a custom OIDC provider:
+
+- An admin adds it in the project's settings, or a member runs `hog ci setup --provider custom --issuer https://auth.example.com --subject deploy-bot --condition environment=production --scope error_tracking:write`. `--subject-claim` names the claim that holds the subject, `sub` by default.
+- The job sets `HOG_ID_TOKEN` to an ID token from that issuer, with the PostHog host as its audience. hog uses it when no supported provider runs the job.
 
 ### Logging in and out
 

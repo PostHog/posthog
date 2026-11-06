@@ -34,6 +34,9 @@ export const PendingPolicyRequestSchema = PendingApprovalSchema.extend({
     projectId: ProjectIdSchema,
     requestId: z.string(),
     provider: z.string(),
+    // Optional, so a pending request saved by an earlier hog still loads.
+    issuer: z.string().optional(),
+    subjectClaim: z.string().optional(),
     subject: z.string(),
     conditions: z.record(z.string(), z.string()),
     scopes: z.array(z.string()),
@@ -52,6 +55,9 @@ export type PendingPolicyRequest = z.output<typeof PendingPolicyRequestSchema>
 
 export interface PolicyRequestInput {
     provider: WorkloadProvider
+    issuer: string
+    // Only a custom OIDC provider names the claim that holds the subject.
+    subjectClaim?: string
     name: string
     subject: ResolvedSubject
     conditions: WorkloadConditions
@@ -84,11 +90,14 @@ export function policyRequestFlow(
     target: { host: Host; projectId: ProjectId },
     input: PolicyRequestInput
 ): ApprovalFlow<PendingPolicyRequest, ApprovedPolicy> {
-    const { provider, subject, conditions, scopes } = input
+    const { provider, issuer, subjectClaim, subject, conditions, scopes } = input
     const same = (existing: PendingPolicyRequest): boolean =>
         existing.host === target.host &&
         existing.projectId === target.projectId &&
         existing.provider === provider.key &&
+        // A record without an issuer predates custom providers, so its provider key already fixes the issuer.
+        (existing.issuer ?? issuer) === issuer &&
+        existing.subjectClaim === subjectClaim &&
         existing.subject === subject.subject &&
         JSON.stringify(existing.conditions) === JSON.stringify(conditions) &&
         existing.scopes.join(' ') === scopes.join(' ')
@@ -99,7 +108,8 @@ export function policyRequestFlow(
                 requestsPath(target.projectId),
                 {
                     name: input.name,
-                    issuer: provider.issuer,
+                    issuer,
+                    ...(subjectClaim ? { subject_claim: subjectClaim } : {}),
                     subject: subject.subject,
                     subject_name: subject.subject_name,
                     conditions,
@@ -115,6 +125,8 @@ export function policyRequestFlow(
                 projectId: target.projectId,
                 requestId: created.id,
                 provider: provider.key,
+                issuer,
+                ...(subjectClaim ? { subjectClaim } : {}),
                 subject: subject.subject,
                 conditions,
                 scopes,
