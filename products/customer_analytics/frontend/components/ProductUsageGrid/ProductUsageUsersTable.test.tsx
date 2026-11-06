@@ -16,7 +16,11 @@ describe('ProductUsageUsersTable', () => {
         const logic = productUsageGridLogic()
         logic.mount()
         logic.actions.setControls({ selected: ['pa', 'web'] })
-        const rows = ['Acorn', 'Birch', 'Cedar', 'Dahlia', 'Elm', 'Fern'].map((label) => ({ key: label, label }))
+        const rows = ['Acorn', 'Birch', 'Cedar', 'Dahlia', 'Elm', 'Fern'].map((label) => ({
+            key: label,
+            externalId: label,
+            label,
+        }))
         const column = '2026-10-05'
         const matrix: BookActivityMatrixResult = {
             ...BOOK_ACTIVITY_MATRIX_MOCK,
