@@ -1,14 +1,19 @@
-import { type ExperimentExposureQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import {
+    type ExperimentExposureHealthCheck,
+    type ExperimentExposureQueryResponse,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 
 import { SAMPLE_RATIO_MISMATCH_DESCRIPTION, sampleRatioLine } from './exposureHealth'
 
 const srmFinding = (
-    subcode: string | null
+    subcode: string | null,
+    severity: 'warning' | 'info' = 'warning'
 ): NonNullable<ExperimentExposureQueryResponse['health_findings']>[number] => ({
     code: 'srm',
     subcode,
     reason: null,
-    severity: 'warning',
+    severity,
     title: 'Users are not split as configured',
     detail: `Server detail for ${subcode ?? 'a mismatch'}`,
     evidence: {},
@@ -25,6 +30,13 @@ const MISMATCH = {
     health_findings: [srmFinding('split_changed')],
     health_checks: [],
 } satisfies ExperimentExposureQueryResponse
+
+const SRM_NOT_APPLICABLE: ExperimentExposureHealthCheck = {
+    key: 'srm',
+    name: 'Sample ratio mismatch',
+    status: 'not_applicable',
+    reason: 'The split assigns nobody, because every release condition sets a variant override',
+}
 
 describe('sampleRatioLine', () => {
     it.each([
@@ -49,6 +61,18 @@ describe('sampleRatioLine', () => {
             },
         },
         {
+            desc: 'a mismatch the server reports as info',
+            exposures: { ...MISMATCH, health_findings: [srmFinding(null, 'info')] },
+            followsServer: true,
+            expected: { tone: 'info', label: 'Sample ratio mismatch detected' },
+        },
+        {
+            desc: 'a split that every variant override bypasses',
+            exposures: { ...MISMATCH, health_findings: [], health_checks: [SRM_NOT_APPLICABLE] },
+            followsServer: true,
+            expected: null,
+        },
+        {
             desc: 'a reader without the health panel',
             exposures: MISMATCH,
             followsServer: false,
@@ -69,6 +93,6 @@ describe('sampleRatioLine', () => {
             },
         },
     ])('follows the server only with the health panel: $desc', ({ exposures, followsServer, expected }) => {
-        expect(sampleRatioLine(exposures, followsServer)).toMatchObject(expected)
+        expect(sampleRatioLine(exposures, followsServer)).toEqual(expected && expect.objectContaining(expected))
     })
 })

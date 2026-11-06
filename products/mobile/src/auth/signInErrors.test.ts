@@ -1,4 +1,5 @@
 import { ApiError, NotSignedInError } from '@/api/client'
+import { TransportError } from '@/api/transport'
 
 import type { AuthMethod } from './authStore'
 import { OAuthError } from './oauth'
@@ -25,7 +26,8 @@ describe('signInFailureReason', () => {
         ['a rejected OAuth session', accountError(new NotSignedInError()), 'oauth', 'account_rejected'],
         ['a 403 on the account', accountError(new ApiError(403, {})), 'oauth', 'account_forbidden'],
         ['a 500 on the account', accountError(new ApiError(500, {})), 'oauth', 'account_load'],
-        ['no connection for the account', accountError(new TypeError('Network request failed')), 'oauth', 'network'],
+        ['no connection for the account', accountError(new TransportError()), 'oauth', 'network'],
+        ['an account programming error', accountError(new TypeError('Network state is undefined')), 'oauth', 'unknown'],
         ['anything else', new Error('boom'), 'oauth', 'unknown'],
     ])('%s', (_name, error, method, expected) => {
         expect(signInFailureReason(error, method)).toBe(expected)

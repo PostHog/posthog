@@ -15,15 +15,28 @@ from django.db import transaction
 from posthog.integrations import IntegrationReference
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.facade.contracts import SharedCredentialsEdit, UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.contracts import (
+    CONNECTION_FIELDS_STRIPPED_KEY,
+    STRIPPED_STORE_KEYS,
+    SharedCredentialsEdit,
+    UnreadableSourceInputsError,
+)
 from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
+from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
 from products.warehouse_sources.backend.logic.source_credentials_rollout import (
     assign_credentials_reference,
-    shadow_compare,
-    shadow_compare_many,
+    is_stripped,
+    preload_connection_fields,
+    read_connection_fields,
+    read_connection_fields_many,
+    strip_on_create_enabled,
+    strippable,
+    stripped_at_now,
+    stripped_job_inputs,
+    write_stripped_credentials,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import source_key
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
@@ -40,11 +53,13 @@ class SourceInputsStore:
     def load(source: ExternalDataSource) -> dict[str, Any]:
         """All inputs of the source: connection fields, sync settings and runtime state.
 
-        The result is a new dict, so a change to it has no effect until a write method saves it.
+        The result is a new dict, so a change to it has no effect until a write method saves it. With the
+        read flag on, the connection fields come from the credentials row of the source and the OAuth pointer
+        from its reference column, so the model field can hold other values. A stripped source always reads
+        the row and the column, and raises `SourceCredentialsMissingError` (an `UnreadableSourceInputsError`)
+        when one is missing or unreadable.
         """
-        inputs = _decode(source.job_inputs)
-        shadow_compare(source, inputs)
-        return inputs
+        return read_connection_fields(source, _decode(source.job_inputs))
 
     @staticmethod
     def load_many(sources: Iterable[ExternalDataSource]) -> dict[UUID, dict[str, Any]]:
@@ -61,8 +76,45 @@ class SourceInputsStore:
                 loaded[source.id] = _decode(source.job_inputs)
             except UnreadableSourceInputsError:
                 continue
-        shadow_compare_many(sources, loaded)
-        return loaded
+        return read_connection_fields_many(sources, loaded)
+
+    @staticmethod
+    def preload(sources: Iterable[ExternalDataSource]) -> None:
+        """Fetch what `load` needs for these sources in one batch, so that later `load` calls on the same
+        instances add no query. Use it before a loop that calls `load` once per table of a source."""
+        preload_connection_fields(sources)
+
+    @staticmethod
+    def load_stored(source: ExternalDataSource) -> dict[str, Any]:
+        """The decoded `job_inputs` as stored, never merged with the credentials row.
+
+        Only a tool that copies or checks the stored data should use it, such as the backfill. Raises
+        `UnreadableSourceInputsError` like `load`. For a stripped source the result holds no connection fields
+        and no OAuth pointer, and it holds the strip marker.
+        """
+        return _decode(source.job_inputs)
+
+    @staticmethod
+    def write_credentials_reference(source: ExternalDataSource, reference: IntegrationReference | None) -> None:
+        """Point the source at a credentials row, and change nothing else.
+
+        Only a tool that links existing sources to their rows should use it, such as the backfill. It never
+        copies fields to the row, never changes `job_inputs`, and does not change `updated_at`.
+        """
+        source.credentials_integration_id = None if reference is None else str(reference)
+        source.save(update_fields=["credentials_integration_id"])
+
+    @staticmethod
+    def adopt_oauth_pointer(
+        source: ExternalDataSource, inputs: Mapping[str, Any], reference: IntegrationReference
+    ) -> None:
+        """Save adopted OAuth inputs and their reference together, without the typed-in credentials mirror.
+
+        The caller must hold the source lock and create the integration in the same transaction.
+        """
+        _stage(source, inputs)
+        source.credentials_integration_id = str(reference)
+        source.save(update_fields=[*INPUTS_UPDATE_FIELDS])
 
     @staticmethod
     def load_settings(source: ExternalDataSource) -> dict[str, Any]:
@@ -78,7 +130,8 @@ class SourceInputsStore:
             # An unknown source type declares no settings. Every key except the runtime prefixes is then a
             # connection field, which is the safe side for a reader that must not see credentials.
             return {key: value for key, value in inputs.items() if _has_runtime_prefix(key)}
-        return {**split.settings, **split.runtime}
+        runtime = {key: value for key, value in split.runtime.items() if key not in STRIPPED_STORE_KEYS}
+        return {**split.settings, **runtime}
 
     @staticmethod
     def stored_as_string(source: ExternalDataSource) -> bool:
@@ -106,7 +159,14 @@ class SourceInputsStore:
         credentials row that now holds the typed-in connection fields. See `assign_credentials_reference`.
         ``credentials_reference`` is a row that an API edit picked. ``shared_credentials`` decides what an
         edit of a row that other objects use does.
+
+        For a stripped source the connection fields go only to the credentials row and the OAuth pointer only to
+        the column, and the write raises when that fails. `job_inputs` then keeps neither.
         """
+        stripped_at = _stored_stripped_at(source)
+        if stripped_at is not None:
+            _assign_stripped(source, inputs, stripped_at, shared_credentials, credentials_reference)
+            return
         assign_credentials_reference(
             source, inputs, shared_credentials=shared_credentials, reference=credentials_reference
         )
@@ -136,13 +196,28 @@ class SourceInputsStore:
         """Create a source with these inputs in one insert. ``fields`` are the other model fields.
 
         The credentials row is created before the insert, so the insert saves the reference to it. Both
-        writes are in one transaction, so a failed insert leaves no row.
+        writes are in one transaction, so a failed insert leaves no row. With the strip flag on for the team,
+        a source with typed-in credentials or an OAuth pointer is stripped from the start.
         """
         source = ExternalDataSource(**fields)
         with transaction.atomic():
-            SourceInputsStore.assign(source, inputs)
+            if strip_on_create_enabled(source.team_id) and strippable(source, inputs):
+                _assign_stripped(source, inputs, stripped_at_now(), SharedCredentialsEdit.SKIP, None)
+            else:
+                SourceInputsStore.assign(source, inputs)
             source.save(force_insert=True)
         return source
+
+    @staticmethod
+    def discard_created(source: ExternalDataSource) -> None:
+        """Delete a source that `create` made when a later step of the same create fails.
+
+        One transaction deletes the source and its credentials row. The row stays when another object
+        uses it. Do not use this for a source that was in use: the store keeps the credentials rows of those.
+        """
+        with transaction.atomic():
+            source.delete()
+            WarehouseSourceCredentialsStore.discard(source)
 
     @staticmethod
     def update_runtime(
@@ -194,6 +269,30 @@ class SourceInputsStore:
         return inputs
 
     @staticmethod
+    def is_stripped(source: ExternalDataSource) -> bool:
+        """True when the credentials of the source live only in its credentials row and its reference column."""
+        return _stored_stripped_at(source) is not None
+
+    @staticmethod
+    def write_stripped(source: ExternalDataSource, *, stripped_at: str) -> None:
+        """Remove the connection fields and the OAuth pointers from the stored `job_inputs`, and set the marker.
+
+        Only the strip command calls it, after it has verified the row or the column and written a backup.
+        It does not change `updated_at`, because the inputs that a reader sees do not change.
+        """
+        _stage(source, stripped_job_inputs(source.source_type, _decode(source.job_inputs), stripped_at))
+        source.save(update_fields=["job_inputs"])
+
+    @staticmethod
+    def write_restored(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
+        """Store full inputs again on a stripped source, with its reference column, and remove the marker.
+
+        Only the restore command calls it. It skips `assign`, which would strip the inputs again.
+        """
+        _stage(source, {key: value for key, value in inputs.items() if key not in STRIPPED_STORE_KEYS})
+        source.save(update_fields=list(INPUTS_UPDATE_FIELDS))
+
+    @staticmethod
     async def aload(source: ExternalDataSource) -> dict[str, Any]:
         return await database_sync_to_async_pool(SourceInputsStore.load)(source)
 
@@ -211,6 +310,29 @@ class SourceInputsStore:
 
 def _stage(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
     source.job_inputs = dict(inputs)
+
+
+def _stored_stripped_at(source: ExternalDataSource) -> str | None:
+    # The stored value decides, not the inputs of the write: a caller passes what `load` returned, which never
+    # holds the marker.
+    try:
+        stored = _decode(source.job_inputs)
+    except UnreadableSourceInputsError:
+        return None
+    if not is_stripped(stored):
+        return None
+    return str(stored[CONNECTION_FIELDS_STRIPPED_KEY])
+
+
+def _assign_stripped(
+    source: ExternalDataSource,
+    inputs: Mapping[str, Any],
+    stripped_at: str,
+    shared_credentials: SharedCredentialsEdit,
+    reference: IntegrationReference | None,
+) -> None:
+    write_stripped_credentials(source, inputs, shared_credentials=shared_credentials, reference=reference)
+    _stage(source, stripped_job_inputs(source.source_type, inputs, stripped_at))
 
 
 def _decode(raw: Any) -> dict[str, Any]:
@@ -237,7 +359,7 @@ def _split(source_type: str, inputs: Mapping[str, Any]) -> "SplitJobInputs":
         split_job_inputs,
     )
 
-    return split_job_inputs(ExternalDataSourceType(source_type), inputs)
+    return split_job_inputs(source_key(source_type), inputs)
 
 
 def _has_runtime_prefix(key: str) -> bool:

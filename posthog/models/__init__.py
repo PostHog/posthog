@@ -10,6 +10,7 @@ from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from .workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
 from .column_configuration import ColumnConfiguration
 from .comment import Comment, CommentSlackThread
 from .core_event import CoreEvent
@@ -17,6 +18,7 @@ from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
 from .element import Element
 from .element_group import ElementGroup
+from .events_plan_deletion import TeamEventsPlanDeletion
 from .events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
 from .event.event import Event
 from .event_buffer import EventBuffer
@@ -84,6 +86,7 @@ from .oauth import (
     CIMDVerificationToken,
     OAuthAccessToken,
     OAuthApplication,
+    OAuthDeviceGrant,
     OAuthGrant,
     OAuthIDToken,
     OAuthRefreshToken,
@@ -94,6 +97,8 @@ __all__ = [
     "AsyncDeletion",
     "AsyncMigration",
     "AsyncMigrationError",
+    "WorkloadTrustPolicy",
+    "WorkloadTrustPolicyRequest",
     "CIMDVerificationToken",
     "ColumnConfiguration",
     "CoreEvent",
@@ -139,6 +144,7 @@ __all__ = [
     "OrganizationProvisioning",
     "OAuthAccessToken",
     "OAuthApplication",
+    "OAuthDeviceGrant",
     "OAuthGrant",
     "OAuthIDToken",
     "OAuthRefreshToken",
@@ -171,6 +177,7 @@ __all__ = [
     "Tag",
     "TaggedItem",
     "Team",
+    "TeamEventsPlanDeletion",
     "TeamEventsRetentionConfig",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",

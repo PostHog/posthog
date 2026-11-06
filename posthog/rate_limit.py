@@ -3,17 +3,19 @@ import json
 import time
 import uuid
 import hashlib
-from contextlib import suppress
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from datetime import timedelta
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.urls import resolve
 from django.utils import timezone
 
 from prometheus_client import Counter
+from redis.exceptions import RedisError
 from rest_framework import exceptions
 from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
@@ -31,6 +33,7 @@ from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.team import Team
 from posthog.models.utils import hash_key_value
+from posthog.redis import get_client
 from posthog.settings.utils import get_list
 from posthog.utils import get_trusted_client_ip, patchable
 
@@ -358,11 +361,73 @@ class SSOLoginThrottle(IPThrottle):
 
 class SignupIPThrottle(IPThrottle):
     """
-    Rate limit signups by IP address to avoid a single IP address from creating too many accounts.
+    Limit how many accounts one IP address can create.
+
+    Like any DRF throttle, the check reserves a slot when the request arrives, so concurrent requests
+    cannot all pass against the same count. The view calls `release` when a request ends without creating
+    an account, because a user who retries a form that keeps failing (validation errors, challenges,
+    passkey retries) would otherwise lock out their IP for a day. `SignupAttemptIPThrottle` bounds the
+    failed attempts instead.
+
+    The reservation and the release both read, change and write the cached history. A per-IP Redis lock
+    serializes them, because otherwise one request's write can erase another request's reservation.
     """
 
     scope = "signup_ip"
     rate = settings.SIGNUP_IP_THROTTLE_RATE
+    cache = caches["signup_throttle"]
+    reserved = False
+
+    @contextmanager
+    def _history_lock(self, key: str) -> Iterator[None]:
+        lock = get_client().lock(f"{key}:lock", timeout=5, blocking_timeout=5)
+        try:
+            acquired = lock.acquire()
+        except RedisError as e:
+            # Without the lock the throttle still works, with the same race as any DRF throttle.
+            capture_exception(e)
+            acquired = False
+        try:
+            yield
+        finally:
+            if acquired:
+                with suppress(RedisError):
+                    lock.release()
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        key = self.get_cache_key(request, view) if self.rate is not None else None
+        if key is None:
+            return super().allow_request(request, view)
+        with self._history_lock(key):
+            return super().allow_request(request, view)
+
+    def throttle_success(self) -> bool:
+        self.reserved = True
+        return super().throttle_success()
+
+    def release(self) -> None:
+        if not self.reserved or self.key is None:
+            return
+        self.reserved = False
+        try:
+            _, duration = self.parse_rate(self.rate)
+            with self._history_lock(self.key):
+                history = self.cache.get(self.key, [])
+                with suppress(ValueError):
+                    history.remove(self.now)
+                self.cache.set(self.key, history, duration)
+        except Exception as e:
+            # The request is already failing, so a cache error here must not replace its original error.
+            capture_exception(e)
+
+
+class SignupAttemptIPThrottle(IPThrottle):
+    """
+    Limit signup requests by IP address, whether they succeed or fail.
+    """
+
+    scope = "signup_attempt_ip"
+    rate = settings.SIGNUP_ATTEMPT_IP_THROTTLE_RATE
 
 
 class WebAuthnSignupRegistrationThrottle(IPThrottle):
@@ -451,10 +516,24 @@ class CodexConnectUserThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
-# Each internal feedback post lands in a shared Slack channel, so cap it per user.
-class InternalFeedbackUserThrottle(UserRateThrottle):
-    scope = "internal_feedback_user"
-    rate = "60/hour"
+class _WorkloadTrustPolicyRequestThrottle(SimpleRateThrottle):
+    """One bucket per user and project, because each request asks the organization's admins to act."""
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str | None:
+        if not request.user.is_authenticated:
+            return None
+        team_id = PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view)
+        return self.cache_format % {"scope": self.scope, "ident": f"{team_id}:{request.user.pk}"}
+
+
+class WorkloadTrustPolicyRequestBurstThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_burst"
+    rate = "10/hour"
+
+
+class WorkloadTrustPolicyRequestSustainedThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_sustained"
+    rate = "30/day"
 
 
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -650,6 +729,18 @@ class ContentAutopilotDiscoveryBurstRateThrottle(_TeamBucketRateThrottle):
 class ContentAutopilotDiscoverySustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "content_autopilot_discovery_sustained"
     rate = "100/hour"
+
+
+# Each AEO prompt suggestion request queues a Celery job with up to four model calls and several web
+# searches, so it costs model credits. This team bucket also covers browser callers.
+class AEOPromptSuggestionsBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_prompt_suggestions_burst"
+    rate = "5/minute"
+
+
+class AEOPromptSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_prompt_suggestions_sustained"
+    rate = "30/hour"
 
 
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
@@ -1102,12 +1193,19 @@ class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "30/minute"
 
 
-class LLMPromptFetchRateThrottle(PersonalApiKeyRateThrottle):
+class LLMPromptFetchRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     # SDK fleets poll prompt fetches on a fixed interval, so the shared sustained budget
     # (4800/hour) rejects steady polling that the burst budget allows. A per-minute-only
     # bucket keeps prompt fetches out of the general API budget, mirroring the dedicated
-    # feature_flag_remote_config throttle.
+    # feature_flag_remote_config throttle. Project secret keys get the same budget per key.
     scope = "llm_prompt_fetch"
+    rate = "600/minute"
+
+
+class LLMPromptFetchProjectSecretApiKeyTeamRateThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    # One budget for all of a project's secret keys together, the same size as the per-key
+    # budget, so creating more keys does not raise a project's total.
+    scope = "llm_prompt_fetch_psak_team"
     rate = "600/minute"
 
 
@@ -1464,7 +1562,21 @@ class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
     rate = "75/hour"
 
 
-class WidgetUserBurstThrottle(SimpleRateThrottle):
+class _CountedWidgetThrottle(SimpleRateThrottle):
+    """Each widget view has a bucket per widget session (or client IP) and a bucket per widget token, and a 429
+    response does not say which one is empty. The counter records the scope so that dashboards can tell them apart."""
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            # WidgetAuthentication returns the team as request.auth, because widget requests have no user
+            team_id = getattr(request.auth, "id", None)
+            route = get_route_from_path(getattr(request, "path", None))
+            RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=self.scope, path=route, route=route).inc()
+        return allowed
+
+
+class WidgetUserBurstThrottle(_CountedWidgetThrottle):
     """Rate limit per widget_session_id or IP for POST/GET requests."""
 
     scope = "widget_user_burst"
@@ -1480,7 +1592,7 @@ class WidgetUserBurstThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
-class _WidgetTeamTokenThrottle(SimpleRateThrottle):
+class _WidgetTeamTokenThrottle(_CountedWidgetThrottle):
     rate = "3600/hour"
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:

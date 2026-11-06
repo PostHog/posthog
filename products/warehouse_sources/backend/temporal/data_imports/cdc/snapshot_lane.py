@@ -121,6 +121,7 @@ def hand_reset_to_capture(
     *,
     start_capture: bool = True,
     awaiting_slot: bool = False,
+    stage: bool = True,
 ) -> None:
     """Pause a CDC table's schedule and mark its reset pending, so capture finishes it once no sync can hand over.
 
@@ -130,6 +131,9 @@ def hand_reset_to_capture(
 
     `awaiting_slot` holds the staged reset back until a capture run has read the slot, as Repair CDC
     needs while it recreates the slot.
+
+    `stage=False` is for a caller that staged the reset in its own save. A second stage would start
+    another generation, and capture would take a second snapshot.
     """
     # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
     from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
@@ -152,14 +156,15 @@ def hand_reset_to_capture(
         # Capture pauses the schedule again before it resets the table.
         logger.warning("cdc_reset_schedule_pause_failed", schema_id=str(schema.id), exc_info=True)
 
-    persisted = update_sync_type_config_keys(
-        schema.id, schema.team_id, mutate=partial(stage_handed_over_reset, awaiting_slot=awaiting_slot)
-    )
-    # Only this key in memory, so a caller that saves the schema afterwards keeps its own edits.
-    schema.sync_type_config = {
-        **(schema.sync_type_config or {}),
-        CDC_RESET_PENDING_KEY: persisted[CDC_RESET_PENDING_KEY],
-    }
+    if stage:
+        persisted = update_sync_type_config_keys(
+            schema.id, schema.team_id, mutate=partial(stage_handed_over_reset, awaiting_slot=awaiting_slot)
+        )
+        # Only this key in memory, so a caller that saves the schema afterwards keeps its own edits.
+        schema.sync_type_config = {
+            **(schema.sync_type_config or {}),
+            CDC_RESET_PENDING_KEY: persisted[CDC_RESET_PENDING_KEY],
+        }
     # Capture finishes the reset, so start a run now instead of waiting for its schedule: the last
     # run may have looked for resets just before this write, and the schedule may be gone. A halted
     # source is left alone, because Repair CDC or a resumed capture restarts capture itself.

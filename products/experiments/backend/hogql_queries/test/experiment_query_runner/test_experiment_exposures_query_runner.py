@@ -17,6 +17,7 @@ from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
+    ExperimentExposureHealthCheckKey,
     ExperimentExposureHealthFindingCode,
     ExperimentExposureQuery,
     ExperimentWarehouseNativeExposureConfig,
@@ -39,7 +40,7 @@ from posthog.test.test_journeys import journeys_for
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -112,6 +113,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             exposure_config=ExperimentWarehouseNativeExposureConfig(
                 connection_id="00000000-0000-0000-0000-000000000000",
                 query="SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                unit={"unit_type": "customer", "id_namespace": "billing_customer_id"},
             )
         )
 
@@ -1271,7 +1273,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
     def test_exposure_query_with_action_as_exposure_criteria(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
         # Create an action for purchase events with specific properties
-        action = Action.objects.create(
+        action = create_action(
             name="Qualified Purchase",
             team=self.team,
             steps_json=[{"event": "purchase", "properties": [{"key": "plan", "value": "premium", "type": "event"}]}],
@@ -1506,7 +1508,22 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # (well below the 0.001 threshold for SRM detection)
         self.assertLess(response.sample_ratio_mismatch.p_value, 0.001)
         self.assertEqual(
-            [finding.code for finding in response.health_findings or []], [ExperimentExposureHealthFindingCode.SRM]
+            [(finding.code, finding.check) for finding in response.health_findings or []],
+            [(ExperimentExposureHealthFindingCode.SRM, ExperimentExposureHealthCheckKey.SRM)],
+        )
+        srm_check = next(check for check in response.health_checks or [] if check.key == "srm")
+        self.assertEqual(
+            (srm_check.values, srm_check.rule and srm_check.rule.model_dump(mode="json")),
+            (
+                {"p_value": response.sample_ratio_mismatch.p_value, "compared_count": 100, "multiple_variant_count": 0},
+                {
+                    "value": "p_value",
+                    "threshold": 0.001,
+                    "warns": "below",
+                    "test": "chi_squared",
+                    "minimum": {"value": "compared_count", "threshold": 100},
+                },
+            ),
         )
 
         # Expected counts should be 50/50 of total (100)
@@ -1746,6 +1763,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(
             {key: value for key, value in finding.evidence.items() if not key.endswith("p_value")},
             {
+                "share_off_split": 0.1667,
                 "located_dimensions": "library,library_version",
                 "library_1": "web",
                 "library_1_exposed_control": 100,
@@ -1934,7 +1952,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                     ExperimentExposureHealthFindingCode.SRM,
                     "The distribution of users across variants doesn't match your configured rollout percentages "
                     "(p < 0.001). This may indicate issues with randomization or data collection.",
-                    {"p_value"},
+                    {"p_value", "share_off_split"},
                 )
             ],
         )

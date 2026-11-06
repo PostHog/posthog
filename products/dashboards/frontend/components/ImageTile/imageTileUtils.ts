@@ -1,5 +1,3 @@
-import type { JSONContent } from '@tiptap/core'
-
 import type { TiptapMarkdownConverter } from 'lib/utils/markdown'
 
 export type ImageTileLayout = 'contain' | 'cover'
@@ -56,60 +54,69 @@ export function imageTilePositionToCss(position: ImageTilePosition): string {
     return `${normalizedPosition.x}% ${normalizedPosition.y}%`
 }
 
-export function getImageOnlyTextCardImage(
-    converter: TiptapMarkdownConverter,
-    markdown: string | null | undefined
-): ImageTileImage | null {
+// One markdown image: `![alt](src)`, `![alt](<src>)`, either with an optional `"title"`.
+// A bare src may hold parentheses nested two deep, such as `diagram(1).png`.
+const MARKDOWN_IMAGE =
+    /^!\[((?:\\.|[^\\\]])*)\]\((?:<((?:\\.|[^\\<>\n])*)>|(?!<)((?:\\.|[^\s()\\]|\((?:\\.|[^\s()\\]|\((?:\\.|[^\s()\\])*\))*\))+))(?:\s+"((?:\\.|[^"\\])*)")?\)$/
+const MARKDOWN_ESCAPE = /\\([!-/:-@[-`{-~])/g
+
+/**
+ * Reads the image of a text card whose body is a single image, without the rich text editor,
+ * so dashboard layout code can tell image tiles from text tiles before the editor loads.
+ */
+export function getImageOnlyTextCardImage(markdown: string | null | undefined): ImageTileImage | null {
     const cacheKey = markdown ?? ''
     if (imageOnlyTextCardImageCache.has(cacheKey)) {
         return imageOnlyTextCardImageCache.get(cacheKey) ?? null
     }
 
-    let doc: JSONContent
-    try {
-        doc = converter.markdownToDoc(markdown)
-    } catch {
-        cacheImageOnlyTextCardImage(cacheKey, null)
-        return null
-    }
-
-    let image: ImageTileImage | null = null
-    let imageCount = 0
-    let hasOtherContent = false
-
-    const visit = (node: JSONContent): void => {
-        if (node.type === 'image') {
-            imageCount += 1
-            const parsedImage = getImageTile(node)
-            if (parsedImage) {
-                image = parsedImage
-            } else {
-                hasOtherContent = true
-            }
-            return
-        }
-
-        if (node.type === 'text') {
-            if (node.text?.trim()) {
-                hasOtherContent = true
-            }
-            return
-        }
-
-        if (node.type === 'doc' || node.type === 'paragraph') {
-            node.content?.forEach(visit)
-            return
-        }
-
-        hasOtherContent = true
-    }
-
-    visit(doc)
-
-    const result = imageCount === 1 && !hasOtherContent ? image : null
+    const result = parseImageOnlyMarkdown(cacheKey.trim())
     cacheImageOnlyTextCardImage(cacheKey, result)
 
     return result
+}
+
+function parseImageOnlyMarkdown(body: string): ImageTileImage | null {
+    const markdownImage = MARKDOWN_IMAGE.exec(body)
+    if (markdownImage) {
+        return toImageTile({
+            src: (markdownImage[2] ?? markdownImage[3]).replace(MARKDOWN_ESCAPE, '$1'),
+            alt: markdownImage[1].replace(MARKDOWN_ESCAPE, '$1'),
+            title: markdownImage[4]?.replace(MARKDOWN_ESCAPE, '$1') ?? null,
+        })
+    }
+    if (!body.startsWith('<')) {
+        return null
+    }
+
+    const images: HTMLImageElement[] = []
+    const isImageOnly = (node: Node): boolean => {
+        if (node.nodeType === Node.TEXT_NODE) {
+            return !node.textContent?.trim()
+        }
+        if (node instanceof HTMLImageElement) {
+            images.push(node)
+            return true
+        }
+        return node instanceof HTMLParagraphElement && Array.from(node.childNodes).every(isImageOnly)
+    }
+    const { body: htmlBody } = new DOMParser().parseFromString(body, 'text/html')
+    if (!Array.from(htmlBody.childNodes).every(isImageOnly) || images.length !== 1) {
+        return null
+    }
+
+    const [image] = images
+    const x = image.getAttribute('data-position-x')
+    const y = image.getAttribute('data-position-y')
+    return toImageTile({
+        src: image.getAttribute('src'),
+        alt: image.getAttribute('alt'),
+        title: image.getAttribute('title'),
+        layout: image.getAttribute('data-layout') === 'cover' ? 'cover' : null,
+        position: x === null || y === null ? null : { x: Number(x), y: Number(y) },
+        width: image.getAttribute('width'),
+        height: image.getAttribute('height'),
+    })
 }
 
 export function imageTileToMarkdown(
@@ -143,20 +150,30 @@ export function imageTileToMarkdown(
     })
 }
 
-function getImageTile(node: JSONContent): ImageTileImage | null {
-    const src = String(node.attrs?.src ?? '').trim()
+interface ImageTileAttributes {
+    src: string | null
+    alt: string | null
+    title: string | null
+    layout?: ImageTileLayout | null
+    position?: ImageTilePosition | null
+    width?: string | null
+    height?: string | null
+}
+
+function toImageTile(attrs: ImageTileAttributes): ImageTileImage | null {
+    const src = (attrs.src ?? '').trim()
     if (!src) {
         return null
     }
 
     return {
         src,
-        alt: String(node.attrs?.alt ?? ''),
-        title: String(node.attrs?.title ?? ''),
-        layout: getImageTileLayout(node.attrs?.layout),
-        position: getImageTilePosition(node.attrs?.position),
-        width: node.attrs?.width,
-        height: node.attrs?.height,
+        alt: attrs.alt ?? '',
+        title: attrs.title ?? '',
+        layout: getImageTileLayout(attrs.layout),
+        position: getImageTilePosition(attrs.position),
+        width: attrs.width ?? null,
+        height: attrs.height ?? null,
     }
 }
 

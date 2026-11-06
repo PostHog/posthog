@@ -10,7 +10,7 @@ import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
 
-Sync your [Scaleway](https://www.scaleway.com) organization data — billing invoices and consumption, IAM identities, projects, audit trail events, compute instances, Kubernetes clusters, and managed databases — into PostHog to build cost, security, and infrastructure reporting alongside your product data.
+Sync your [Scaleway](https://www.scaleway.com) organization data — billing invoices and consumption, IAM identities, projects, audit trail events, compute instances and their volumes, images, snapshots and IPs, Kubernetes clusters, and managed databases — into PostHog to build cost, security, and infrastructure reporting alongside your product data.
 
 ## Prerequisites
 
@@ -35,7 +35,7 @@ Grant the API key the read permission sets that match the tables you want to syn
 - `ProjectReadOnly` — projects
 - `BillingReadOnly` — invoices, billing consumptions
 - `AuditTrailReadOnly` — audit trail events
-- `InstancesReadOnly` — instance servers
+- `InstancesReadOnly` — instance servers, volumes, images, snapshots, IPs
 - `KubernetesReadOnly` — Kubernetes clusters, pools, nodes
 - `RelationalDatabasesReadOnly` — database instances
 
@@ -59,6 +59,6 @@ All Scaleway tables sync via full refresh. Resource inventories (IAM, projects, 
 
 **"Your API key is missing the read permission set required to sync ..."**: the API key is valid but lacks the permission set for that table. Add the matching read permission (see the list above) to the key in the Scaleway console, then reconnect.
 
-**No rows for a table**: some resources are region- or zone-scoped. Instance servers are pulled from every zone your organization can use, audit trail events from the `fr-par` and `nl-ams` regions, Kubernetes clusters, pools and nodes from `fr-par`, `nl-ams`, `pl-waw` and `it-mil`, and database instances from `fr-par`, `nl-ams` and `pl-waw` — a table can legitimately be empty if you have no resources there.
+**No rows for a table**: some resources are region- or zone-scoped. Instance servers, volumes, images, snapshots and IPs are pulled from every zone your organization can use, audit trail events from the `fr-par` and `nl-ams` regions, Kubernetes clusters, pools and nodes from `fr-par`, `nl-ams`, `pl-waw` and `it-mil`, and database instances from `fr-par`, `nl-ams` and `pl-waw` — a table can legitimately be empty if you have no resources there.
 
 <TroubleshootingLink />
