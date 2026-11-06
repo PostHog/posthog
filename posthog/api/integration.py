@@ -2955,7 +2955,11 @@ class IntegrationViewSet(
             raise NotFound("The sandbox sender is not available for this project.")
         if sandbox_sender.created:
             report_user_action(
-                cast(User, request.user), "workflows sandbox sender provisioned", team=self.team, request=request
+                cast(User, request.user),
+                "workflows sandbox sender provisioned",
+                team=self.team,
+                organization=self.team.organization,
+                request=request,
             )
         integration = self.get_queryset().get(id=sandbox_sender.integration_id)
         return Response(IntegrationSerializer(integration, context=self.get_serializer_context()).data)
