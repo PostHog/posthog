@@ -57,7 +57,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
         return <TraceViewError message={props.errorMessage} backLink={props.backLink} />
     }
     return (
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
             <TraceHeader {...props.header} search={props.search} />
             <TraceSummaryBar {...props.summary} />
             <TraceModeTabs mode={props.mode} onModeChange={props.onModeChange} feedbackCount={props.feedbackCount} />
