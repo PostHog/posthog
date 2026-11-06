@@ -262,6 +262,10 @@ def _parse_inline(text: str) -> list[dict]:
     buf: list[str] = []
     i = 0
     n = len(text)
+    # An escape that survives the parse is escaped again on the way back out, which reaches the
+    # customer as a visible backslash. The set is the wide one the composer used before, so a
+    # reply stored then still parses now.
+    escapable = "\\`*_{}[]()#+-.!|"
     # -1 means no closer exists at or after the cached start.
     bracket_at = -2
     failed_bracket = -2
@@ -274,6 +278,10 @@ def _parse_inline(text: str) -> list[dict]:
             buf.clear()
 
     while i < n:
+        if text[i] == "\\" and i + 1 < n and text[i + 1] in escapable:
+            buf.append(text[i + 1])
+            i += 2
+            continue
         if text[i] == "[":
             # A missing ] is final. Searching again from every [ is quadratic.
             if bracket_at != -1 and bracket_at < i:
