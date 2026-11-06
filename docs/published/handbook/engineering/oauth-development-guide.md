@@ -29,6 +29,10 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
 # Add to .env as OIDC_RSA_PRIVATE_KEY="<generated_key>"
 ```
 
+Without this key, PostHog cannot create OAuth applications.
+Django's system checks print warning `posthog.W001` at startup.
+Client ID metadata document clients, dynamic client registration and toolbar sign-in get an OAuth `server_error` that names the missing setting.
+
 ### 2. Set Up Your Environment
 
 First, generate demo data which includes a test OAuth application:
@@ -228,7 +232,7 @@ See [Client Types](#client-types) section for detailed explanation.
    {
      "access_token": "...",
      "token_type": "Bearer",
-     "expires_in": 36000,
+     "expires_in": 3600,
      "refresh_token": "...",
      "id_token": "...",
      "scope": "openid experiment:read query:read",
@@ -236,6 +240,9 @@ See [Client Types](#client-types) section for detailed explanation.
      "scoped_organizations": ["org-uuid"]
    }
    ```
+
+   An access token expires after 1 hour.
+   Before it expires, use the refresh token to get a new one.
 
 ## Available Scopes
 
