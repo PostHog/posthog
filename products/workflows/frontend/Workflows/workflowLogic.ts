@@ -77,7 +77,7 @@ import {
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
-import { sendsFromListedOwnSenders } from './workflowBroadcastMoveLogic'
+import { listedSandboxSenderIds, sendsFromSandboxSender } from './workflowBroadcastMoveLogic'
 import { workflowStartPath } from './workflowBuilderProgress'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import {
@@ -195,7 +195,13 @@ export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'r
 // the backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
 export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'internal-event'])
 
-async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
+interface WithDefaultEmailSender {
+    workflow: HogFlow
+    // The project-scoped integrations list can lack it, so the broadcast offer can't spot it there.
+    sandboxSenderId: number | null
+}
+
+async function withDefaultEmailSender(workflow: HogFlow): Promise<WithDefaultEmailSender> {
     try {
         if (sandboxSenderEnabled()) {
             const firstRun = await withFirstRunSender(workflow)
@@ -203,7 +209,10 @@ async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
                 // pinned: analytics event name
                 posthog.capture('email sender preselected', { surface: 'workflow', reason: firstRun.sender.reason })
             }
-            return firstRun.workflow
+            return {
+                workflow: firstRun.workflow,
+                sandboxSenderId: firstRun.sender?.reason === 'sandbox_sender' ? firstRun.sender.integrationId : null,
+            }
         }
         const team = teamLogic.findMounted()?.values.currentTeam
         const sender = resolveDefaultEmailSender(
@@ -211,17 +220,17 @@ async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
             team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
         )
         if (!sender) {
-            return workflow
+            return { workflow, sandboxSenderId: null }
         }
         const result = withEmailSender(workflow, sender.integrationId)
         if (result.filled) {
             // pinned: analytics event name
             posthog.capture('email sender preselected', { surface: 'workflow', reason: sender.reason })
         }
-        return result.workflow
+        return { workflow: result.workflow, sandboxSenderId: null }
     } catch {
         // The sender is a convenience. The person can still pick one, so a failed lookup doesn't block the editor.
-        return workflow
+        return { workflow, sandboxSenderId: null }
     }
 }
 
@@ -3548,7 +3557,9 @@ export const workflowLogic = kea<workflowLogicType>([
                             const templated = templateTriggerConfig
                                 ? withTriggerConfig(newWorkflow as HogFlow, templateTriggerConfig)
                                 : (newWorkflow as HogFlow)
-                            return (await withDefaultEmailSender(templated)) as typeof newWorkflow
+                            const withSender = await withDefaultEmailSender(templated)
+                            cache.firstRunSandboxSenderId = withSender.sandboxSenderId
+                            return withSender.workflow as typeof newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
                         if (triggerConfig) {
@@ -3565,7 +3576,9 @@ export const workflowLogic = kea<workflowLogicType>([
                                   )
                                 : null
                             cache.emailBrand = brand
-                            return await withDefaultEmailSender(withEmailBrand(prefilled, brand))
+                            const withSender = await withDefaultEmailSender(withEmailBrand(prefilled, brand))
+                            cache.firstRunSandboxSenderId = withSender.sandboxSenderId
+                            return withSender.workflow
                         }
                         return { ...NEW_WORKFLOW }
                     }
@@ -3815,7 +3828,10 @@ export const workflowLogic = kea<workflowLogicType>([
                     workflow.exit_condition === 'exit_only_at_end' &&
                     isBroadcastShaped(workflow.actions) &&
                     canEditInWizard(workflow.actions, workflow.edges) &&
-                    sendsFromListedOwnSenders(workflow, values.integrations ?? [])
+                    !sendsFromSandboxSender(workflow, [
+                        ...listedSandboxSenderIds(values.integrations ?? []),
+                        ...(cache.firstRunSandboxSenderId ? [cache.firstRunSandboxSenderId] : []),
+                    ])
                 ) {
                     const others = await loadBroadcastConversionCandidates(String(ApiConfig.getCurrentTeamId()))
                     const choice = await confirmCreateAsBroadcast(others)
