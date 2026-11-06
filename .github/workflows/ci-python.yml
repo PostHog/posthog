@@ -752,15 +752,21 @@ jobs:
                   VENDORS: ${{ steps.select.outputs.vendors }}
               run: |
                   narrow=()
+                  targets=(products/warehouse_sources/backend/temporal/data_imports/sources/tests)
                   if [ "$MODE" = "vendors" ]; then
                       narrow=("--source-vendors=${VENDORS// /,}")
+                  else
+                      credential_tests=products/warehouse_sources/backend/temporal/data_imports/sources/common/test
+                      targets+=("$credential_tests/test_credential_kind.py" "$credential_tests/test_credential_auth_type.py")
                   fi
-                  pytest -p no:cacheprovider products/warehouse_sources/backend/temporal/data_imports/sources/tests --tb=short "${narrow[@]}"
+                  pytest -p no:cacheprovider "${targets[@]}" --tb=short "${narrow[@]}"
 
             # The committed credential kind and auth type maps hold one line per vendor. A vendors
-            # run skips Backend CI, so these suites run here in both modes, or a vendor change that
+            # run skips Backend CI, so these suites run in both modes, or a vendor change that
             # makes the maps stale would merge. They need no database.
             - name: Run credential map tests
+              # The catalog's vendor filter would deselect credential cases in a shared session.
+              if: steps.select.outputs.mode == 'vendors'
               run: |
                   credential_tests=products/warehouse_sources/backend/temporal/data_imports/sources/common/test
                   pytest -p no:cacheprovider "$credential_tests/test_credential_kind.py" "$credential_tests/test_credential_auth_type.py" --tb=short
