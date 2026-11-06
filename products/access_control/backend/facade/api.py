@@ -163,6 +163,17 @@ def split_restricted_property_names(restrictions: set[RestrictedProperty]) -> co
     )
 
 
+def get_restricted_group_property_names_by_type_index(
+    *, user: User | None, team_id: int
+) -> dict[int | None, frozenset[str]]:
+    """Return restricted group property names keyed by group type index (None applies to every group type)."""
+    names_by_index: dict[int | None, set[str]] = defaultdict(set)
+    for restriction in _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id):
+        if restriction.property_type == PropertyDefinition.Type.GROUP:
+            names_by_index[restriction.group_type_index].add(restriction.name)
+    return {index: frozenset(names) for index, names in names_by_index.items()}
+
+
 def get_property_access_state(
     *,
     team_id: int,
