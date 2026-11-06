@@ -151,9 +151,17 @@ def _parse_date_like(input: object, timezone: Optional[str] = None) -> Optional[
     return localize(naive, is_dst=True) if localize else naive.replace(tzinfo=tzinfo)
 
 
+def _is_number(input) -> bool:
+    # bool is an int subclass in Python, but Hog's true and false are not numbers in the other VMs.
+    return isinstance(input, int | float) and not isinstance(input, bool)
+
+
 def toDate(input):
-    if isinstance(input, int) or isinstance(input, float):
-        dt = datetime.datetime.fromtimestamp(input, datetime.UTC)
+    if _is_number(input):
+        try:
+            dt = datetime.datetime.fromtimestamp(input, datetime.UTC)
+        except (OverflowError, OSError, ValueError):
+            return None
     else:
         parsed = _parse_date_like(input)
         if parsed is None:
@@ -168,7 +176,7 @@ def toDate(input):
 
 
 def toDateTime(input):
-    if isinstance(input, int) or isinstance(input, float):
+    if _is_number(input):
         dt = float(input)
     else:
         parsed = _parse_date_like(input)

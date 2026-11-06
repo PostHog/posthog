@@ -176,3 +176,4 @@ print(toDate("not a date"));
 print(toDateTime("not a date"));
 print(toDate(null), toDateTime(null));
 print(toDate(1704067200));
+print(toDate(true), toDateTime(true), toDate(1e+20));
