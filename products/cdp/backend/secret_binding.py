@@ -68,7 +68,6 @@ def comparable_inputs(items: Any) -> dict:
 
 
 def _comparable_config(config: SecretConfig, secret_keys: set[str]) -> tuple:
-    """The parts of `config` that decide where its secrets go, without the secret values."""
     public_inputs = {key: item for key, item in config.inputs.items() if key not in secret_keys}
     return (
         config.code,
@@ -126,26 +125,25 @@ def secret_binding(
     return baseline, SecretBinding.KEPT if unchanged or sends_within else SecretBinding.REFUSED
 
 
+class SecretWrite(StrEnum):
+    """What a save stores for a refused secret it lets through."""
+
+    # Where the code now sends it.
+    LIVE = "live"
+    # Its stored origins, for a draft whose publish compares the whole config with the live one.
+    STAGED_KEEPING_ORIGINS = "staged_keeping_origins"
+    # No origins, so that publishing checks the secret against the live config again.
+    STAGED_UNBOUND = "staged_unbound"
+
+
 def entry_with_origins(
-    entry: dict[str, Any],
-    origins: SecretOrigins,
-    outcome: SecretBinding,
-    derived: SecretOrigins,
-    *,
-    staged: bool,
-    staged_keeps_origins: bool,
+    entry: dict[str, Any], origins: SecretOrigins, outcome: SecretBinding, derived: SecretOrigins, write: SecretWrite
 ) -> dict[str, Any]:
-    """`entry` with the origins a write stores for it. A refused secret reaches storage only when the save
-    lets it through. A live write then records where the code now sends it. A staged write keeps
-    `origins` when `staged_keeps_origins`, and otherwise stores none, so that publishing compares the
-    secret with the live config again."""
     updated = {key: value for key, value in entry.items() if key != "allowed_origins"}
-    if outcome != SecretBinding.REFUSED:
+    if outcome != SecretBinding.REFUSED or write == SecretWrite.STAGED_KEEPING_ORIGINS:
         updated["allowed_origins"] = stored_origins(origins)
-    elif not staged:
+    elif write == SecretWrite.LIVE:
         updated["allowed_origins"] = stored_origins(derived)
-    elif staged_keeps_origins:
-        updated["allowed_origins"] = stored_origins(origins)
     return updated
 
 

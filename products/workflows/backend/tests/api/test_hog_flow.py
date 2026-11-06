@@ -8370,28 +8370,45 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("new_value", {"host": "evil.example.com"}, None, "secret_reentry_required", 0),
-            ("default_value", {"host": "example.com"}, None, None, 1),
+            ("new_value", _HOST_URL, {"host": "evil.example.com"}, None, "secret_reentry_required", 0),
+            ("default_value", _HOST_URL, {"host": "example.com"}, None, None, 1),
+            ("unread_variable", _HOST_URL, {"greeting": "hello"}, None, None, 1),
+            (
+                "any_variable_when_the_step_reads_one_by_a_computed_name",
+                "https://{variables['host']}/hook",
+                {"greeting": "hello"},
+                None,
+                "secret_reentry_required",
+                0,
+            ),
             (
                 "new_value_with_a_configuration",
+                _HOST_URL,
                 {"host": "evil.example.com"},
                 {"secret": True},
                 "secret_reentry_required",
                 0,
             ),
-            ("new_value_with_the_secret_entered", {"host": "evil.example.com"}, {"value": "RE-ENTERED"}, None, 1),
+            (
+                "new_value_with_the_secret_entered",
+                _HOST_URL,
+                {"host": "evil.example.com"},
+                {"value": "RE-ENTERED"},
+                None,
+                1,
+            ),
         ]
     )
     def test_a_test_run_cannot_send_an_unbound_secret_elsewhere_through_variables(
-        self, _name, supplied, configured_api_key, expected_code, expected_runs
+        self, _name, url, supplied, configured_api_key, expected_code, expected_runs
     ):
-        flow_id = self._active_flow(_HOST_URL, _HOST_VARIABLES)
+        flow_id = self._active_flow(url, _HOST_VARIABLES)
         body: dict[str, Any] = {
             "globals": {"event": {"event": "$pageview"}, "variables": supplied},
             "mock_async_functions": False,
         }
         if configured_api_key is not None:
-            body["configuration"] = {"actions": self._actions(_HOST_URL, configured_api_key)}
+            body["configuration"] = {"actions": self._actions(url, configured_api_key)}
 
         with (
             patch("products.cdp.backend.secret_binding.posthoganalytics.feature_enabled", return_value=True),

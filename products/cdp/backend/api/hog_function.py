@@ -73,6 +73,7 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
 from products.cdp.backend.secret_binding import (
     SecretBinding,
     SecretConfig,
+    SecretWrite,
     entered_secret_input_keys,
     entry_with_origins,
     secret_binding,
@@ -1001,14 +1002,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         baselines = _secret_baselines(instance, secret_keys, stored_secrets, stored_inputs, derived, unchanged)
         entered = entered_secret_input_keys(self.requested_inputs)
         stages_draft = bool(self.context.get("stages_draft"))
+        write = SecretWrite.STAGED_KEEPING_ORIGINS if stages_draft else SecretWrite.LIVE
         outcomes: list[SecretBinding] = []
         for key in sorted(secret_keys):
             origins, outcome = secret_binding(derived[key], baselines[key], key in entered, key in unchanged)
-            # Publishing a staged edit compares it with the live config, so the staged copy can keep
-            # the old origins.
-            inputs[key] = entry_with_origins(
-                inputs[key], origins, outcome, derived[key], staged=stages_draft, staged_keeps_origins=True
-            )
+            inputs[key] = entry_with_origins(inputs[key], origins, outcome, derived[key], write)
             outcomes.append(outcome)
 
         refused = [key for key, outcome in zip(sorted(secret_keys), outcomes) if outcome == SecretBinding.REFUSED]

@@ -1,10 +1,9 @@
-"""Bind each secret input of a workflow step to the origins the step's template code can send it to.
+"""Bind each secret input of a workflow step to the origins the step's template code can send it to,
+with the rules in `products.cdp.backend.secret_binding`.
 
-The rules are the hog function ones in `products.cdp.backend.secret_binding`. A step runs its
-template's code with its own inputs, and a save restores a stored secret by step id and key, the
-staged draft's copy first. A stored secret keeps its origins only when its step is the step it was
-stored with, so the save compares each step with the step on the side the secret came from. A staged
-secret without origins was never checked against its draft step, so it is checked against the live one.
+A save restores a stored secret by step id and key, the staged draft's copy first, so each step is
+compared with the step on the side its secret came from. A staged secret without origins was never
+checked against its draft step, so it is checked against the live one.
 """
 
 import re
@@ -18,6 +17,7 @@ from posthog.dataclasses import frozen
 from products.cdp.backend.secret_binding import (
     SecretBinding,
     SecretConfig,
+    SecretWrite,
     comparable_inputs,
     entered_secret_input_keys,
     entry_with_origins,
@@ -176,7 +176,7 @@ def _step_text(action: dict, secret_keys: set[str]) -> str:
 
 
 def _read_variables(action: dict, template_cache: TemplateCache) -> Optional[set[str]]:
-    """The variables a step reads, in its code or in any input, its secret ones too."""
+    # A secret input can hold its own address, so its text counts as a read too.
     return _referenced_variables([_template_code(action, template_cache), _step_text(action, set())])
 
 
@@ -215,8 +215,6 @@ def _variable_sources(
 
 
 def _variable_context(step_id: str, steps: dict[str, dict], variables: Any, template_cache: TemplateCache) -> tuple:
-    """What a step reads from workflow variables: the defaults of the variables it can depend on, and
-    the steps that write them, without their secret values."""
     names, writers = _variable_sources(step_id, steps, template_cache)
     return (
         _variable_defaults(variables, names),
@@ -250,7 +248,6 @@ def _secret_config(
 def _unchanged(
     config: SecretConfig, step_id: str, key: str, derived: SecretOrigins, side: _Side, template_cache: TemplateCache
 ) -> bool:
-    """Whether the step sends the secret `key` where the step on `side` sends it."""
     stored_action = side.actions.get(step_id)
     if stored_action is None:
         return False
@@ -328,10 +325,9 @@ def bind_flow_secret_origins(
     writes_draft: bool,
     template_cache: TemplateCache,
 ) -> FlowSecretBinding:
-    """Set `allowed_origins` on every secret input of `actions`, which carry their secrets restored,
-    and name the secrets the save would send outside their origins. `variables` is None when the save
-    keeps the stored ones. `writes_draft` is true only when the save stages a draft: publish and a test
-    run of the draft send what they check, like a live save."""
+    """Set `allowed_origins` on every secret input of `actions`, which carry their secrets restored.
+    `variables` is None when the save keeps the stored ones. `writes_draft` is true only when the save
+    stages a draft: publish and a test run of the draft send what they check, like a live save."""
     secret_steps = _secret_steps(actions, template_cache)
     if not secret_steps:
         return FlowSecretBinding(refused={}, outcomes=[], rewrites_secrets=False)
@@ -339,6 +335,7 @@ def bind_flow_secret_origins(
     if variables is None and stored is not None:
         variables = _draft_variables(stored) if writes_draft else stored.variables
     steps = _steps(actions)
+    write = SecretWrite.STAGED_UNBOUND if writes_draft else SecretWrite.LIVE
 
     refused: dict[str, list[str]] = {}
     outcomes: list[str] = []
@@ -359,12 +356,7 @@ def bind_flow_secret_origins(
                 baseline = _baseline(key, step_id, recovered, unchanged, template_cache)
                 baseline = derived[key] if baseline is None else baseline
             origins, outcome = secret_binding(derived[key], baseline, is_entered, unchanged)
-            # A refused secret staged without enforcement stores no origins, so publishing checks it
-            # against the live step. Kept origins on the staged copy would make publish compare the
-            # draft step with itself, because a save recovers a staged entry with origins from the draft.
-            entry = entry_with_origins(
-                inputs[key], origins, outcome, derived[key], staged=writes_draft, staged_keeps_origins=False
-            )
+            entry = entry_with_origins(inputs[key], origins, outcome, derived[key], write)
             rewrites_secrets = rewrites_secrets or entry != inputs[key]
             inputs[key] = entry
             outcomes.append(outcome)
