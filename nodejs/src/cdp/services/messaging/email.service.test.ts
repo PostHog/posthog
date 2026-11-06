@@ -719,7 +719,6 @@ describe('EmailService', () => {
                 'cc list',
                 'multiple',
                 'unverified',
-                'legacy',
                 'inactive',
                 'other organization',
                 'deactivated organization',
@@ -753,7 +752,7 @@ describe('EmailService', () => {
                     await hub.postgres.query(
                         PostgresUse.COMMON_WRITE,
                         'UPDATE posthog_user SET is_active = $1, is_email_verified = $2 WHERE id = $3',
-                        [recipient !== 'inactive', recipient === 'legacy' ? null : recipient === 'inactive', memberId],
+                        [recipient !== 'inactive', recipient === 'inactive', memberId],
                         'test:change-sandbox-member-status'
                     )
                 }
@@ -763,7 +762,7 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
 
                 expectSkipped(result)
-                const unverifiedMember = recipient === 'unverified' || recipient === 'legacy'
+                const unverifiedMember = recipient === 'unverified'
                 expect(result.logs).toContainEqual(
                     expect.objectContaining({
                         level: 'info',

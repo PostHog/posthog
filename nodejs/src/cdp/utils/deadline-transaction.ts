@@ -35,8 +35,6 @@ export async function runTransactionBeforeDeadline<Result>(
         return result
     })()
     const expired = deadline.reached.then(() => Promise.reject(new Error(`The ${tag} lookup passed its deadline`)))
-    statements.catch(() => undefined)
-    expired.catch(() => undefined)
 
     try {
         const result = await Promise.race([statements, expired])
