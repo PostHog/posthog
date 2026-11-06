@@ -549,7 +549,7 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(pushSpy).toHaveBeenCalledTimes(1)
     })
 
-    it.each(['/web/bots', '/web/content-autopilot'])(
+    it.each(['/web/bots', '/web/content-autopilot', '/ai-visibility', '/ai-visibility/bots'])(
         'redirects off %s when the AI visibility flag is disabled',
         async (path) => {
             featureFlagLogic.actions.setFeatureFlags(
@@ -567,6 +567,36 @@ describe('webAnalyticsLogic URL restoration', () => {
             expect(router.values.location.pathname.endsWith('/web')).toBe(true)
         }
     )
+
+    it('keeps tab switches and bot filters on the standalone AI visibility page', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
+        })
+        router.actions.push('/ai-visibility')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.productTab).toBe(ProductTab.CONTENT_AUTOPILOT)
+        expect(logic.values.isAiVisibilityPage).toBe(true)
+        expect(logic.values.breadcrumbs[0].name).toBe('AI visibility')
+
+        logic.actions.setProductTab(ProductTab.BOT_ANALYTICS)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.location.pathname.endsWith('/ai-visibility/bots')).toBe(true)
+
+        const botLogic = botAnalyticsLogic()
+        botLogic.mount()
+        try {
+            botLogic.actions.setBotAnalyticsFilters([FILTER_B])
+            await expectLogic(botLogic).toFinishAllListeners()
+            expect(router.values.location.pathname.endsWith('/ai-visibility/bots')).toBe(true)
+            expect(router.values.searchParams['filters']).toEqual([FILTER_B])
+        } finally {
+            botLogic.unmount()
+        }
+
+        logic.actions.setProductTab(ProductTab.CONTENT_AUTOPILOT)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.location.pathname.endsWith('/ai-visibility')).toBe(true)
+    })
 
     it('defaults the bots tab to the last day when the URL carries no date', async () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {

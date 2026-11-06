@@ -123,6 +123,8 @@ import {
     cleanedPathOperators,
     eventPropertiesToPathClean,
     getWebAnalyticsBreakdownFilter,
+    aiVisibilityTabUrl,
+    isAiVisibilityPath,
     isContentAutopilotEnabled,
     loadPriorityMap,
     personPropertiesToPathClean,
@@ -227,6 +229,7 @@ export interface webAnalyticsLogicValues {
     hiddenTiles: TileId[]
     includeHostPath: boolean
     incompatibleFilters: WebAnalyticsPropertyFilters
+    isAiVisibilityPage: boolean
     isFocusModeActive: boolean
     isGreaterThanMd: boolean
     isPathCleaningEnabled: boolean
@@ -567,6 +570,8 @@ export interface webAnalyticsLogicMeta {
             restrictedUiEnabled: boolean
         ) => WebAnalyticsPropertyFilters
         hasIncompatibleFilters: (incompatibleFilters: WebAnalyticsPropertyFilters) => boolean
+        isAiVisibilityPage: (location: { hash: string; pathname: string; search: string }) => boolean
+        breadcrumbs: (isAiVisibilityPage: boolean) => Breadcrumb[]
         graphsTab: (_graphsTab: string | null) => string
         sourceTab: (_sourceTab: string | null) => string
         deviceTab: (_deviceTab: string | null) => string
@@ -1290,16 +1295,27 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             (s) => [s.incompatibleFilters],
             (incompatibleFilters: WebAnalyticsPropertyFilters) => incompatibleFilters.length > 0,
         ],
+        isAiVisibilityPage: [
+            () => [router.selectors.location],
+            (location: { pathname: string }): boolean => isAiVisibilityPath(location.pathname),
+        ],
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
+            (s) => [s.isAiVisibilityPage],
+            (isAiVisibilityPage: boolean): Breadcrumb[] => {
                 return [
-                    {
-                        key: Scene.WebAnalytics,
-                        name: `Web analytics`,
-                        path: urls.webAnalytics(),
-                        iconType: 'web_analytics',
-                    },
+                    isAiVisibilityPage
+                        ? {
+                              key: Scene.WebAnalytics,
+                              name: 'AI visibility',
+                              path: urls.aiVisibility(),
+                              iconType: 'web_analytics',
+                          }
+                        : {
+                              key: Scene.WebAnalytics,
+                              name: `Web analytics`,
+                              path: urls.webAnalytics(),
+                              iconType: 'web_analytics',
+                          },
                 ]
             },
         ],
@@ -3286,7 +3302,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             } else if (productTab === ProductTab.LIVE) {
                 return urls.webAnalyticsLive()
             } else if (productTab === ProductTab.CONTENT_AUTOPILOT) {
-                return urls.webAnalyticsContentAutopilot()
+                return aiVisibilityTabUrl(productTab, router.values.location.pathname)
             } else if (productTab === ProductTab.BOT_ANALYTICS) {
                 // Bot tab maintains its own filter state in `botAnalyticsLogic`, so we serialize
                 // those filters here instead of `rawWebAnalyticsFilters` (which only describes the
@@ -3305,7 +3321,8 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                     urlParams.set('date_to', dateTo ?? '')
                     urlParams.set('interval', interval ?? '')
                 }
-                return `/web/bots${urlParams.toString() ? '?' + urlParams.toString() : ''}`
+                const botsUrl = aiVisibilityTabUrl(productTab, router.values.location.pathname)
+                return `${botsUrl}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             } else if (productTab === ProductTab.PAGE_PERFORMANCE) {
                 if (rawWebAnalyticsFilters.length > 0) {
                     urlParams.set('filters', JSON.stringify(rawWebAnalyticsFilters))
@@ -3737,6 +3754,12 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         return {
             '/web': toAction,
             '/web/bots': (_, searchParams) => {
+                toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
+            },
+            [urls.aiVisibility()]: (_, searchParams) => {
+                toAction({ productTab: ProductTab.CONTENT_AUTOPILOT }, searchParams)
+            },
+            [urls.aiVisibilityBots()]: (_, searchParams) => {
                 toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
             },
             '/web/agents': (_, searchParams) => {

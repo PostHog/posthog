@@ -45,7 +45,15 @@ export function WebAnalyticsScene(): JSX.Element {
             'How do users experience my signup page?',
         ],
     })
-    const { showFocusMode } = useValues(webAnalyticsLogic)
+    const { showFocusMode, isAiVisibilityPage } = useValues(webAnalyticsLogic)
+
+    if (isAiVisibilityPage) {
+        return (
+            <SceneContent>
+                <WebAnalyticsDashboard />
+            </SceneContent>
+        )
+    }
 
     return (
         <>

@@ -21,6 +21,8 @@ export const manifest: ProductManifest = {
         webAnalyticsLive: (): string => `/web/live`,
         webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
         webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
+        aiVisibility: (): string => `/ai-visibility`,
+        aiVisibilityBots: (): string => `/ai-visibility/bots`,
         heatmaps: (params?: string): string =>
             `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
         heatmapNew: (params?: string): string =>
@@ -59,6 +61,8 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
+        '/ai-visibility': ['WebAnalytics', 'aiVisibility'],
+        '/ai-visibility/bots': ['WebAnalytics', 'aiVisibilityBots'],
         '/heatmaps': ['Heatmaps', 'heatmaps'],
         '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
         '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
@@ -98,6 +102,18 @@ export const manifest: ProductManifest = {
             ],
             sceneKey: 'WebAnalytics',
             sceneKeys: ['WebAnalytics'],
+        },
+        {
+            path: 'AI visibility',
+            intents: [ProductKey.WEB_ANALYTICS],
+            category: ProductItemCategory.ANALYTICS,
+            iconType: 'web_analytics',
+            iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
+            href: urls.aiVisibility(),
+            flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+            tags: ['alpha'],
+            searchKeywords: ['aeo', 'geo', 'llm', 'chatgpt', 'citations', 'prompts', 'ai search', 'crawlers'],
+            searchTabs: [{ name: 'Bots', href: urls.aiVisibilityBots() }],
         },
     ],
     treeItemsMetadata: [],

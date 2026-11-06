@@ -8,6 +8,7 @@ import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { UnexpectedNeverError } from 'lib/utils/guards'
 import { hogql } from 'lib/utils/hogql'
+import { removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
 
 import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { hogqlQuery } from '~/queries/query'
@@ -535,6 +536,26 @@ export const INITIAL_DATE_TO = null as string | null
 export const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 
 /** Events included in bot analytics queries — crawlers don't execute JS so $http_log captures most real bot traffic */
+const AI_VISIBILITY_PATH = '/ai-visibility'
+
+/** The standalone AI visibility page shows the same tabs as Web analytics, without the Web analytics header and tabs. */
+export const isAiVisibilityPath = (pathname: string): boolean => {
+    const path = stripTrailingSlash(removeProjectIdIfPresent(pathname))
+    return path === AI_VISIBILITY_PATH || path.startsWith(`${AI_VISIBILITY_PATH}/`)
+}
+
+/** The URL of the AI visibility or Bots tab on whichever page, standalone or Web analytics, the person is on. */
+export const aiVisibilityTabUrl = (
+    productTab: ProductTab.CONTENT_AUTOPILOT | ProductTab.BOT_ANALYTICS,
+    pathname: string
+): string => {
+    const standalone = isAiVisibilityPath(pathname)
+    if (productTab === ProductTab.BOT_ANALYTICS) {
+        return standalone ? `${AI_VISIBILITY_PATH}/bots` : '/web/bots'
+    }
+    return standalone ? AI_VISIBILITY_PATH : '/web/content-autopilot'
+}
+
 export const BOT_ANALYTICS_EVENTS = ['$pageview', '$screen', '$http_log']
 
 export const WEB_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {

@@ -277,6 +277,13 @@
             "type": null,
             "intents": ["web_analytics"]
         },
+        {
+            "path": "AI visibility",
+            "category": "Analytics",
+            "iconType": "web_analytics",
+            "type": null,
+            "intents": ["web_analytics"]
+        },
         { "path": "Wizard", "category": "Tools", "iconType": "wizard", "type": "wizard", "intents": [] },
         {
             "path": "Workflows",

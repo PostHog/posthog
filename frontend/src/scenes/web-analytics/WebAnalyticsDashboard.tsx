@@ -877,6 +877,7 @@ const WebAnalyticsSurveyModal = (): JSX.Element | null => {
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     const { currentTeamId } = useValues(teamLogic)
+    const { isAiVisibilityPage } = useValues(webAnalyticsLogic)
     useOnMountEffect(() => {
         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewWebAnalyticsDashboard)
     })
@@ -889,18 +890,22 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsAchievementsModal />
                 <WebAnalyticsSurveyModal />
                 <SceneContent className="WebAnalyticsDashboard gap-y-2">
-                    <>
-                        <WebAnalyticsTabs />
-                        {/* Empty fragment so tabs are not part of the sticky bar */}
-                        <Filters tabs={<></>} />
+                    {isAiVisibilityPage ? (
+                        <AiVisibility />
+                    ) : (
+                        <>
+                            <WebAnalyticsTabs />
+                            {/* Empty fragment so tabs are not part of the sticky bar */}
+                            <Filters tabs={<></>} />
 
-                        <WebAnalyticsShareColleagueBanner />
-                        <WebAnalyticsSavePresetNudge />
-                        <ShareNudgePrompt />
-                        {currentTeamId ? <MarketingAnalyticsFilterHint teamId={currentTeamId} /> : null}
-                        <WebAnalyticsHealthCheck />
-                        <MainContent />
-                    </>
+                            <WebAnalyticsShareColleagueBanner />
+                            <WebAnalyticsSavePresetNudge />
+                            <ShareNudgePrompt />
+                            {currentTeamId ? <MarketingAnalyticsFilterHint teamId={currentTeamId} /> : null}
+                            <WebAnalyticsHealthCheck />
+                            <MainContent />
+                        </>
+                    )}
                 </SceneContent>
             </BindLogic>
         </BindLogic>
