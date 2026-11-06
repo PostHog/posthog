@@ -28,10 +28,7 @@ export function createSandboxEmailCapValkey(
 ): Pick<CdpCoreServicesDeps, 'sandboxEmailCapValkey'> {
     return config.WORKFLOWS_SANDBOX_SENDER_ENABLED
         ? {
-              sandboxEmailCapValkey: createSesRateLimiterValkeyPool(config, 'sandbox-email-cap', {
-                  optional: true,
-                  failFast: true,
-              }),
+              sandboxEmailCapValkey: createSesRateLimiterValkeyPool(config, 'sandbox-email-cap', { mode: 'failFast' }),
           }
         : {}
 }

@@ -251,7 +251,7 @@ export class PluginServer implements NodeServer {
                         ...createSandboxEmailCapValkey(this.config),
                         idempotencyValkey: createIdempotencyValkeyPool(this.config),
                         emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation', {
-                            optional: true,
+                            mode: 'optional',
                         }),
                     },
                     { hogQueue: kafkaQueue, hogflowQueue: postgresV2Queue },
