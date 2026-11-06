@@ -51,6 +51,7 @@ from products.metrics.backend.facade.api import (
     run_metric_query,
     run_promql_query,
     team_has_metrics,
+    team_has_recent_metrics,
 )
 from products.metrics.backend.facade.contracts import (
     DEFAULT_QUERY_COUNT_DAYS,
@@ -539,6 +540,12 @@ class _MetricAnomalyReportSerializer(serializers.Serializer):
 
 class _HasMetricsResponseSerializer(serializers.Serializer):
     hasMetrics = serializers.BooleanField(help_text="Whether the team has ingested any metrics.")
+
+
+class _HasRecentMetricsResponseSerializer(serializers.Serializer):
+    hasRecentMetrics = serializers.BooleanField(
+        help_text="Whether the team has ingested at least one metric in the last 24 hours."
+    )
 
 
 class _MetricsOverviewServiceSerializer(serializers.Serializer):
@@ -1037,6 +1044,12 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         return Response({"hasMetrics": has_metrics}, status=status.HTTP_200_OK)
+
+    @extend_schema(responses={200: _HasRecentMetricsResponseSerializer})
+    @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
+    def has_recent_metrics(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+        return Response({"hasRecentMetrics": team_has_recent_metrics(self.team)}, status=status.HTTP_200_OK)
 
     @extend_schema(responses={200: _MetricsOverviewResponseSerializer})
     @action(

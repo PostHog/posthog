@@ -27,6 +27,7 @@ import type {
     PanelQueryCheckRequestApi,
     PanelQueryCheckResponseApi,
     _HasMetricsResponseApi,
+    _HasRecentMetricsResponseApi,
     _MetricAnomalyReportApi,
     _MetricAnomalyRequestApi,
     _MetricAttributeKeysResponseApi,
@@ -467,6 +468,20 @@ export const metricsHasMetricsRetrieve = async (
     options?: RequestInit
 ): Promise<_HasMetricsResponseApi> => {
     return apiMutator<_HasMetricsResponseApi>(getMetricsHasMetricsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsHasRecentMetricsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/has_recent_metrics/`
+}
+
+export const metricsHasRecentMetricsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<_HasRecentMetricsResponseApi> => {
+    return apiMutator<_HasRecentMetricsResponseApi>(getMetricsHasRecentMetricsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

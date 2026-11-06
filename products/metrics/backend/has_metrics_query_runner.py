@@ -23,20 +23,39 @@ HAS_METRICS_CACHE_TTL = int(dt.timedelta(days=7).total_seconds())
 # extra poll cycle instead of being pinned to a stale empty state.
 HAS_METRICS_NEGATIVE_CACHE_TTL = int(dt.timedelta(seconds=4).total_seconds())
 
+RECENT_METRICS_WINDOW = dt.timedelta(hours=24)
+HAS_RECENT_METRICS_CACHE_TTL = int(dt.timedelta(hours=1).total_seconds())
+HAS_RECENT_METRICS_NEGATIVE_CACHE_TTL = int(dt.timedelta(minutes=5).total_seconds())
+
 
 class HasMetricsQueryRunner:
-    def __init__(self, team: Team) -> None:
+    def __init__(self, team: Team, since: dt.datetime | None = None) -> None:
         self.team = team
+        self.since = since
 
     def run(self) -> bool:
         # `metrics` is only registered under the `posthog.` HogQL namespace
         # (posthog/hogql/database/database.py), so unlike `logs` it must be
         # referenced fully qualified.
-        # Before the `metrics2` data leaves retention, only the `metrics` view reads all of it.
-        if reads_metrics4_only(dt.datetime.now(dt.UTC) - METRICS_RETENTION):
-            query = parse_select("SELECT 1 FROM posthog.metric_samples LIMIT 1")
+        if self.since is None:
+            # Before the `metrics2` data leaves retention, only the `metrics` view reads all of it.
+            if reads_metrics4_only(dt.datetime.now(dt.UTC) - METRICS_RETENTION):
+                query = parse_select("SELECT 1 FROM posthog.metric_samples LIMIT 1")
+            else:
+                query = parse_select("SELECT 1 FROM posthog.metrics LIMIT 1")
         else:
-            query = parse_select("SELECT 1 FROM posthog.metrics LIMIT 1")
+            # `time_bucket` is hour-aligned, so this can include points up to an hour before `since`.
+            since_hour = self.since.astimezone(dt.UTC).replace(minute=0, second=0, microsecond=0)
+            if reads_metrics4_only(since_hour):
+                query = parse_select(
+                    "SELECT 1 FROM posthog.metric_samples WHERE time_bucket >= {since} LIMIT 1",
+                    placeholders={"since": ast.Constant(value=since_hour)},
+                )
+            else:
+                query = parse_select(
+                    "SELECT 1 FROM posthog.metrics WHERE timestamp >= {since} LIMIT 1",
+                    placeholders={"since": ast.Constant(value=self.since)},
+                )
         assert isinstance(query, ast.SelectQuery)
 
         try:
@@ -63,3 +82,20 @@ def team_has_metrics(team: Team) -> bool:
     has_metrics = HasMetricsQueryRunner(team).run()
     cache.set(cache_key, has_metrics, HAS_METRICS_CACHE_TTL if has_metrics else HAS_METRICS_NEGATIVE_CACHE_TTL)
     return has_metrics
+
+
+def team_has_recent_metrics(team: Team) -> bool:
+    """Return True if the team ingested at least one metric in `RECENT_METRICS_WINDOW`."""
+    cache_key = f"team:{team.id}:has_recent_metrics"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    since = dt.datetime.now(dt.UTC) - RECENT_METRICS_WINDOW
+    has_recent_metrics = HasMetricsQueryRunner(team, since=since).run()
+    cache.set(
+        cache_key,
+        has_recent_metrics,
+        HAS_RECENT_METRICS_CACHE_TTL if has_recent_metrics else HAS_RECENT_METRICS_NEGATIVE_CACHE_TTL,
+    )
+    return has_recent_metrics
