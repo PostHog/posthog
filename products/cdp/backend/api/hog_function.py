@@ -1222,8 +1222,12 @@ class HogFunctionViewSet(
         return required_scopes if len(required_scopes) > 1 else None
 
     def _target_is_deleted(self) -> bool:
+        # OpenAPI generation resolves scopes without a URL, so there is no function to look up.
+        pk = self.kwargs.get("pk")
+        if pk is None:
+            return False
         try:
-            return HogFunction.objects.filter(team_id=self.team_id, pk=self.kwargs.get("pk"), deleted=True).exists()
+            return HogFunction.objects.filter(team_id=self.team_id, pk=pk, deleted=True).exists()
         except (ValueError, DjangoValidationError):
             return False
 
