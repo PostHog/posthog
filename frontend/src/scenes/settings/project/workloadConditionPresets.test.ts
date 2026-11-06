@@ -46,7 +46,7 @@ const PROVIDER = {
             default_value: 'production',
         },
     ],
-    condition_claim_companions: {},
+    condition_companions: [],
     can_resolve_subject: true,
     setup_snippet: 'HOG_HOST: {host}\nHOG_PROJECT_ID: "{project_id}"',
 } as WorkloadProviderApi
