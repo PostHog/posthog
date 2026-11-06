@@ -1,17 +1,20 @@
 from posthog.clickhouse.query_tagging import Product
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
-from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import (
     _SEVERITY_WEIGHT,
     AlertContent,
-    HealthCheck,
     Remediation,
     SignalContent,
     build_signal_extra,
 )
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
+from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
+from posthog.temporal.health_checks.rollups.freshness import RollupWindow
+
+from products.web_analytics.backend.models.health_rollups import EventsHealthDaily
+from products.web_analytics.backend.temporal.health_checks.rollup_reads import events_health_totals
 
 NO_LIVE_EVENTS_LOOKBACK_DAYS = 30
 NO_LIVE_EVENTS_SQL = """
@@ -23,15 +26,25 @@ WHERE team_id IN %(team_ids)s
 GROUP BY team_id
 """
 
+LIVE_EVENTS_SINCE_SQL = """
+SELECT DISTINCT team_id
+FROM events
+WHERE team_id IN %(team_ids)s
+  AND event IN ('$pageview', '$screen')
+  AND timestamp >= %(since)s
+"""
 
-class NoLiveEventsCheck(HealthCheck):
+
+class NoLiveEventsCheck(RollupHealthCheck):
     name = "no_live_events"
     kind = "no_live_events"
     owner = JobOwners.TEAM_WEB_ANALYTICS
     product = Product.WEB_ANALYTICS
-    policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "30 4 * * *"
     active_since_days = 30
+    reads_rollup = False
+    rollup_model = EventsHealthDaily
+    window_days = NO_LIVE_EVENTS_LOOKBACK_DAYS
     remediation = Remediation(
         human="""
             Open the Web analytics health page. Confirm the PostHog snippet or SDK is installed and
@@ -75,23 +88,33 @@ class NoLiveEventsCheck(HealthCheck):
             extra=build_signal_extra(issue, title=title, summary=summary, link="/web/health"),
         )
 
-    def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
+    def detect_from_rollup(self, team_ids: list[int], window: RollupWindow) -> dict[int, list[HealthCheckResult]]:
+        silent_team_ids = [
+            team_id for team_id, totals in events_health_totals(team_ids, window).items() if totals.browser_events == 0
+        ]
+        if not silent_team_ids:
+            return {}
+        rows = execute_clickhouse_health_team_query(
+            LIVE_EVENTS_SINCE_SQL,
+            team_ids=silent_team_ids,
+            params={"since": window.live_since.strftime("%Y-%m-%d %H:%M:%S")},
+        )
+        live_team_ids = {team_id for (team_id,) in rows}
+        return {team_id: [_no_live_events_result()] for team_id in silent_team_ids if team_id not in live_team_ids}
+
+    def detect_from_events(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         rows = execute_clickhouse_health_team_query(
             NO_LIVE_EVENTS_SQL,
             team_ids=team_ids,
             lookback_days=NO_LIVE_EVENTS_LOOKBACK_DAYS,
         )
-
         teams_with_recent_events = {team_id for team_id, *_ in rows}
+        return {team_id: [_no_live_events_result()] for team_id in set(team_ids) - teams_with_recent_events}
 
-        issues: dict[int, list[HealthCheckResult]] = {}
-        for team_id in set(team_ids) - teams_with_recent_events:
-            issues[team_id] = [
-                HealthCheckResult(
-                    severity=HealthIssue.Severity.CRITICAL,
-                    payload={"reason": f"No $pageview or $screen events in last {NO_LIVE_EVENTS_LOOKBACK_DAYS} days"},
-                    hash_keys=[],
-                )
-            ]
 
-        return issues
+def _no_live_events_result() -> HealthCheckResult:
+    return HealthCheckResult(
+        severity=HealthIssue.Severity.CRITICAL,
+        payload={"reason": f"No $pageview or $screen events in last {NO_LIVE_EVENTS_LOOKBACK_DAYS} days"},
+        hash_keys=[],
+    )

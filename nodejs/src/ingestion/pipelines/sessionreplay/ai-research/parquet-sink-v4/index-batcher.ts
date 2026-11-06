@@ -1,6 +1,7 @@
 /**
  * Buffers v4 index rows across Kafka batches and writes one Parquet file per index and write day on each flush. Offsets
- * are stored only after every file that holds their rows is written, so a failed write replays (at-least-once).
+ * are stored only after every file that holds their rows is written, so a failed write replays (at-least-once). A flush
+ * that succeeds then writes the watermark files of the partitions that this consumer still owns.
  */
 import { Message, TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
 
@@ -10,11 +11,17 @@ import { OffsetStore } from '~/ingestion/pipelines/sessionreplay/shared/capture-
 
 import { V4Index, V4IndexRow } from './index-columns'
 import { parseIndexMessage } from './index-message'
+import { WATERMARK_FILE_INTERVAL_MS } from './index-watermark-files'
 import { V4ParquetSinkMetrics } from './metrics'
 
 export type IndexFileStore = {
     encode(index: V4Index, rows: readonly V4IndexRow[]): Promise<Buffer>
     put(index: V4Index, writeDay: string, body: Buffer, nowMs: number): Promise<string>
+}
+
+export type IndexWatermarkWriter = {
+    write(ownedOffsets: readonly TopicPartitionOffset[], nowMs: number): Promise<void>
+    cancelWrites(partitions: readonly TopicPartition[]): void
 }
 
 export interface IndexBatcherOptions {
@@ -47,6 +54,8 @@ export class IndexBatcher {
     private rowCount = 0
     private bufferedBytes = 0
     private pendingOffsets = new Map<string, TopicPartitionOffset>()
+    private readonly storedOffsets = new Map<string, TopicPartitionOffset>()
+    private lastWatermarkWriteMs: number | undefined
     /** Partitions revoked since their last message. A flush that started before the revocation must not store their offsets. */
     private readonly revoked = new Set<string>()
     private lastFlushMs: number
@@ -55,6 +64,7 @@ export class IndexBatcher {
     constructor(
         private readonly store: IndexFileStore,
         private readonly offsetStore: OffsetStore,
+        private readonly watermarkFiles: IndexWatermarkWriter,
         private readonly options: IndexBatcherOptions,
         nowMs: number
     ) {
@@ -80,19 +90,25 @@ export class IndexBatcher {
         }
         if (this.shouldFlush(nowMs)) {
             await this.flush(nowMs)
+        } else if (this.watermarkFilesDue(nowMs)) {
+            // A watermark can rise with no new rows, for example when its finished records expire, so idle polls rewrite the files too.
+            await this.enqueue(() => this.writeWatermarkFilesIfDue(nowMs))
         }
     }
 
     /**
-     * Drops the buffered rows and offsets of revoked partitions. Their new owner reads them again from the committed
-     * offset, so writing them here would only duplicate them, and this consumer can no longer store their offsets.
+     * Drops the buffered rows and offsets of revoked partitions, and aborts their watermark writes. Their new owner reads
+     * them again from the committed offset, so writing them here would only duplicate them, and this consumer can no
+     * longer store their offsets.
      */
     public release(partitions: readonly TopicPartition[]): void {
+        this.watermarkFiles.cancelWrites(partitions)
         const keys = new Set(partitions.map(partitionKey))
         let released = 0
         for (const key of keys) {
             this.revoked.add(key)
             this.pendingOffsets.delete(key)
+            this.storedOffsets.delete(key)
         }
         for (const [groupKey, group] of this.groups) {
             const kept = group.rows.filter((buffered) => !keys.has(buffered.partition))
@@ -131,10 +147,29 @@ export class IndexBatcher {
     }
 
     public flush(nowMs: number): Promise<void> {
+        return this.enqueue(() => this.flushNow(nowMs))
+    }
+
+    private enqueue(task: () => Promise<void>): Promise<void> {
         // A later flush's offsets also cover rows that an earlier flush is still writing, so flushes run one at a time and in order.
-        const flushed = this.flushQueue.then(() => this.flushNow(nowMs))
-        this.flushQueue = flushed.catch(() => undefined)
-        return flushed
+        const done = this.flushQueue.then(task)
+        this.flushQueue = done.catch(() => undefined)
+        return done
+    }
+
+    private watermarkFilesDue(nowMs: number): boolean {
+        return (
+            this.storedOffsets.size > 0 &&
+            (this.lastWatermarkWriteMs === undefined || nowMs - this.lastWatermarkWriteMs >= WATERMARK_FILE_INTERVAL_MS)
+        )
+    }
+
+    private async writeWatermarkFilesIfDue(nowMs: number): Promise<void> {
+        if (!this.watermarkFilesDue(nowMs)) {
+            return
+        }
+        this.lastWatermarkWriteMs = nowMs
+        await this.watermarkFiles.write([...this.storedOffsets.values()], Date.now())
     }
 
     private async flushNow(nowMs: number): Promise<void> {
@@ -146,6 +181,7 @@ export class IndexBatcher {
         heartbeats?.unref()
         try {
             await this.writeTaken(nowMs)
+            await this.writeWatermarkFilesIfDue(nowMs)
         } finally {
             if (heartbeats) {
                 clearInterval(heartbeats)
@@ -187,6 +223,9 @@ export class IndexBatcher {
             const assigned = [...offsets].filter(([partition]) => !this.revoked.has(partition))
             if (assigned.length > 0) {
                 this.offsetStore.offsetsStore(assigned.map(([, offset]) => offset))
+                for (const [partition, offset] of assigned) {
+                    this.storedOffsets.set(partition, offset)
+                }
             }
             if (offsets.size > 0) {
                 V4ParquetSinkMetrics.incFlush(wroteFiles ? 'written' : 'empty')

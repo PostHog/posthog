@@ -22,6 +22,7 @@ from .enums import (
     HighlightUnit,
     ImpactNumberKey,
     KeyClauseRole,
+    PulseSlotStatus,
 )
 
 if TYPE_CHECKING:
@@ -205,6 +206,8 @@ class HighlightItem:
     url: str | None
     series: list[float] | None
     score: float
+    # Results stored before this field existed have no product.
+    product: str | None = None
 
 
 @dataclass(frozen=True)
@@ -225,6 +228,16 @@ class HighlightPin:
     status: HighlightPinStatus
 
 
+@frozen
+class PulseSlot:
+    key: str
+    name: str
+    reason: HighlightMetricReason | None = None
+    status: PulseSlotStatus = PulseSlotStatus.PENDING
+    url: str | None = None
+    interval: HighlightInterval | None = None
+
+
 @dataclass(frozen=True)
 class Highlights:
     status: HighlightsStatus
@@ -234,6 +247,7 @@ class Highlights:
     pulse: list[HighlightMetric]
     items: list[HighlightItem]
     pins: list[HighlightPin] = field(default_factory=list)
+    pulse_slots: list[PulseSlot] | None = None
 
 
 class DailyValueNotReady(Exception):
@@ -304,7 +318,7 @@ class HighlightSource:
     Today finds that module by name, so a new source changes no file in Today.
     """
 
-    # Unique across products. Today keys stored results and the frontend icon by it.
+    # Unique across products and stable: Today keys stored results and analytics by it, so a rename breaks them.
     name: str
     find: Callable[[HighlightContext], HighlightFindings]
     # Today skips the source when the viewer's API scopes or access controls do not cover these.

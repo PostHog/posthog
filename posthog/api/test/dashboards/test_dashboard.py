@@ -111,7 +111,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         for dashboard_name in dashboard_names:
             self.dashboard_api.create_dashboard({"name": dashboard_name})
 
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(12):
             response_data = self.dashboard_api.list_dashboards()
         self.assertEqual(
             [dashboard["name"] for dashboard in response_data["results"]],
@@ -175,7 +175,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.create_dashboard({"name": "also tagged", "tags": ["tag2"]})
         self.dashboard_api.create_dashboard({"name": "not tagged"})
 
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(12):
             response = self.dashboard_api.list_dashboards(
                 expected_status=status.HTTP_200_OK, query_params={"tags": ["tag"]}
             )
@@ -189,7 +189,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.create_dashboard({"name": "not tagged"})
         self.dashboard_api.create_dashboard({"name": "not with the right tag", "tags": ["wrong-tag"]})
 
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(12):
             response = self.dashboard_api.list_dashboards(
                 expected_status=status.HTTP_200_OK, query_params={"tags": ["tag", "tag2"]}
             )
@@ -1151,7 +1151,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         with mute_selected_signals():
             dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-            baseline = 9
+            baseline = 8
             # Each dashboard GET that materializes at least one insight runner performs one
             # property-access-control feature check, memoized across all runners on the dashboard
             # by `get_restricted_properties_for_team`'s per-scope cache. It costs no Postgres
@@ -1244,7 +1244,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(8):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
@@ -1252,7 +1252,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(FuzzyInt(11, 13)):
+            with self.assertNumQueries(FuzzyInt(10, 12)):
                 self.dashboard_api.list_dashboards(query_params={"limit": 300})
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:
@@ -2153,6 +2153,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         ]
         self.assertEqual(len(marking_calls), 1)
         self.assertEqual(marking_calls[0].args[2]["badge"], "winner")
+        group_created_calls = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"
+        ]
+        self.assertEqual(
+            [call.args[2] for call in group_created_calls],
+            [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
+        )
 
         _, copied = self.dashboard_api.create_dashboard(
             {"name": "copy", "use_dashboard": dashboard_id, "duplicate_tiles": duplicate_tiles}
@@ -2202,6 +2209,77 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual([tile["badge"] for tile in dashboard["tiles"]], [None, None])
         self.assertEqual(dashboard["customization"], {})
 
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_tile_group_created_is_reported_once_per_new_group_for_content_tiles(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {
+                "tiles": [
+                    {"text": {"body": "a"}, "layouts": {}, "group_key": "plans"},
+                    {"text": {"body": "b"}, "layouts": {}, "group_key": "plans"},
+                ]
+            },
+        )
+
+        group_created_calls = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"
+        ]
+        self.assertEqual(
+            [call.args[2] for call in group_created_calls],
+            [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_tile_group_created_ignores_tiles_hidden_by_a_deleted_insight(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "insight"})
+        tile_id = self.dashboard_api.get_dashboard(dashboard_id)["tiles"][0]["id"]
+        self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile_id, "group_key": "plans"}]})
+        Insight.objects.filter(team=self.team).update(deleted=True)
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id, {"tiles": [{"text": {"body": "a"}, "layouts": {}, "group_key": "plans"}]}
+        )
+
+        group_created_calls = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"
+        ]
+        self.assertEqual(
+            [call.args[2] for call in group_created_calls],
+            [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_tile_group_created_is_not_reported_when_the_update_rolls_back(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {
+                "tiles": [
+                    {"text": {"body": "a"}, "layouts": {}, "group_key": "plans"},
+                    {"id": 999999, "group_key": "plans"},
+                ]
+            },
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(
+            [call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"],
+            [],
+        )
+
     @parameterized.expand(
         [
             ("unknown_badge", {"badge": "Winner"}, "badge"),
@@ -2248,6 +2326,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "duplicated": False,
                 "duplicated_from_dashboard_id": None,
                 "from_template": True,
+                "group_count": 0,
+                "group_display": "sections",
                 "has_description": True,
                 "is_shared": False,
                 "item_count": 6,
@@ -2294,6 +2374,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "created_at": mock.ANY,
                 "creation_mode": "default",
                 "dashboard_id": dashboard_id,
+                "group_count": 0,
+                "group_display": "sections",
                 "has_description": False,
                 "is_shared": False,
                 "item_count": 0,
@@ -3611,6 +3693,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "dashboard_id": dashboard["id"],
                 "duplicated": False,
                 "from_template": True,
+                "group_count": 0,
+                "group_display": "sections",
                 "has_description": True,
                 "is_shared": False,
                 "item_count": 1,
@@ -3961,6 +4045,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                         },
                     },
                     "resolved_date_range": ANY,
+                    "resolved_compare_date_range": None,
+                    "action_names": None,
                     "query_status": None,
                     "query_scan": None,
                     "warnings": None,

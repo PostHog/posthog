@@ -20,6 +20,7 @@ serde_json = { workspace = true }
 pin-project = "1.1"
 sqlx = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }
 thiserror = { workspace = true }
@@ -28,7 +29,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 rstest = "0.26"
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 tower = { workspace = true, features = ["util"] }
 
 [lints]

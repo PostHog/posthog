@@ -107,6 +107,20 @@ Additional signals that a skill is the right answer even when tool prompts are a
 
 Don't write a skill for something the agent already one-shots from generic knowledge. A few real examples from review: `creating-isolated-project` or `finding-experiments` were unnecessary — the agent can do it without help. `setting-up-reverse-proxy` was the right call — the agent failed at it, and the skill needed to ship code snippets it couldn't derive. The bar is PostHog-specific judgement that a smart generalist agent wouldn't have, not project setup it can already handle.
 
+### Docs or skill?
+
+A skill holds the steps an agent follows for one job: the order of tool calls, the checks to run before it reports done, and the decisions it must not make alone.
+Most of that is detail a person doing the same job would skip.
+
+Everything else goes in docs, because people need it too.
+That covers how a system works, how to set it up or run it, its options, and its gotchas.
+Put it in a README next to the code or in an existing page under `docs/`, and have the skill link to it with a line on when to read it.
+A published product skill links to the public page on posthog.com.
+If an engineer would look something up without an agent, it belongs in docs.
+
+The `working-with-charts` skill is the model.
+The chart API docs live in the package. The skill keeps how to pick a chart, a few rules for its data, and what to check before calling the work done, and links to the package docs for the rest.
+
 ### How many skills is too many?
 
 A common worry when shipping a set of skills is "am I adding too many?" — and it's the right worry. Skill count is a budgeted, shared resource, not a free axis to expand. Agents pick skills from a list of _all_ available descriptions, and many harnesses **truncate that list** once it grows long. Every extra skill dilutes discovery for every other skill, so a bloated set makes each individual skill _less_ likely to fire, not more.
@@ -404,21 +418,23 @@ and packaged into `dist/skills.zip` with deterministic timestamps for reproducib
 ## Distribution
 
 Distribution is automatic – once a skill lands on `master`,
-CI builds the `dist/skills.zip` artifact and publishes it to two downstream repositories:
+`ci-agent-skills.yml` builds `dist/skills.zip` and publishes it as the `agent-skills-latest` GitHub release.
+Two downstream repositories pull that release, together with context-mill's, in a daily sync at 12:00 UTC:
 
-- [`PostHog/skills`](https://github.com/PostHog/skills) –
-  the canonical distribution repo.
-  Each built skill is pushed as a standalone directory so it can be synced directly into
-  any agent that follows Anthropic's skills layout (Claude Code, Claude Desktop, etc.).
 - [`PostHog/ai-plugin`](https://github.com/PostHog/ai-plugin) –
-  the plugin distribution used by coding agents that consume PostHog capabilities
-  (PostHog Desktop, PostHog AI). The plugin bundles the skills alongside the MCP tool definitions
-  so agents get the "how" and the "what" together.
+  the PostHog plugin for AI clients.
+  It bundles the skills with the MCP server, so agents get the "how" and the "what" together.
+  Its README has the install steps for each supported client:
+  Claude Code, Claude Cowork, Cursor, Codex, Antigravity, Gemini CLI and Grok.
+  Point users there rather than copying install steps into other docs.
+- [`PostHog/skills`](https://github.com/PostHog/skills) –
+  a mirror with each built skill as a standalone directory,
+  for agents that load skills without a plugin.
+  It also hosts a Claude Code plugin marketplace for skills authored there.
 
-PostHog Desktop already consumes skills automatically, and PostHog AI consumes the same set.
-Because both repositories are updated from the same `dist/skills.zip` on every merge to `master`,
-you don't need to handle distribution yourself –
-merge your skill and it shows up in both places on the next CI run.
+PostHog Desktop and the Tasks sandbox pull `agent-skills-latest` themselves (see the table below).
+You don't need to handle distribution yourself:
+a merged skill reaches the plugin and the mirror after the next daily sync, and users get it when their client updates the plugin.
 
 ### Context-mill skills override this repo's
 
@@ -426,7 +442,7 @@ This repo is not the only source of shipped skills.
 [`PostHog/context-mill`](https://github.com/PostHog/context-mill) assembles the "omnibus" skills
 from posthog.com docs and publishes them as `skills-mcp-resources.zip`:
 `instrument-integration`, `instrument-product-analytics`, `instrument-feature-flags`,
-`instrument-error-tracking`, `instrument-llm-analytics`, `instrument-logs`, and `instrument-metrics`.
+`instrument-error-tracking`, `instrument-llm-analytics`, `instrument-logs`, `instrument-metrics`, and `instrument-tracing`.
 These are the skills behind PostHog Desktop's setup buttons and the wizard.
 
 Every consumer below unzips `dist/skills.zip` first and then unzips context-mill on top,
@@ -435,9 +451,17 @@ A same-named skill added here would have its `SKILL.md` overwritten
 while its extra reference files survived as orphans in the other source's directory.
 The Desktop harness bundle is the exception: it packages context-mill alone,
 so a skill from this repo is absent there rather than overwritten.
+The MCP server's `learn` catalog overlays them at runtime:
+the context-mill resource refresh repacks the omnibus skills from the release it already downloads,
+and the skill catalog service merges that copy over `skills.zip` on its next poll,
+keeping the product skill when a name collides and serving no overlay on a pinned archive.
+`learn -s` scores an omnibus skill by its name, description, and `SKILL.md` only,
+because its references are docs snapshots that would crowd out workflow skills;
+`learn posthog:<skill> <path>` still reads any reference.
 
 | Consumer                              | Merge site                                                                                                                  |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| MCP server `learn` catalog            | `services/mcp/src/hono/skill-catalog-service.ts` – overlays the copy `ContextMillResourceCache` publishes to Redis          |
 | PostHog Desktop build                 | `products/desktop/apps/code/vite-main-plugins.mts` (`copyPosthogPlugin`)                                                    |
 | PostHog Desktop runtime, every 30 min | `products/desktop/packages/workspace-server/src/services/posthog-plugin/update-skills-saga.ts`                              |
 | Desktop harness bundle                | `packages/agent/packages/harness/tsup.config.ts` – context-mill only, this repo's skills are absent rather than overwritten |

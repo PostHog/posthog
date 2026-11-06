@@ -27,6 +27,7 @@ export interface QuestionInputController {
     hasQuestion: boolean
     fillInHint: string | null
     showFillInHint: boolean
+    replySuggestion: string | null
     promptLength: number | null
     isOverLengthLimit: boolean
     maxMessageLength: number
@@ -106,6 +107,7 @@ export function useQuestionInput({ textAreaRef, onSubmit }: UseQuestionInputOpti
         queueingEnabled,
         queuedMessages,
         queueSubmitting,
+        sandboxReplySuggestions,
     } = useValues(maxThreadLogic)
     const {
         askMax,
@@ -123,6 +125,8 @@ export function useQuestionInput({ textAreaRef, onSubmit }: UseQuestionInputOpti
     // user keeps typing a message that still starts with "/". "/" + Esc is a valid path.
     const [autocompleteDismissed, setAutocompleteDismissed] = useState(false)
     const [editingQueueId, setEditingQueueId] = useState<string | null>(null)
+    const [dismissedReplySuggestion, setDismissedReplySuggestion] = useState<string | null>(null)
+    const acceptedReplySuggestion = useRef<string | null>(null)
     const displayQueuedMessages = useMemo(() => [...queuedMessages].reverse(), [queuedMessages])
 
     // Hold the textarea value in local state so each keystroke is an isolated, cheap re-render
@@ -171,6 +175,13 @@ export function useQuestionInput({ textAreaRef, onSubmit }: UseQuestionInputOpti
         // it rather than the prefix that happens to be on screen, and stop the animation writing
         // the rest into the composer after the message has gone.
         const content = typingSuggestion ?? prompt
+        if (acceptedReplySuggestion.current !== null) {
+            posthog.capture('posthog ai reply suggestion sent', {
+                conversation_id: conversation?.id,
+                edited: content.trim() !== acceptedReplySuggestion.current,
+            })
+            acceptedReplySuggestion.current = null
+        }
         if (typingSuggestion) {
             cancelSuggestionTyping()
         }
@@ -191,6 +202,23 @@ export function useQuestionInput({ textAreaRef, onSubmit }: UseQuestionInputOpti
     const hasQuestion = inputValue.trim().length > 0
     // A fill-in suggestion typed its prefix in and is waiting for the user to complete it.
     const showFillInHint = !!fillInHint
+    const replySuggestion =
+        !inputValue && !threadLoading && !isSharedThread && !showFillInHint && sandboxReplySuggestions
+            ? `${conversation?.id}:${sandboxReplySuggestions.turnIndex}` !== dismissedReplySuggestion
+                ? (sandboxReplySuggestions.replies[0] ?? null)
+                : null
+            : null
+    const replySuggestionTurn = replySuggestion !== null ? sandboxReplySuggestions?.turnIndex : undefined
+
+    useEffect(() => {
+        if (replySuggestionTurn !== undefined) {
+            posthog.capture('posthog ai reply suggestion shown', {
+                conversation_id: conversation?.id,
+                turn_index: replySuggestionTurn,
+                suggestion_count: sandboxReplySuggestions?.replies.length,
+            })
+        }
+    }, [replySuggestionTurn]) // oxlint-disable-line react-hooks/exhaustive-deps
     const isQueueingSubmission = queueingEnabled && threadLoading && hasQuestion
     const showStopButton = threadLoading && !isQueueingSubmission && !cancelLoading
 
@@ -264,6 +292,30 @@ export function useQuestionInput({ textAreaRef, onSubmit }: UseQuestionInputOpti
     }
 
     const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+        if (replySuggestion !== null && sandboxReplySuggestions) {
+            const noModifiers = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey
+            if (noModifiers && (event.key === 'Tab' || event.key === 'ArrowRight')) {
+                event.preventDefault()
+                acceptedReplySuggestion.current = replySuggestion
+                setDismissedReplySuggestion(`${conversation?.id}:${sandboxReplySuggestions.turnIndex}`)
+                handleQuestionChange(replySuggestion)
+                posthog.capture('posthog ai reply suggestion accepted', {
+                    conversation_id: conversation?.id,
+                    turn_index: sandboxReplySuggestions.turnIndex,
+                    key: event.key,
+                })
+                return
+            }
+            if (event.key === 'Escape') {
+                event.preventDefault()
+                setDismissedReplySuggestion(`${conversation?.id}:${sandboxReplySuggestions.turnIndex}`)
+                posthog.capture('posthog ai reply suggestion dismissed', {
+                    conversation_id: conversation?.id,
+                    turn_index: sandboxReplySuggestions.turnIndex,
+                })
+                return
+            }
+        }
         if (event.key === 'ArrowUp' && !inputValue.trim() && queuedMessages.length > 0 && !editingQueueId) {
             const target = event.currentTarget
             const atStart = target.selectionStart === 0 && target.selectionEnd === 0
@@ -320,6 +372,7 @@ export function useQuestionInput({ textAreaRef, onSubmit }: UseQuestionInputOpti
         hasQuestion,
         fillInHint,
         showFillInHint,
+        replySuggestion,
         promptLength,
         isOverLengthLimit,
         maxMessageLength: MAX_MESSAGE_LENGTH,

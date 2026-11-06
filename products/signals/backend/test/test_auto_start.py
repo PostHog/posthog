@@ -1,5 +1,6 @@
 import re
 import json
+from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -13,7 +14,8 @@ from asgiref.sync import async_to_sync, sync_to_async
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, Team, User
+from posthog.exceptions import QuotaLimitExceeded
+from posthog.models import Integration, Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import grants_scratchpad_write
@@ -31,6 +33,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.auto_start import (
     NO_SUPERSEDE,
+    AutostartOutcome,
     ImplementationReportContent,
     ReportChangedDuringAutostart,
     ReportSteering,
@@ -51,9 +54,11 @@ from products.signals.backend.auto_start import (
     maybe_autostart_implementation_task,
 )
 from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.issue_dependencies import IssueRef
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     ArtefactAttribution,
+    SignalEmissionRecord,
     SignalReport,
     SignalReportArtefact,
     SignalReportPullRequest,
@@ -665,7 +670,8 @@ def test_human_pin_does_not_authorize_automatic_execution(
 @pytest.mark.parametrize(
     "concurrent_change", [None, {"summary": "A newer fix"}, {"run_count": 2}, {"content_revision_count": 1}]
 )
-def test_create_implementation_task_if_absent_is_idempotent(organization, team, concurrent_change):
+@pytest.mark.parametrize("spend_kind", ["reviewer_triggered_implementation", "scout_triggered_implementation"])
+def test_create_implementation_task_if_absent_is_idempotent(organization, team, concurrent_change, spend_kind):
     # The locked create guards against duplicate auto-start tasks: a second evaluation that
     # observes the link row must no-op rather than spawn another Task / draft PR. It also asserts
     # the facade is invoked with the SIGNAL_REPORT origin and ai_stage="implementation" so the
@@ -675,6 +681,9 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+    SignalTeamConfig.objects.update_or_create(
+        team=team, defaults={"implementation_repositories": ["owner/assets", "other/assets", "owner/repo"]}
     )
 
     created_tasks = []
@@ -694,6 +703,7 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     kwargs = {
         "team_id": team.id,
         "report_id": str(report.id),
+        "implementation_spend_kind": spend_kind,
         "title": "t",
         "description": "d",
         "expected_content": ImplementationReportContent.from_report(report),
@@ -725,6 +735,7 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     call_kwargs = mock_create.call_args.kwargs
     assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
     assert call_kwargs["ai_stage"] == "implementation"
+    assert call_kwargs["implementation_spend_kind"] == spend_kind
     assert call_kwargs["internal"] is True
     # The description's memory protocol is rendered from this same posture, so a posture that stops
     # granting the scratchpad would leave the run told to remember with no tool to remember with.
@@ -734,6 +745,10 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     # self-driving reviews (the agent pushes to a name the server never stamped).
     assert call_kwargs["self_driving_head_branch"].startswith("posthog-self-driving/")
     assert call_kwargs["self_driving_head_branch"] in call_kwargs["description"]
+    # Only same-owner entries apply, because the token comes from the selected repository's installation.
+    assert call_kwargs["github_access_repositories"] == ["owner/assets"]
+    assert "`owner/assets`" in call_kwargs["description"]
+    assert call_kwargs["repository"] == "owner/repo"
     # The gate the second evaluation observed is the legacy SignalReportTask implementation link,
     # written in the same transaction as the task; the task_run artefact is the work-log entry
     # alongside.
@@ -860,9 +875,19 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("autostart_enabled", "concurrent_edit"), [(True, False), (False, False), (None, False), (True, True)]
+    ("autostart_enabled", "concurrent_edit", "pilot", "repository_available"),
+    [
+        (True, False, False, True),
+        (False, False, False, True),
+        (None, False, False, True),
+        (True, True, False, True),
+        (True, False, True, False),
+        (True, False, True, True),
+    ],
 )
-async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabled, concurrent_edit):
+async def test_team_autostart_switch_gates_reviewerless_fallback(
+    autostart_enabled, concurrent_edit, pilot, repository_available
+):
     # The master switch must gate the reviewer-less fallback — the path email-login teams (no linked
     # GitHub) hit. An actionable, prioritized report with no resolvable reviewer auto-starts under the
     # team's signals enabler unless the switch is an explicit False (null leaves autostart on); committed
@@ -920,6 +945,11 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", side_effect=resolve_runtime),
+        patch("products.signals.backend.github_optional.ResearchAccessPolicy.enabled", return_value=pilot),
+        patch(
+            "products.signals.backend.github_optional.ResearchAccessPolicy.repository_available",
+            return_value=repository_available,
+        ),
     ):
         await maybe_autostart_implementation_task(
             team_id=team.id,
@@ -936,7 +966,7 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
         )
 
-    assert (mock_create.call_count == 1) is (autostart_enabled is not False)
+    assert (mock_create.call_count == 1) is (autostart_enabled is not False and (not pilot or repository_available))
 
     if concurrent_edit:
         assert "A newer fix" in mock_create.call_args.kwargs["description"]
@@ -1202,6 +1232,7 @@ def _link(team_id: int, source: SignalReport, target: SignalReport, kind: Report
         ("later_duplicate_of_with_pr", "duplicate_of"),
         ("depends_on_without_pr", "blocked_by_dependency"),
         ("depends_on_with_open_pr", None),
+        ("unresolved_github_issue", "blocked_by_dependency"),
         ("incoming_part_of", "plan_parent"),
         ("none", None),
     ],
@@ -1324,6 +1355,10 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_be
             return_value=AgentRuntime(),
         ),
         patch("products.signals.backend.auto_start.posthoganalytics.capture") as capture_mock,
+        patch(
+            "products.signals.backend.auto_start.resolve_issue_dependencies",
+            return_value=(IssueRef(repository="owner/repo", number=7),) if link == "unresolved_github_issue" else (),
+        ),
     ):
         outcome = await maybe_autostart_implementation_task(
             team_id=team.id,
@@ -1424,11 +1459,18 @@ async def test_a_non_link_skip_is_counted_under_its_own_reason_without_a_log_ent
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("enforced", [True, False])
-async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
-    # The implementation task is the step that leads to the billable PR: an enforced over-quota
-    # team must start none, while dark launch (limited, flag off) must leave auto-start untouched.
-    # Committed rows for the same reason as the autostart-switch test above.
+@pytest.mark.parametrize(
+    ("status", "run_count", "enforced", "should_block"),
+    [
+        (SignalReport.Status.READY, 0, True, False),
+        (SignalReport.Status.IN_PROGRESS, 1, True, False),
+        (SignalReport.Status.CANDIDATE, 0, True, True),
+        (SignalReport.Status.CANDIDATE, 0, False, False),
+    ],
+)
+async def test_autostart_requires_admission_or_available_quota(
+    status: str, run_count: int, enforced: bool, should_block: bool
+) -> None:
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
 
@@ -1441,7 +1483,7 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
             team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
         )
         report = SignalReport.objects.create(
-            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+            team=team, status=status, run_count=run_count, title="t", summary="s", signal_count=0, total_weight=0.0
         )
         return team, report
 
@@ -1454,16 +1496,17 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
             description=kwargs["description"],
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
-        run = TaskRun.objects.create(task=task, team_id=team.id)
-        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+        TaskRun.objects.create(task=task, team_id=team.id)
+        return task
 
     with (
-        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch.object(Task, "create_and_run", side_effect=_fake_create_and_run_task),
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
         patch(
-            "products.signals.backend.auto_start.self_driving_quota_gate",
+            "products.signals.backend.quota.self_driving_quota_gate",
             return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
         ),
+        pytest.raises(QuotaLimitExceeded) if should_block else nullcontext(),
     ):
         await maybe_autostart_implementation_task(
             team_id=team.id,
@@ -1480,7 +1523,7 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
         )
 
-    assert (mock_create.call_count == 0) is enforced
+    assert await Task.objects.filter(team_id=team.id).aexists() is not should_block
 
 
 @pytest.mark.asyncio
@@ -1562,8 +1605,11 @@ async def test_free_trial_gate_blocks_autostart(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("autostart_eligible", [True, False])
-async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
+@pytest.mark.parametrize(
+    ("autostart_eligible", "user_edit", "enforced"),
+    [(True, False, True), (False, False, True), (True, True, True), (True, True, False)],
+)
+async def test_reviewer_reevaluation_checks_quota_only_for_a_fresh_user_edit(autostart_eligible, user_edit, enforced):
     # The re-eval reads the flag off the persisted artefact and hands it to autostart rather than
     # deciding for itself, so a reviewer edit arriving later still gets the whole gate applied.
     def _setup() -> tuple[Team, SignalReport]:
@@ -1601,9 +1647,25 @@ async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
 
     team, report = await sync_to_async(_setup)()
 
-    with patch("products.signals.backend.auto_start.maybe_autostart_implementation_task") as mock_autostart:
-        await maybe_autostart_from_report_artefacts(team_id=team.id, report_id=str(report.id))
+    with (
+        patch(
+            "products.signals.backend.auto_start.maybe_autostart_implementation_task",
+            return_value=AutostartOutcome(status="started"),
+        ) as mock_autostart,
+        patch(
+            "products.signals.backend.auto_start.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
+        ),
+        patch("products.signals.backend.auto_start._latest_reviewers_content", return_value=([], 123)),
+    ):
+        outcome = await maybe_autostart_from_report_artefacts(
+            team_id=team.id, report_id=str(report.id), triggering_user_id=123 if user_edit else None
+        )
 
+    assert outcome.status == ("blocked" if user_edit and enforced else "started")
+    if user_edit and enforced:
+        mock_autostart.assert_not_called()
+        return
     assert mock_autostart.call_args.kwargs["repository_autostart_eligible"] is autostart_eligible
 
 
@@ -1688,8 +1750,9 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
         (False, True, True),
     ],
 )
+@pytest.mark.parametrize("monitoring,private_destination", [(False, False), (True, False), (True, True)])
 async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
-    repository_autostart_eligible, user_triggered, expect_task
+    repository_autostart_eligible, user_triggered, expect_task, monitoring: bool, private_destination: bool
 ):
     # A repo read out of the report's own text is a target for whoever clicks Create PR, so it must not
     # reach the reviewer-less fallback — the one path where nobody named the destination or the runner.
@@ -1712,6 +1775,27 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
         return team, report, enabler
 
     team, report, enabler = await sync_to_async(_setup)()
+    origin = await SignalReport.objects.acreate(team=team, status="closed")
+    await Integration.objects.acreate(
+        team=team,
+        kind="github",
+        integration_id="privacy-test",
+        config={"installation_id": "privacy-test"},
+        repository_cache=[
+            {"id": 1, "name": "repo", "full_name": "owner/repo", "private": private_destination},
+            {"id": 2, "name": "source", "full_name": "example/source", "private": True},
+        ],
+        repository_cache_updated_at=timezone.now(),
+    )
+    if monitoring:
+        await SignalEmissionRecord.objects.acreate(
+            team=team,
+            source_product="signals_check",
+            source_type="monitoring_unresolved",
+            source_id=str(report.id),
+            report_id=str(report.id),
+            emitted_at=timezone.now(),
+        )
 
     def _fake_create_and_run_task(**kwargs):
         task = Task.objects.create(
@@ -1726,6 +1810,17 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
+        patch(
+            "products.signals.backend.report_monitoring_provenance.execute_hogql_query",
+            return_value=SimpleNamespace(
+                results=[
+                    (str(report.id), "signals_check", "monitoring_unresolved", "", str(origin.id)),
+                    (str(origin.id), "github", "issue", "https://github.com/example/source/issues/1", ""),
+                ]
+                if monitoring
+                else []
+            ),
+        ),
     ):
         await maybe_autostart_implementation_task(
             team_id=team.id,
@@ -1744,7 +1839,7 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
             repository_autostart_eligible=repository_autostart_eligible,
         )
 
-    assert (mock_create.call_count == 1) is expect_task
+    assert (mock_create.call_count == 1) is (expect_task and (not monitoring or private_destination))
 
 
 _EXISTING_PR_URL = "https://github.com/PostHog/posthog/pull/1"

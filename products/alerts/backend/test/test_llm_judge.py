@@ -19,12 +19,12 @@ from posthog.models.user import User
 from products.alerts.backend.judge import (
     EarlierFlag,
     JudgeAttribution,
-    LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
     SeriesContext,
     SeriesJudgment,
 )
-from products.alerts.backend.judge.llm import MAX_RATIONALE_CHARS, LLMSeriesJudge
+from products.alerts.backend.judge.llm import LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE, MAX_RATIONALE_CHARS, LLMSeriesJudge
 from products.alerts.backend.judge.prompt import (
     INSTRUCTIONS_FENCE,
     MAX_EARLIER_RATIONALE_CHARS,
@@ -53,9 +53,15 @@ def _fake_user() -> Any:
     return user
 
 
+_CREDIT_CHECK = "ee.billing.quota_limiting.is_team_over_ai_credit_budget"
+
+
 @pytest.fixture(autouse=True)
 def _in_the_rollout() -> Iterator[None]:
-    with patch("products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=True):
+    with (
+        patch("products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=True),
+        patch(_CREDIT_CHECK, return_value=False),
+    ):
         yield
 
 
@@ -135,12 +141,12 @@ class TestLLMJudgeFailureIsLoud:
     def test_call_is_refused_without_ai_processing_consent(self, _name: str, approved: bool | None) -> None:
         attribution = _attribution(team=_fake_team(ai_processing_approved=approved))
 
-        with pytest.raises(LLMDetectorMisconfiguredError, match="AI data processing is turned off"):
+        with pytest.raises(LLMDetectorPausedError, match="AI data processing is turned off"):
             LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=attribution)
 
     @parameterized.expand(
         [
-            ("revoked", False, LLMDetectorMisconfiguredError, "not enabled for your account"),
+            ("revoked", False, LLMDetectorPausedError, "not enabled for your account"),
             ("unavailable", None, LLMDetectorUnavailableError, "could not check rollout access"),
         ]
     )
@@ -276,15 +282,15 @@ _NEXT_SLOT = "b8f3a1e0-0000-0000-0000-000000000001:2026-01-07T00:15:00+00:00"
 
 
 @contextmanager
-def _mocked_model(verdict: LLMDetectionVerdict) -> Iterator[Any]:
+def _mocked_model(verdict: LLMDetectionVerdict, *, privacy_mode: bool = False) -> Iterator[Any]:
     with (
         patch("products.alerts.backend.judge.prompt.render_series_chart", return_value=None),
-        patch("products.alerts.backend.judge.llm.posthoganalytics.default_client", None),
-        patch("ee.hogai.llm.MaxChatAnthropic") as chat,
+        patch("ee.hogai.utils.feature_flags.is_privacy_mode_enabled", return_value=privacy_mode),
+        patch("products.alerts.backend.judge.llm.build_ai_gateway_anthropic_client") as build_client,
     ):
-        invoke = chat.return_value.with_structured_output.return_value.invoke
-        invoke.return_value = verdict
-        yield invoke
+        parse = build_client.return_value.with_options.return_value.messages.parse
+        parse.return_value = MagicMock(parsed_output=verdict)
+        yield parse
 
 
 @pytest.fixture
@@ -351,6 +357,28 @@ class TestLLMJudgeVerdictMemo:
 
 
 @pytest.mark.parametrize(
+    "is_agent_billable,over_budget,expect_call",
+    [
+        (True, True, False),
+        (False, True, True),
+        (True, RuntimeError("redis down"), True),
+    ],
+)
+def test_an_organization_without_ai_credits_makes_no_model_call(
+    is_agent_billable: bool, over_budget: bool | Exception, expect_call: bool
+) -> None:
+    budget_check = {"side_effect": over_budget} if isinstance(over_budget, Exception) else {"return_value": over_budget}
+    attribution = _attribution(is_agent_billable=is_agent_billable)
+    with _mocked_model(_verdict()) as parse, patch(_CREDIT_CHECK, **budget_check):
+        try:
+            LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=attribution)
+        except LLMDetectorPausedError as error:
+            assert str(error) == LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE
+
+    assert parse.called is expect_call
+
+
+@pytest.mark.parametrize(
     "error_type,status_code",
     [(anthropic.AuthenticationError, 401), (anthropic.PermissionDeniedError, 403), (anthropic.BadRequestError, 400)],
 )
@@ -364,10 +392,20 @@ def test_provider_rejections_do_not_disable_an_alert(
             LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=_attribution())
 
 
-@pytest.mark.parametrize("is_agent_billable", [True, False])
-def test_model_call_preserves_the_billing_decision(is_agent_billable: bool) -> None:
-    with _mocked_model(_verdict()) as invoke:
+@pytest.mark.parametrize(
+    "is_agent_billable,privacy_mode,expected_headers",
+    [
+        (True, False, {}),
+        (False, False, {"X-PostHog-Billable": "false"}),
+        (True, True, {"X-PostHog-Privacy-Mode": "true"}),
+        (False, True, {"X-PostHog-Billable": "false", "X-PostHog-Privacy-Mode": "true"}),
+    ],
+)
+def test_model_call_preserves_the_billing_and_privacy_decisions(
+    is_agent_billable: bool, privacy_mode: bool, expected_headers: dict[str, str]
+) -> None:
+    with _mocked_model(_verdict(), privacy_mode=privacy_mode) as parse:
         LLMSeriesJudge({"type": "llm"}).judge_latest(
             SERIES, series=_series(), attribution=_attribution(is_agent_billable=is_agent_billable)
         )
-    assert invoke.call_args.kwargs["config"]["configurable"]["is_agent_billable"] is is_agent_billable
+    assert parse.call_args.kwargs["extra_headers"] == expected_headers

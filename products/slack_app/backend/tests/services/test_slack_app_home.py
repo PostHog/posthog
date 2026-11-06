@@ -27,6 +27,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
+from products.slack_app.backend.logic.feature_tips.state import get_state, set_tips_enabled
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
@@ -42,6 +43,7 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_RESET_PROJECT_PERSONAL,
     ACTION_SET_AUTO_MODEL_CHOICE,
     ACTION_SET_CHANNEL_WELCOME_MODE,
+    ACTION_SET_FEATURE_TIPS,
     ACTION_SET_PROJECT_WORKSPACE,
     ACTION_SET_THREAD_JOIN_MODE,
     ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
@@ -52,6 +54,7 @@ from products.slack_app.backend.services.slack_app_home import (
     AUTO_MODEL_CHOICE_VALUE,
     BLOCK_TASKS_CONTROLS,
     EDIT_MODAL_PERSONAL_CALLBACK_ID,
+    FEATURE_TIPS_VALUE,
     HOME_ACTION_IDS,
     MODAL_ACTION_MODEL,
     MODAL_ACTION_REASONING_EFFORT,
@@ -481,6 +484,7 @@ class TestRenderHomeView:
             auto_model_choice=auto_model_choice,
             own_plan=OwnPlanState(connected=True, settings_url="https://app.example.com/settings"),
             thread_join_mode=ThreadJoinMode.ASK_PER_THREAD,
+            feature_tips_enabled=auto_model_choice,
         )
 
     @pytest.mark.parametrize(
@@ -618,6 +622,25 @@ class TestAutoModelChoiceToggle:
 
         row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
         assert (row.auto_model_choice if row else None) == expected
+        assert mock_slack_client.views_publish.called
+
+
+class TestFeatureTipsToggle:
+    @pytest.mark.parametrize("checked", [True, False])
+    def test_toggle_is_stored_for_the_clicking_user(self, slack_integration, mock_slack_client, checked):
+        set_tips_enabled(SLACK_WORKSPACE_ID, "U001", not checked)
+        selected = [{"value": FEATURE_TIPS_VALUE}] if checked else []
+        action = {"action_id": ACTION_SET_FEATURE_TIPS, "selected_options": selected}
+        payload = {
+            "type": "block_actions",
+            "team": {"id": SLACK_WORKSPACE_ID},
+            "user": {"id": "U001"},
+            "actions": [action],
+        }
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
+            handle_ai_preferences_block_action(payload, action)
+
+        assert (get_state(SLACK_WORKSPACE_ID, "U001").opted_out_at is None) is checked
         assert mock_slack_client.views_publish.called
 
 
@@ -1279,35 +1302,28 @@ class TestHandleAppHomeOpened:
         assert mock_capture.call_args.args[1] == "slack app home opened"
         assert mock_capture.call_args.kwargs["posthog_user"] == opener
 
-    @pytest.mark.parametrize("flag_on_for_viewer", [True, False])
-    def test_multiplayer_section_follows_its_flag(
-        self, slack_integration, mock_slack_client, flag_on, admin_user, flag_on_for_viewer
+    @pytest.mark.parametrize("viewer_linked", [True, False])
+    def test_multiplayer_section_shows_only_to_a_linked_viewer(
+        self, slack_integration, mock_slack_client, flag_on, admin_user, viewer_linked
     ):
-        opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
-        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=opener.email)
+        if viewer_linked:
+            opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
+            SlackUserProfileCache.objects.create(
+                integration=slack_integration, slack_user_id="U001", email=opener.email
+            )
 
-        with patch(
-            "products.slack_app.backend.services.slack_app_home.is_slack_app_multiplayer_approvals_enabled",
-            return_value=flag_on_for_viewer,
-        ):
-            handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
 
         view = mock_slack_client.views_publish.call_args.kwargs["view"]
-        assert (ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)) is flag_on_for_viewer
-        assert ("Multiplayer" in _all_text(view)) is flag_on_for_viewer
+        assert (ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)) is viewer_linked
+        assert ("Multiplayer" in _all_text(view)) is viewer_linked
 
     def test_join_picker_shows_without_the_plan_card(self, slack_integration, mock_slack_client, flag_on, admin_user):
         # Who may join a thread is not a plan feature, so closing the BYOS gate must not hide it.
         opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
         SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=opener.email)
 
-        with (
-            patch("products.slack_app.backend.services.slack_app_home.is_slack_app_byos_enabled", return_value=False),
-            patch(
-                "products.slack_app.backend.services.slack_app_home.is_slack_app_multiplayer_approvals_enabled",
-                return_value=True,
-            ),
-        ):
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_app_byos_enabled", return_value=False):
             handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
 
         view = mock_slack_client.views_publish.call_args.kwargs["view"]

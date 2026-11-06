@@ -51,6 +51,17 @@ async function callInternalTicketApi(
     })
 }
 
+function firstCustomerMessageQuery(opts: Record<string, any> | undefined): string {
+    const maxBytes = Number(opts?.first_customer_message_max_bytes)
+    const hasLength = Number.isFinite(maxBytes) && maxBytes > 0
+    if (!hasLength && opts?.include_first_customer_message_text !== true) {
+        return ''
+    }
+    const query = '?include_first_customer_message_text=true'
+    // Django clamps the range itself. This bound only keeps a huge number out of exponent notation.
+    return hasLength ? `${query}&first_customer_message_max_bytes=${Math.trunc(Math.min(maxBytes, 100_000))}` : query
+}
+
 registerAsyncFunction('postHogGetTicket', {
     execute: async (args, context, result) => {
         const [opts] = args as [Record<string, any> | undefined]
@@ -60,12 +71,10 @@ registerAsyncFunction('postHogGetTicket', {
             throw new Error("[HogFunction] - postHogGetTicket call missing 'ticket_id' property")
         }
 
-        // Opt-in preview of the customer's first message. Only appended when the workflow enabled
-        // it, so the default fetch keeps the same URL, response size, and query cost it had.
-        const query =
-            opts?.include_first_customer_message_text === true ? '?include_first_customer_message_text=true' : ''
-
-        await callInternalTicketApi(context, result, ticketId, { method: 'GET', query })
+        await callInternalTicketApi(context, result, ticketId, {
+            method: 'GET',
+            query: firstCustomerMessageQuery(opts),
+        })
     },
 
     mock: (args, logs) => {
@@ -97,7 +106,7 @@ registerAsyncFunction('postHogGetTicket', {
                 last_message_text: null,
                 // The real ticket API omits this field unless the caller opts in, so only include
                 // it here when the workflow asked for it, keeping a mocked preview true to runtime.
-                ...(args[0]?.include_first_customer_message_text === true ? { first_customer_message_text: null } : {}),
+                ...(firstCustomerMessageQuery(args[0]) ? { first_customer_message_text: null } : {}),
                 unread_team_count: 0,
                 unread_customer_count: 0,
                 sla: null,

@@ -224,11 +224,10 @@ TRUNK_MERGE_QUEUE_COLUMNS: dict[str, dict[str, str]] = {
     "state_changed_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
-# The Trunk quarantined-tests snapshot (TrunkIo source, QuarantinedTests endpoint): one row per
-# currently quarantined test case, keyed by the (name, parent, file, classname, variant) tuple
-# because Trunk documents ``test_case_id`` as unstable. Verified against a real connected source;
-# every column lands Nullable(String), timestamps included.
-TRUNK_QUARANTINED_TESTS_COLUMNS: dict[str, dict[str, str]] = {
+# The same snapshot from a source still on the v1 API: keyed by the (name, parent, file, classname,
+# variant) tuple because Trunk documents ``test_case_id`` as unstable. Verified against a real
+# connected source; every column lands Nullable(String), timestamps included.
+TRUNK_QUARANTINED_TESTS_V1_COLUMNS: dict[str, dict[str, str]] = {
     "file": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "labels": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
@@ -241,4 +240,24 @@ TRUNK_QUARANTINED_TESTS_COLUMNS: dict[str, dict[str, str]] = {
     "quarantined_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "quarantine_setting": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "status_last_updated_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
+# The Trunk quarantined-tests snapshot (TrunkIo source, QuarantinedTests endpoint, read from
+# `GET /v2/tests`): one row per currently quarantined test across every test collection. The
+# pipeline lands the API's camelCase keys as snake_case, and every column as Nullable(String),
+# timestamps included.
+TRUNK_QUARANTINED_TESTS_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "test_collection_id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "file": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "labels": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "parent_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "class_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "variant": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "status": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "codeowners": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "quarantine_state": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "quarantined_since": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "url": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }

@@ -20,6 +20,7 @@ from products.conversations.backend.events import (
     _resolve_groups_from_analytics,
     capture_message_received,
     capture_message_sent,
+    capture_private_message_sent,
     capture_ticket_assigned,
     capture_ticket_created,
     capture_ticket_priority_changed,
@@ -165,8 +166,9 @@ class TestConversationEvents(BaseTest):
             assert properties["assignee_id"] == expected_id
             assert properties["assignee_role_name"] == expected_role_name
 
+    @patch("products.conversations.backend.events.produce_internal_event")
     @patch("products.conversations.backend.events.capture_internal")
-    def test_capture_message_sent_uses_team_token(self, mock_capture):
+    def test_capture_message_sent_uses_team_token(self, mock_capture, mock_produce_internal_event):
         capture_message_sent(self.ticket, "msg-123", "Hello customer", author=self.user)
 
         mock_capture.assert_called_once()
@@ -184,6 +186,22 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["customer_name"] == "Test Customer"
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
         assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
+
+        mock_produce_internal_event.assert_called_once()
+        team_id, internal_event = mock_produce_internal_event.call_args.args
+        assert team_id == self.team.id
+        assert internal_event.event == "$conversation_message_sent"
+        assert internal_event.properties["message_id"] == "msg-123"
+        assert internal_event.properties["customer_email"] == "test@example.com"
+        assert "message_content" not in internal_event.properties
+
+    @patch("products.conversations.backend.events.produce_internal_event")
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_capture_private_message_sent_emits_no_internal_event(self, mock_capture, mock_produce_internal_event):
+        capture_private_message_sent(self.ticket, "msg-123", author=self.user)
+
+        assert mock_capture.call_args.kwargs["event_name"] == "$conversation_private_message_sent"
+        mock_produce_internal_event.assert_not_called()
 
     @parameterized.expand(
         [

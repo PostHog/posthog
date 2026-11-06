@@ -292,6 +292,7 @@ function ToolPoliciesSection(): JSX.Element {
         scopeIsResolving,
         toolPolicies,
         toolPoliciesLoading,
+        toolPolicyGroups,
         toolSearch,
         toolsExpanded,
     } = useValues(gatewayServerLogic)
@@ -415,6 +416,26 @@ function ToolPoliciesSection(): JSX.Element {
                 <div className="border border-dashed rounded p-6 text-center text-secondary text-sm">
                     No tools match “{toolSearch}”.
                 </div>
+            ) : toolPolicyGroups ? (
+                <LemonCollapse
+                    multiple
+                    defaultActiveKeys={toolPolicyGroups.map((group) => group.key)}
+                    panels={toolPolicyGroups.map((group) => ({
+                        key: group.key,
+                        header: (
+                            <span className="flex items-center gap-2">
+                                {group.label}
+                                <LemonTag type="muted" size="small">
+                                    {group.policies.length}
+                                </LemonTag>
+                            </span>
+                        ),
+                        className: 'divide-y',
+                        content: group.policies.map((policy) => (
+                            <ToolPolicyRow key={policy.tool_name} policy={policy} />
+                        )),
+                    }))}
+                />
             ) : (
                 <div className="border rounded divide-y overflow-hidden bg-surface-primary">
                     {displayedToolPolicies.map((policy) => (

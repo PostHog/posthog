@@ -29,7 +29,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.dataclasses import frozen
-from posthog.models import PropertyDefinition, Team, User
+from posthog.models import Team, User
 
 from products.access_control.backend.property_access_control import (
     get_restricted_properties_for_team,
@@ -39,6 +39,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     LazyComputationTable,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 
 from .adapters.factory import MarketingSourceFactory
 from .attribution_weights import (
@@ -55,7 +56,7 @@ from .conversion_goal_conditions import (
 )
 from .errors import MarketingPrecomputeNotReady
 from .marketing_analytics_config import MarketingAnalyticsConfig
-from .marketing_lazy_precompute import marketing_ensure_precomputed
+from .marketing_lazy_precompute import events_latest_day_computed_at, marketing_ensure_precomputed
 from .metrics import CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER
 from .utils import build_source_normalization_expr, test_account_conditions
 
@@ -305,9 +306,13 @@ class ConversionGoalProcessor:
     precompute_stale: bool = False
     # Passed down by the runner, since a processor has no query of its own to read it from.
     filter_test_accounts: bool = False
-    # Oldest `computed_at` across this goal's served precomputes (touchpoints + conversions) — how old the
-    # goal's data can be. The runner takes the oldest across all goals for the response's "data as of X".
+    # Oldest `computed_at` across this goal's served precomputes (touchpoints + conversions), which bounds how
+    # old the goal's data can be. The runner takes the oldest across all goals for `dataComputedAt`.
     precompute_computed_at: datetime | None = None
+    # True once this goal's read is served from precompute. A served goal with an unknown latest-day stamp
+    # (None) must still reach the runner, so it cannot rely on the stamp alone.
+    precompute_served: bool = False
+    precompute_latest_day_computed_at: datetime | None = None
     include_session_ids: bool = False
 
     _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
@@ -781,9 +786,14 @@ class ConversionGoalProcessor:
             self.precompute_stale = True
 
         # Oldest materialization across the two precomputes bounds how old this goal's data can be; the
-        # runner takes the oldest across all goals for the response's "data as of X".
+        # runner takes the oldest across all goals for `dataComputedAt`.
         stamps = [r.computed_at for r in (touchpoints_result, conversions_result) if r.computed_at is not None]
         self.precompute_computed_at = min(stamps) if stamps else None
+        self.precompute_served = True
+        self.precompute_latest_day_computed_at = events_latest_day_computed_at(
+            touchpoints_result.served_windows + conversions_result.served_windows,
+            date_to.replace(hour=0, minute=0, second=0, microsecond=0),
+        )
 
         with self.timings.measure("ma_attribution_pipeline_precomputed"):
             array_collection = self._build_array_collection_from_precomputes(

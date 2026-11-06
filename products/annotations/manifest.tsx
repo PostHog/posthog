@@ -3,10 +3,14 @@
  *
  * Defines scenes, routes, URLs, and navigation for this product.
  */
-import { AnnotationType, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, AnnotationType, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Annotations',
+    activityDescribers: {
+        [ActivityScope.ANNOTATION]: () =>
+            import('./frontend/activityDescriptions').then((module) => module.annotationActivityDescriber),
+    },
     scenes: {
         Annotations: {
             name: 'Annotations',

@@ -16,7 +16,7 @@ from rest_framework import status
 
 from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition, Tag, TaggedItem
+from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
@@ -60,6 +60,7 @@ from products.customer_analytics.backend.test.factories import (
     create_custom_property_definition,
     enroll_account,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight
@@ -122,6 +123,13 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
         config_ids = [config["id"] for config in response_data["results"]]
         self.assertIn(str(config1.id), config_ids)
         self.assertIn(str(config2.id), config_ids)
+
+        # one-row pages walk both configs without skipping or repeating one
+        paged_ids = {
+            self.client.get(self.endpoint_base, {"limit": 1, "offset": offset}).json()["results"][0]["id"]
+            for offset in range(2)
+        }
+        self.assertEqual(paged_ids, {str(config1.id), str(config2.id)})
 
     def test_retrieve_customer_profile_config(self):
         config = CustomerProfileConfig.objects.create(
@@ -1115,7 +1123,7 @@ class TestAccountViewSet(APIBaseTest):
             account.tagged_items.create(tag=billing_tag)
             account.tagged_items.create(tag=urgent_tag)
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             # Query budget for a tag-filtered account list. Constant regardless of result count
             # because tagged_items and notebooks are prefetched once. If a query is added, please
             # confirm it does not scale with the number of accounts before raising the limit:
@@ -1833,6 +1841,21 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.endpoint_base = f"/api/environments/{self.team.id}/custom_property_definitions/"
+
+    def test_list_without_pagination_preserves_envelope(self):
+        self._create(name="A")
+        self._create(name="B")
+        paginated = self.client.get(self.endpoint_base, {"limit": 1})
+        complete = self.client.get(self.endpoint_base, {"limit": "1", "offset": "1", "pagination": "none"})
+
+        self.assertEqual(paginated.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(paginated.json()["results"]), 1)
+        self.assertIsNotNone(paginated.json()["next"])
+        self.assertEqual(complete.status_code, status.HTTP_200_OK)
+        self.assertEqual([definition["name"] for definition in complete.json()["results"]], ["A", "B"])
+        self.assertEqual(complete.json()["count"], 2)
+        self.assertIsNone(complete.json()["next"])
+        self.assertIsNone(complete.json()["previous"])
 
     def _create(self, **overrides):
         payload = {"name": "ARR", "display_type": "currency", "is_big_number": True}
@@ -3011,6 +3034,21 @@ class TestAccountRelationshipDefinitionViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.endpoint_base = f"/api/projects/{self.team.id}/account_relationship_definitions/"
+
+    def test_list_without_pagination_preserves_envelope(self):
+        self._create(name="A")
+        self._create(name="B")
+        paginated = self.client.get(self.endpoint_base, {"limit": 1})
+        complete = self.client.get(self.endpoint_base, {"limit": "1", "offset": "1", "pagination": "none"})
+
+        self.assertEqual(paginated.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(paginated.json()["results"]), 1)
+        self.assertIsNotNone(paginated.json()["next"])
+        self.assertEqual(complete.status_code, status.HTTP_200_OK)
+        self.assertEqual([definition["name"] for definition in complete.json()["results"]], ["A", "B"])
+        self.assertEqual(complete.json()["count"], 2)
+        self.assertIsNone(complete.json()["next"])
+        self.assertIsNone(complete.json()["previous"])
 
     def _create(self, **overrides):
         payload = {"name": "CSM", "description": "Customer success manager"}

@@ -54,6 +54,9 @@ class BaseDetector(ABC):
     # Default anomaly probability threshold. Higher = fewer alerts.
     DEFAULT_THRESHOLD = 0.95
 
+    # Default rolling window size for the statistical detectors.
+    DEFAULT_WINDOW = 30
+
     # Default number of recent points to exclude from training data.
     # Prevents the model from fitting on the points it's about to score.
     # Higher values make the model slower to adapt to recent distribution shifts.
@@ -63,6 +66,11 @@ class BaseDetector(ABC):
         self.config = config
         self.preprocessing_config = config.get("preprocessing") or {}
         self.training_offset: int = config.get("training_offset_n", self.DEFAULT_TRAINING_OFFSET)
+        # A schema-normalized config keeps an unset field as an explicit None, which `dict.get` does not replace.
+        threshold = config.get("threshold")
+        self.threshold: float = self.DEFAULT_THRESHOLD if threshold is None else threshold
+        window = config.get("window")
+        self.window: int = self.DEFAULT_WINDOW if window is None else window
 
     @abstractmethod
     def detect(self, data: np.ndarray) -> DetectionResult:
@@ -156,8 +164,7 @@ class BaseDetector(ABC):
         return rows
 
     def _scored_result(self, scores: list[float | None], metadata: list[dict[str, Any]]) -> DetectionResult:
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        triggered = [i for i, score in enumerate(scores) if score is not None and score > threshold]
+        triggered = [i for i, score in enumerate(scores) if score is not None and score > self.threshold]
         return DetectionResult(
             is_anomaly=bool(triggered) and triggered[-1] == len(scores) - 1,
             score=scores[-1] if scores else None,

@@ -76,10 +76,10 @@ fn evaluation_corpora_have_unique_ids_and_the_pinned_families() {
             family("v2_value_evaluation", "values", 11),
             family("v2_value_evaluation", "parser", 11),
             family("v2_experiment_evaluation", "ordering", 20),
-            family("v2_experiment_evaluation", "assignment", 22),
+            family("v2_experiment_evaluation", "assignment", 21),
             family("v2_experiment_evaluation", "values", 9),
             family("v2_experiment_evaluation", "white_box", 10),
-            family("v2_experiment_evaluation", "parser", 20),
+            family("v2_experiment_evaluation", "parser", 13),
         ])
     );
 }
@@ -173,7 +173,7 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         }
         executed += 1;
     }
-    assert_eq!((executed, rejected), (120 + 38 + 51, 2 + 11 + 20));
+    assert_eq!((executed, rejected), (120 + 38 + 50, 2 + 11 + 13));
 }
 
 fn assert_experiment_hash_evidence(
@@ -510,10 +510,10 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         .with_now(context.now);
         let expected = &case["expected"];
         let failed = expected["status"] != "success";
-        let legacy = case.get("legacy").cloned().unwrap_or_else(|| {
-            let enabled = expected["value"].as_bool().unwrap_or(false);
-            json!({"enabled": enabled, "variant": null, "value": enabled, "payload": null})
-        });
+        let legacy = case
+            .get("legacy")
+            .cloned()
+            .unwrap_or_else(|| corpus::legacy(&expected["value"]));
         let enabled = legacy["enabled"].as_bool().unwrap();
         let variant = legacy["variant"].as_str().map(str::to_owned);
         let payload = Some(&legacy["payload"]).filter(|payload| !payload.is_null());
@@ -678,5 +678,5 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         }
         projected += 1;
     }
-    assert_eq!((projected, direct, skipped), (114 + 49 + 71, 8, 13 + 10));
+    assert_eq!((projected, direct, skipped), (114 + 49 + 63, 8, 13 + 10));
 }

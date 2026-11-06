@@ -16,7 +16,14 @@ from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Q
-from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseServerError, JsonResponse
+from django.http import (
+    HttpRequest,
+    HttpResponse,
+    HttpResponseNotAllowed,
+    HttpResponseNotFound,
+    HttpResponseServerError,
+    JsonResponse,
+)
 from django.shortcuts import redirect, render
 from django.template import loader
 from django.views.decorators.cache import never_cache
@@ -30,7 +37,7 @@ from prometheus_client import REGISTRY, CollectorRegistry, generate_latest, mult
 from posthog.api.secret_revocation import NON_PERSONAL_SECRET_PREFIXES
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cache_utils import cache_for
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import is_cloud, is_hobby
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.credentials_service.settings_fallback import get_many_or_settings
@@ -168,6 +175,17 @@ Disallow: /flags/
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
 
 
+def llms_txt(request: HttpRequest) -> HttpResponse:
+    if is_hobby():
+        return HttpResponseNotFound()
+
+    return render(request, "llms_txt.md", {"site_url": settings.SITE_URL}, content_type="text/markdown; charset=utf-8")
+
+
+def not_found(request: HttpRequest) -> HttpResponse:
+    return HttpResponseNotFound()
+
+
 def security_txt(request):
     SECURITY_TXT_CONTENT = """
         Contact: mailto:engineering@posthog.com
@@ -297,6 +315,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,
+            "cohort_csv_upload_max_bytes": settings.COHORT_CSV_UPLOAD_MAX_BYTES,
             "webmcp_available": webmcp_api.is_available(),
         }
 

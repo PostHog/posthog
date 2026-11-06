@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -7,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from django.contrib.auth import SESSION_KEY
 from django.contrib.sessions.middleware import SessionMiddleware
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
@@ -17,6 +18,7 @@ from parameterized import parameterized
 from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.integrations import IntegrationConflict, IntegrationReader
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -25,12 +27,20 @@ from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.utils import absolute_uri
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.contracts import ExperimentChanged
+from products.experiments.backend.facade.testing import create_experiment, delete_experiment, update_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.vercel.types import VercelUserClaims
-from ee.vercel.integration import RequiresExistingUserLogin, SSOParams, VercelIntegration, _safe_vercel_sync
+from ee.vercel.integration import (
+    RequiresExistingUserLogin,
+    SSOParams,
+    VercelIntegration,
+    _safe_vercel_sync,
+    get_or_create_connectable_resource,
+)
 
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
 EXPECTED_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
@@ -60,16 +70,6 @@ class TestVercelIntegration(TestCase):
             key=name,
             name=description,
             deleted=archived,
-        )
-
-    def make_experiment(self, team, name, description, archived):
-        ff = FeatureFlag.objects.create(team=team, key="exp-flag")
-        return Experiment.objects.create(
-            team=team,
-            name=name,
-            description=description,
-            archived=archived,
-            feature_flag=ff,
         )
 
     def assert_vercel_item(
@@ -1001,54 +1001,48 @@ class TestVercelIntegration(TestCase):
 
     @parameterized.expand(
         [
-            (
-                "flag",
-                "make_feature_flag",
-                VercelIntegration._convert_feature_flag_to_vercel_item,
-                "flag",
-                "test_flag",
-                "Test Feature Flag",
-                False,
-                "test-flag",
-            ),
-            (
-                "flag_deleted",
-                "make_feature_flag",
-                VercelIntegration._convert_feature_flag_to_vercel_item,
-                "flag",
-                "deleted_flag",
-                "Deleted Flag",
-                True,
-                "deleted-flag",
-            ),
-            (
-                "experiment",
-                "make_experiment",
-                VercelIntegration._convert_experiment_to_vercel_item,
-                "experiment",
-                "Test Experiment",
-                "A test experiment",
-                False,
-                "test-experiment",
-            ),
-            (
-                "experiment_archived",
-                "make_experiment",
-                VercelIntegration._convert_experiment_to_vercel_item,
-                "experiment",
-                "Archived Experiment",
-                "",
-                True,
-                "archived-experiment",
-            ),
+            ("flag", "test_flag", "Test Feature Flag", False, "test-flag"),
+            ("flag_deleted", "deleted_flag", "Deleted Flag", True, "deleted-flag"),
         ]
     )
-    def test_convert_to_vercel_item(self, _, factory_name, converter, category, name, desc, archived, expected_slug):
+    def test_convert_feature_flag_to_vercel_item(self, _, name, desc, archived, expected_slug):
         team, _ = self.make_team_with_vercel(self.organization, self.user)
-        factory = getattr(self, factory_name)
-        item = factory(team, name, desc, archived)
-        result = converter(item, created=True)
-        self.assert_vercel_item(item, result, category, archived, expected_slug, name, desc)
+        item = self.make_feature_flag(team, name, desc, archived)
+        result = VercelIntegration._convert_feature_flag_to_vercel_item(item, created=True)
+        self.assert_vercel_item(item, result, "flag", archived, expected_slug, name, desc)
+
+    @parameterized.expand(
+        [
+            ("created", True, False, False, {"id": "experiment_7", "isArchived": False}),
+            ("archived", False, True, False, {"isArchived": True}),
+            ("deleted", False, False, True, {"isArchived": True}),
+        ]
+    )
+    def test_convert_experiment_to_vercel_item(
+        self, _name: str, created: bool, archived: bool, deleted: bool, expected_fields: dict[str, Any]
+    ) -> None:
+        change = ExperimentChanged(
+            team_id=3,
+            experiment_id=7,
+            created=created,
+            deleted=deleted,
+            name="Checkout Test",
+            description=None,
+            archived=archived,
+            created_at=datetime(2026, 9, 1, tzinfo=UTC),
+            updated_at=datetime(2026, 9, 2, 12, tzinfo=UTC),
+        )
+
+        assert VercelIntegration._convert_experiment_to_vercel_item(change) == {
+            **expected_fields,
+            "slug": "checkout-test",
+            "origin": absolute_uri("/project/3/experiments/7"),
+            "category": "experiment",
+            "name": "Checkout Test",
+            "description": "",
+            "createdAt": 1788220800000,
+            "updatedAt": 1788350400000,
+        }
 
     @parameterized.expand(
         [
@@ -1151,25 +1145,22 @@ class TestVercelIntegration(TestCase):
 
         mock_sync.assert_called_once_with(feature_flag, False)
 
+    @parameterized.expand([("soft_delete", False), ("hard_delete", True)])
     @patch("ee.vercel.integration.VercelIntegration.delete_experiment_from_vercel")
-    def test_experiment_post_save_signal_deletes_when_marked_deleted(self, mock_delete):
-        """Test that post_save signal triggers deletion when experiment is marked as deleted=True"""
+    def test_experiment_delete_removes_the_item_from_vercel(self, _name, hard_delete, mock_delete):
         team, _ = self.make_team_with_vercel(self.organization, self.user)
 
         feature_flag = FeatureFlag.objects.create(team=team, key="exp-flag")
 
-        experiment = Experiment.objects.create(
-            team=team,
-            name="test_experiment",
-            feature_flag=feature_flag,
-            deleted=False,
-        )
+        experiment_id = create_experiment(team_id=team.id, feature_flag_id=feature_flag.id, name="test_experiment")
         mock_delete.reset_mock()
 
-        experiment.deleted = True
-        experiment.save()
+        if hard_delete:
+            delete_experiment(team_id=team.id, experiment_id=experiment_id)
+        else:
+            update_experiment(team_id=team.id, experiment_id=experiment_id, deleted=True)
 
-        mock_delete.assert_called_once_with(experiment)
+        mock_delete.assert_called_once_with(team, experiment_id)
 
     @patch("ee.vercel.integration.VercelIntegration.sync_experiment_to_vercel")
     def test_experiment_post_save_signal_syncs_when_not_deleted(self, mock_sync):
@@ -1178,20 +1169,28 @@ class TestVercelIntegration(TestCase):
 
         feature_flag = FeatureFlag.objects.create(team=team, key="exp-flag")
 
-        experiment = Experiment.objects.create(
-            team=team,
-            name="test_experiment",
-            feature_flag=feature_flag,
-            deleted=False,
-        )
+        experiment_id = create_experiment(team_id=team.id, feature_flag_id=feature_flag.id, name="test_experiment")
 
-        mock_sync.assert_called_with(experiment, True)
+        mock_sync.assert_called_with(team, mock.ANY)
+        assert mock_sync.call_args.args[1].created is True
         mock_sync.reset_mock()
 
-        experiment.name = "Updated Test Experiment"
-        experiment.save()
+        update_experiment(team_id=team.id, experiment_id=experiment_id, name="Updated Test Experiment")
 
-        mock_sync.assert_called_once_with(experiment, False)
+        mock_sync.assert_called_once_with(team, mock.ANY)
+        change = mock_sync.call_args.args[1]
+        assert (change.experiment_id, change.created, change.name) == (experiment_id, False, "Updated Test Experiment")
+
+    @parameterized.expand([("member", True), ("not_a_member", False)])
+    def test_sso_redirect_url_for_an_experiment(self, _name, is_member):
+        organization = self.organization if is_member else Organization.objects.create(name="Other Org")
+        team = Team.objects.create(organization=organization, name="Experiment Team")
+        feature_flag = FeatureFlag.objects.create(team=team, key="exp-flag")
+        experiment_id = create_experiment(team_id=team.id, feature_flag_id=feature_flag.id)
+
+        url = VercelIntegration._get_sso_experimentation_url(f"experiment_{experiment_id}", self.user)
+
+        assert url == (f"/project/{team.id}/experiments/{experiment_id}" if is_member else None)
 
     @parameterized.expand(
         [
@@ -1595,3 +1594,51 @@ class TestPushSecretsToVercel(TestCase):
         VercelIntegration.push_secrets_to_vercel(self.team)
 
         mock_capture.assert_called_once()
+
+
+class TestGetOrCreateConnectableResource(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Connectable Org")
+        self.team = Team.objects.create(organization=self.organization, name="Connectable Team")
+
+    def _vercel_row(self, config: dict[str, Any]) -> Integration:
+        return Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.VERCEL, integration_id=str(self.team.pk), config=config
+        )
+
+    def test_creates_a_connectable_resource_when_the_team_has_none(self):
+        resource, created = get_or_create_connectable_resource(self.team)
+
+        assert created
+        assert (resource.team_id, resource.integration_id, resource.config) == (
+            self.team.pk,
+            str(self.team.pk),
+            {"type": "connectable"},
+        )
+
+    @parameterized.expand([("found_on_first_read", False), ("created_by_a_concurrent_request", True)])
+    def test_returns_the_existing_resource(self, _name: str, hidden_from_first_read: bool):
+        existing = self._vercel_row({"type": "connectable"})
+        real_find = IntegrationReader.find
+        calls = 0
+
+        def find(reader, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            # A concurrent request inserts the row after this request's first read.
+            if hidden_from_first_read and calls == 1:
+                return None
+            return real_find(reader, *args, **kwargs)
+
+        with transaction.atomic(), patch.object(IntegrationReader, "find", autospec=True, side_effect=find):
+            resource, created = get_or_create_connectable_resource(self.team)
+            # The failed insert must leave the caller's transaction usable.
+            assert Integration.objects.filter(pk=existing.pk).exists()
+
+        assert (resource.id, created) == (existing.id, False)
+
+    def test_a_conflicting_row_outside_the_accessor_scope_raises(self):
+        self._vercel_row({"type": "connectable", "warehouse_source_type": "Vercel"})
+
+        with pytest.raises(IntegrationConflict):
+            get_or_create_connectable_resource(self.team)

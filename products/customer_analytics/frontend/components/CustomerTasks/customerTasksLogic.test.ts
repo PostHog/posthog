@@ -16,12 +16,18 @@ import { initKeaTests } from '~/test/init'
 import {
     accountsList,
     accountsRetrieve,
+    customerTasksArchiveCreate,
+    customerTasksBulkUpdateCreate,
     customerTasksCreate,
     customerTasksList,
     customerTasksRetrieve,
     customerTasksPartialUpdate,
+    customerTasksRestoreCreate,
 } from 'products/customer_analytics/frontend/generated/api'
-import type { CustomerTaskApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    CustomerTaskApi,
+    CustomerTaskBulkPatchApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { customerTasksPersistencePrefix, parseCustomerTaskSearchParams } from './customerTaskFilters'
 import { customerTasksLogic } from './customerTasksLogic'
@@ -30,6 +36,7 @@ jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     accountsList: jest.fn(),
     accountsRetrieve: jest.fn(),
     customerTasksArchiveCreate: jest.fn(),
+    customerTasksBulkUpdateCreate: jest.fn(),
     customerTasksCreate: jest.fn(),
     customerTasksList: jest.fn(),
     customerTasksRetrieve: jest.fn(),
@@ -37,10 +44,13 @@ jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     customerTasksRestoreCreate: jest.fn(),
 }))
 
+const mockBulkUpdate = customerTasksBulkUpdateCreate as jest.MockedFunction<typeof customerTasksBulkUpdateCreate>
 const mockCreate = customerTasksCreate as jest.MockedFunction<typeof customerTasksCreate>
 const mockList = customerTasksList as jest.MockedFunction<typeof customerTasksList>
 const mockAccounts = accountsList as jest.MockedFunction<typeof accountsList>
 const mockUpdate = customerTasksPartialUpdate as jest.MockedFunction<typeof customerTasksPartialUpdate>
+const mockArchive = customerTasksArchiveCreate as jest.MockedFunction<typeof customerTasksArchiveCreate>
+const mockRestore = customerTasksRestoreCreate as jest.MockedFunction<typeof customerTasksRestoreCreate>
 const mockAccount = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
 
 const URL_ACCOUNT_ID = '0199ed4a-5c03-0000-3220-df21df612e95'
@@ -74,6 +84,7 @@ describe('customerTasksLogic', () => {
     beforeEach(() => {
         initKeaTests()
         localStorage.clear()
+        mockBulkUpdate.mockResolvedValue({ updated_count: 2 })
         mockCreate.mockResolvedValue(task())
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
         mockAccounts.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
@@ -85,6 +96,117 @@ describe('customerTasksLogic', () => {
     afterEach(() => {
         logic?.unmount()
         localStorage.clear()
+    })
+
+    test.each<CustomerTaskBulkPatchApi>([
+        { status: 'completed' },
+        { assigned_to_id: 7 },
+        { assigned_to_id: null },
+        { due_at: '2026-10-30T12:00:00Z' },
+        { due_at: null },
+        { account_id: URL_ACCOUNT_ID },
+        { account_id: null },
+        { archived: true },
+        { archived: false },
+    ])('updates selected tasks with %j and reloads once', async (patch) => {
+        const tasks = [
+            {
+                ...task(),
+                assigned_to: { id: 9, email: 'sam@example.com', first_name: 'Sam', last_name: '' },
+                account: { id: SECOND_URL_ACCOUNT_ID, name: 'Example account' },
+                due_at: '2026-10-29T12:00:00Z',
+            },
+            {
+                ...task(),
+                id: 'task-2',
+                assigned_to: { id: 9, email: 'sam@example.com', first_name: 'Sam', last_name: '' },
+                account: { id: SECOND_URL_ACCOUNT_ID, name: 'Example account' },
+                due_at: '2026-10-29T12:00:00Z',
+            },
+            { ...task(), id: 'task-3' },
+        ]
+        mockList.mockResolvedValue({ count: tasks.length, next: null, previous: null, results: tasks })
+        logic = customerTasksLogic({ context: 'inbox' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        mockList.mockClear()
+        const onComplete = jest.fn()
+
+        logic.actions.bulkUpdateTasks(['task-1', 'task-2'], patch, onComplete)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockBulkUpdate).toHaveBeenCalledTimes(1)
+        expect(mockBulkUpdate).toHaveBeenCalledWith(expect.any(String), {
+            task_ids: ['task-1', 'task-2'],
+            updates: patch,
+        })
+        expect(mockUpdate).not.toHaveBeenCalled()
+        expect(mockArchive).not.toHaveBeenCalled()
+        expect(mockRestore).not.toHaveBeenCalled()
+        expect(mockList).toHaveBeenCalledTimes(1)
+        expect(onComplete).toHaveBeenCalledWith([])
+        expect(logic.values.mutationKeys).toEqual({})
+    })
+
+    test.each([false, true])('retains the failed batch only in the same filter scope: %s', async (changeFilters) => {
+        const tasks = [task(), { ...task(), id: 'task-2' }]
+        mockList.mockResolvedValue({ count: 2, next: null, previous: null, results: tasks })
+        let rejectUpdate!: (error: ApiError) => void
+        mockBulkUpdate.mockImplementationOnce(
+            () =>
+                new Promise((_, reject) => {
+                    rejectUpdate = reject
+                })
+        )
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as never)
+        logic = customerTasksLogic({ context: 'inbox' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const onComplete = jest.fn()
+
+        logic.actions.bulkUpdateTasks(['task-1', 'task-2'], { status: 'completed' }, onComplete)
+        expect(logic.values.mutationKeys).toEqual({ bulk: true, 'task-1': true, 'task-2': true })
+        logic.actions.bulkUpdateTasks(['task-1', 'task-2'], { status: 'completed' }, onComplete)
+        logic.actions.updateTask('task-2', { assigned_to_id: 7 })
+        expect(mockBulkUpdate).toHaveBeenCalledTimes(1)
+        expect(mockUpdate).not.toHaveBeenCalled()
+        if (changeFilters) {
+            logic.actions.setFilters({ status: 'all' })
+        }
+        rejectUpdate(new ApiError(undefined, 409, undefined, { detail: 'Restore this task before editing it.' }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(onComplete).toHaveBeenCalledWith(changeFilters ? [] : ['task-1', 'task-2'])
+        expect(toast).toHaveBeenCalledWith('Restore this task before editing it.')
+        expect(logic.values.mutationKeys).toEqual({})
+        toast.mockRestore()
+    })
+
+    test('shows the assignee validation error and retains every selected task', async () => {
+        const tasks = [task(), { ...task(), id: 'task-2' }]
+        mockList.mockResolvedValue({ count: 2, next: null, previous: null, results: tasks })
+        mockBulkUpdate.mockRejectedValueOnce(
+            new ApiError(undefined, 400, undefined, { assigned_to_id: 'Select a member of this project.' })
+        )
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as never)
+        logic = customerTasksLogic({ context: 'inbox' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        mockList.mockClear()
+        const onComplete = jest.fn()
+
+        logic.actions.bulkUpdateTasks(['task-1', 'task-2', 'not-on-page'], { assigned_to_id: 7 }, onComplete)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockBulkUpdate).toHaveBeenCalledWith(expect.any(String), {
+            task_ids: ['task-1', 'task-2'],
+            updates: { assigned_to_id: 7 },
+        })
+        expect(onComplete).toHaveBeenCalledWith(['task-1', 'task-2'])
+        expect(toast).toHaveBeenCalledWith('Select a member of this project.')
+        expect(mockList).not.toHaveBeenCalled()
+        expect(logic.values.mutationKeys).toEqual({})
+        toast.mockRestore()
     })
 
     test.each([

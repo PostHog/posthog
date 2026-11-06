@@ -4,21 +4,22 @@ import { type MutableRefObject, useEffect, useMemo, useRef } from 'react'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
 // Eager, NOT the lazy `api/readableRun` facade: the runner scene is already a route-split chunk and the run
 // surface is its primary content, so a second `lazy()` would only add a redundant chunk fetch + Suspense
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
+import { QuillTaskComposerSkeleton } from '../../../components/quill/QuillTaskComposerSkeleton'
 import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import { resolveRunStreamKey } from '../../../logics/retainedLogics'
 import { runCancellationLogic } from '../../../logics/runCancellationLogic'
 import type { RunContinuationHandoff } from '../../../logics/runInteractionLogic'
-import type { AttachedContextItem } from '../../../types/contextTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
-import { QuillTaskComposerSkeleton } from './QuillTaskComposerSkeleton'
 import { TaskRunComposer } from './TaskRunComposer'
 
 export interface TaskRunChatProps {
@@ -123,6 +124,8 @@ export function TaskRunChat({
                 escapeScope={escapeScope}
                 autoFocus={autoFocus}
                 flushDraftRef={flushDraftRef}
+                repository={task?.repository}
+                branch={runConfig?.branch}
             />
         </BindLogic>
     )
@@ -134,12 +137,16 @@ function TaskRunChatContent({
     escapeScope,
     autoFocus,
     flushDraftRef,
+    repository,
+    branch,
 }: {
     logicProps: RunInteractionLogicProps
     readOnly: boolean
     escapeScope: RunEscapeBoundaryProps['scope']
     autoFocus?: boolean
     flushDraftRef: MutableRefObject<() => void>
+    repository?: string | null
+    branch?: string | null
 }): JSX.Element {
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const skin = useThreadSkin()
@@ -191,6 +198,8 @@ function TaskRunChatContent({
                             textAreaRef={textAreaRef}
                             autoFocus={autoFocus}
                             flushDraftRef={flushDraftRef}
+                            repository={repository}
+                            branch={branch}
                         />
                     </RunSurface.Composer>
                 )}

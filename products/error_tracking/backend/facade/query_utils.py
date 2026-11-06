@@ -180,6 +180,16 @@ def add_release_filter(filters: list[dict[str, object]], release: str) -> None:
 
 def build_issue_filters(params: dict[str, object]) -> list[dict[str, object]]:
     filters = [dict(item) for item in cast(list[dict[str, object]], params.get("filterGroup", []))]
+    first_seen_after = params.get("firstSeenAfter")
+    if isinstance(first_seen_after, str):
+        filters.append(
+            {
+                "type": "error_tracking_issue",
+                "key": "first_seen",
+                "operator": "is_date_after",
+                "value": first_seen_after,
+            }
+        )
     library = params.get("library")
     if isinstance(library, str | list):
         add_event_filter(filters, "$lib", "exact", cast(str | list[str], library))

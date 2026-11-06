@@ -209,7 +209,7 @@ export interface StaffTeamConfigApi {
     max_feature_flags_override: number | null
     /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
     effective_max_feature_flags: number
-    /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
+    /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
      *
      * * `0` - Events
      * * `1` - Read flag evaluations
@@ -244,7 +244,7 @@ export interface StaffTeamConfigMutationApi {
 }
 
 export interface StaffFlagEvaluationsModeMutationApi {
-    /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist.
+    /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
      *
      * * `0` - Events
      * * `1` - Read flag evaluations
@@ -493,7 +493,7 @@ export interface FeatureFlagRequestUsageItemApi {
     sdk: string
     /** Number of billable requests in this bucket. */
     request_count: number
-    /** Estimated billing units. Local evaluation requests count as 10 units each. */
+    /** Estimated billing units. Local evaluation requests count as 10 units each, except 304 Not Modified responses, which count as 1. */
     billing_units: number
 }
 
@@ -878,26 +878,25 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 }
 
 /**
+ * * `semver_eq` - semver_eq
+ * * `semver_neq` - semver_neq
  * * `semver_gt` - semver_gt
  * * `semver_gte` - semver_gte
  * * `semver_lt` - semver_lt
  * * `semver_lte` - semver_lte
- * * `semver_eq` - semver_eq
- * * `semver_neq` - semver_neq
  * * `semver_tilde` - semver_tilde
  * * `semver_caret` - semver_caret
  * * `semver_wildcard` - semver_wildcard
  */
-export type FeatureFlagFilterPropertySemverSchemaOperatorEnumApi =
-    (typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi]
+export type SemverOperatorEnumApi = (typeof SemverOperatorEnumApi)[keyof typeof SemverOperatorEnumApi]
 
-export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
+export const SemverOperatorEnumApi = {
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
     SemverGt: 'semver_gt',
     SemverGte: 'semver_gte',
     SemverLt: 'semver_lt',
     SemverLte: 'semver_lte',
-    SemverEq: 'semver_eq',
-    SemverNeq: 'semver_neq',
     SemverTilde: 'semver_tilde',
     SemverCaret: 'semver_caret',
     SemverWildcard: 'semver_wildcard',
@@ -924,16 +923,16 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
     group_type_index?: number | null
     /** Semantic version comparison operator.
      *
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard */
-    operator: FeatureFlagFilterPropertySemverSchemaOperatorEnumApi
+    operator: SemverOperatorEnumApi
     /** Semantic version string. */
     value: string
 }
@@ -1179,7 +1178,40 @@ export interface FeatureFlagCreateRequestSchemaApi {
     bucketing_identifier?: BucketingIdentifierEnumApi | null
 }
 
+/**
+ * * `errors` - Errors or bugs
+ * * `metrics` - Metrics got worse
+ * * `planned` - It was planned
+ * * `wrong_configuration` - Wrong configuration
+ * * `other` - Other
+ */
+export type RollbackReasonEnumApi = (typeof RollbackReasonEnumApi)[keyof typeof RollbackReasonEnumApi]
+
+export const RollbackReasonEnumApi = {
+    Errors: 'errors',
+    Metrics: 'metrics',
+    Planned: 'planned',
+    WrongConfiguration: 'wrong_configuration',
+    Other: 'other',
+} as const
+
 export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
+    /** When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag. */
+    ask_rollback_reason?: boolean
+    /** Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.
+     *
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other */
+    rollback_reason?: RollbackReasonEnumApi | null
+    /**
+     * A free-text note for `rollback_reason`. Requires `rollback_reason`.
+     * @maxLength 1000
+     * @nullable
+     */
+    rollback_reason_note?: string | null
     /** Feature flag key. */
     key?: string
     /** Feature flag description (stored in the `name` field for backwards compatibility). */
@@ -1215,6 +1247,11 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
      * * `distinct_id` - User ID (default)
      * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | null
+    /**
+     * The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2: the update is then refused with 409 if anyone else changed the flag after that version. Other flags do not check it.
+     * @minimum 0
+     */
+    version?: number
 }
 
 export interface ChangeApi {
@@ -1282,6 +1319,165 @@ export interface ActivityLogPaginatedResponseApi {
     /** @nullable */
     previous: string | null
     total_count: number
+}
+
+export interface FeatureFlagCodeAnalysisStartApi {
+    /**
+     * GitHub repository to analyze, as `organization/repository`. It must be connected to the project's GitHub integration. Omit it to use the repository the last analysis used, the environment's default flag cleanup repository, or the only connected repository.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+}
+
+/**
+ * * `not_started` - Not Started
+ * * `queued` - Queued
+ * * `in_progress` - In Progress
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ */
+export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
+
+export const TaskRunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+export interface FeatureFlagCodeBranchApi {
+    /** What the flag evaluates to on this branch: "enabled", "disabled", or a variant key. "all" when the same code runs for every outcome and only the flag value passed to it differs. */
+    variant: string
+    /** First line of the branch body, 1-based. */
+    start_line: number
+    /** Last line of the branch body, 1-based and inclusive. */
+    end_line: number
+    /** The branch body as it appears in the file. Empty when the outcome runs no code. */
+    snippet: string
+}
+
+export interface FeatureFlagCodeReferenceApi {
+    /** Path of the file from the repository root. */
+    file: string
+    /** Line where the flag value decides which code runs (the if, ternary, switch, or call it is passed to), 1-based. */
+    check_line: number
+    /** SDK call or wrapper that reads the flag, for example `isFeatureEnabled`. */
+    method: string
+    /** One sentence on what changes when the flag turns on at this check. */
+    summary: string
+    /** The code that runs for each outcome of the flag. */
+    branches: FeatureFlagCodeBranchApi[]
+}
+
+export interface FeatureFlagCodeAnalysisResultApi {
+    /** Repository that was analyzed, as `organization/repository`. */
+    repository: string
+    /** Commit the analysis read. */
+    commit_sha: string
+    /** Every place the flag is checked. Empty when the repository has no references. */
+    references: FeatureFlagCodeReferenceApi[]
+    /** Caveats from the analysis, such as keys built at runtime or ambiguous checks. */
+    notes: string
+}
+
+/**
+ * * `analysis_not_ready` - Analysis not ready
+ * * `no_references` - No references
+ * * `not_stale` - Not stale
+ * * `unsupported_config` - Unsupported configuration
+ */
+export type CodeCleanupUnavailableReasonEnumApi =
+    (typeof CodeCleanupUnavailableReasonEnumApi)[keyof typeof CodeCleanupUnavailableReasonEnumApi]
+
+export const CodeCleanupUnavailableReasonEnumApi = {
+    AnalysisNotReady: 'analysis_not_ready',
+    NoReferences: 'no_references',
+    NotStale: 'not_stale',
+    UnsupportedConfig: 'unsupported_config',
+} as const
+
+export interface FeatureFlagCodeCleanupRunApi {
+    /** ID of the task that opens the cleanup pull request. */
+    task_id: string
+    /** Status of the cleanup run.
+     *
+     * * `not_started` - Not Started
+     * * `queued` - Queued
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled */
+    run_status: TaskRunStatusEnumApi
+    /** Whether the run has finished, successfully or not. Stop polling once true. */
+    is_terminal: boolean
+    /**
+     * The draft pull request the run opened. Null while it runs, or when it found no code to remove.
+     * @nullable
+     */
+    pr_url: string | null
+    /**
+     * Why the run failed, when it failed.
+     * @nullable
+     */
+    error_message: string | null
+    /** Whether the requesting user can open the task. Hide the task link from everyone else. */
+    can_view_task: boolean
+}
+
+export interface FeatureFlagCodeCleanupApi {
+    /** Why a cleanup pull request can't be opened, or null when it can: `analysis_not_ready` (the analysis has no result yet), `no_references` (the analysis found no checks to remove), `not_stale` (the flag is still in use), or `unsupported_config` (the flag's configuration can't be read safely).
+     *
+     * * `analysis_not_ready` - Analysis not ready
+     * * `no_references` - No references
+     * * `not_stale` - Not stale
+     * * `unsupported_config` - Unsupported configuration */
+    unavailable_reason: CodeCleanupUnavailableReasonEnumApi | null
+    /**
+     * The outcome every user gets today, whose code the cleanup keeps by default: `enabled`, `disabled`, or a variant key. Null when users get different outcomes, so the caller must choose one.
+     * @nullable
+     */
+    suggested_outcome: string | null
+    /** Outcomes whose code the cleanup can keep. */
+    outcome_options: string[]
+    /** Whether `open_cleanup_pr` accepts a request now. False when `unavailable_reason` is set, or while a cleanup run is still opening its pull request. A finished run doesn't block a new request. */
+    can_request: boolean
+    /** The flag's latest cleanup run, or null when none was requested. */
+    run: FeatureFlagCodeCleanupRunApi | null
+}
+
+export interface FeatureFlagCodeAnalysisApi {
+    /** ID of the task that runs the analysis. */
+    task_id: string
+    /** Repository the analysis reads, as `organization/repository`. */
+    repository: string
+    /** When the analysis was requested. */
+    created_at: string
+    /** Status of the analysis run. A finished run with output in an unexpected shape is reported as failed.
+     *
+     * * `not_started` - Not Started
+     * * `queued` - Queued
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled */
+    run_status: TaskRunStatusEnumApi
+    /** Whether the run has finished, successfully or not. Stop polling once true. */
+    is_terminal: boolean
+    /**
+     * Why the run failed, when it failed.
+     * @nullable
+     */
+    error_message: string | null
+    /** Whether the requesting user can open the task. Hide the task link from everyone else. */
+    can_view_task: boolean
+    /** The flag's code paths, once the run completes. */
+    result: FeatureFlagCodeAnalysisResultApi | null
+    /** Whether a draft pull request that removes the flag's checks can be opened, and its latest run. */
+    cleanup: FeatureFlagCodeCleanupApi
 }
 
 /**
@@ -1363,6 +1559,45 @@ export interface FlagApprovalConflictApi {
     change_request: unknown
     /** Who can approve the change request. */
     required_approvers: unknown
+}
+
+/**
+ * * `explicit` - Explicit
+ * * `previous_analysis` - Previous analysis
+ * * `team_default` - Team default
+ * * `single_repo` - Single repository
+ * * `ambiguous` - Ambiguous
+ * * `no_integration` - No integration
+ */
+export type CodeAnalysisRepositorySourceEnumApi =
+    (typeof CodeAnalysisRepositorySourceEnumApi)[keyof typeof CodeAnalysisRepositorySourceEnumApi]
+
+export const CodeAnalysisRepositorySourceEnumApi = {
+    Explicit: 'explicit',
+    PreviousAnalysis: 'previous_analysis',
+    TeamDefault: 'team_default',
+    SingleRepo: 'single_repo',
+    Ambiguous: 'ambiguous',
+    NoIntegration: 'no_integration',
+} as const
+
+export interface FeatureFlagCodeAnalysisTargetApi {
+    /**
+     * Repository the analysis would read, or null when none can be chosen without asking.
+     * @nullable
+     */
+    repository: string | null
+    /** How the repository was chosen: `explicit` (the requested one), `previous_analysis` (the one the last analysis of this flag used), `team_default` (the environment's default flag cleanup repository), `single_repo` (the only connected repository), `ambiguous` (several connected repositories and none chosen, so pass one), or `no_integration` (no GitHub integration or no connected repositories).
+     *
+     * * `explicit` - Explicit
+     * * `previous_analysis` - Previous analysis
+     * * `team_default` - Team default
+     * * `single_repo` - Single repository
+     * * `ambiguous` - Ambiguous
+     * * `no_integration` - No integration */
+    source: CodeAnalysisRepositorySourceEnumApi
+    /** Repositories connected to the project's GitHub integration. */
+    candidates: string[]
 }
 
 export type PropertyGroupOperatorEnumApi =
@@ -1653,6 +1888,26 @@ export interface DependentFlagApi {
     name: string
 }
 
+export interface FeatureFlagSetActiveRequestApi {
+    /**
+     * The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out.
+     * @minimum 0
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type FeatureFlagActionConflictApi = FlagActionErrorApi | FlagApprovalConflictApi
+
+export interface FeatureFlagCodeCleanupStartApi {
+    /**
+     * Outcome whose code to keep: `enabled`, `disabled`, or a variant key from `cleanup.outcome_options`. Omit it to keep `cleanup.suggested_outcome`.
+     * @maxLength 400
+     * @nullable
+     */
+    keep_outcome?: string | null
+}
+
 export interface FeatureFlagRollOutToEveryoneRequestApi {
     /**
      * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
@@ -1666,8 +1921,6 @@ export interface FeatureFlagRollOutToEveryoneRequestApi {
      */
     variant_key?: string | null
 }
-
-export type FeatureFlagActionConflictApi = FlagActionErrorApi | FlagApprovalConflictApi
 
 export interface FeatureFlagSetReleaseConditionRolloutRequestApi {
     /**
@@ -1785,7 +2038,7 @@ export interface FeatureFlagTestEvaluationResponseApi {
      */
     reason_description?: string | null
     /**
-     * The index of the condition that matched, if applicable
+     * The index of the condition that matched, if applicable. For a flag with config version 2, the zero-based index of the rule in `filters.rules` that decided the result, or null when no rule decided it.
      * @nullable
      */
     condition_index: number | null
@@ -1798,8 +2051,10 @@ export interface FeatureFlagTestEvaluationResponseApi {
      * @nullable
      */
     evaluation_distinct_id: string | null
-    /** Detailed analysis of each condition in the feature flag */
+    /** Detailed analysis of each condition in the feature flag. Always empty for a flag with config version 2, which `conditions_unavailable_reason` then explains. */
     conditions: FeatureFlagConditionAnalysisApi[]
+    /** Present only when `conditions` is empty because the evaluated config has no per-condition analysis. An empty list then does not mean the flag has no conditions or rules. */
+    conditions_unavailable_reason?: string
 }
 
 export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }
@@ -2427,6 +2682,10 @@ export type FeatureFlagsListParams = {
      */
     created_by_id?: string
     /**
+     * Pass `true` to list only soft-deleted flags, which can be restored, archived or not. When omitted, deleted flags are excluded.
+     */
+    deleted?: FeatureFlagsListDeleted
+    /**
      * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.
      */
     eligible_for_experiment?: FeatureFlagsListEligibleForExperiment
@@ -2484,6 +2743,13 @@ export const FeatureFlagsListArchived = {
     True: 'true',
 } as const
 
+export type FeatureFlagsListDeleted = (typeof FeatureFlagsListDeleted)[keyof typeof FeatureFlagsListDeleted]
+
+export const FeatureFlagsListDeleted = {
+    False: 'false',
+    True: 'true',
+} as const
+
 export type FeatureFlagsListEligibleForExperiment =
     (typeof FeatureFlagsListEligibleForExperiment)[keyof typeof FeatureFlagsListEligibleForExperiment]
 
@@ -2528,6 +2794,14 @@ export type FeatureFlagsActivityRetrieveParams = {
      * @minimum 1
      */
     page?: number
+}
+
+export type FeatureFlagsCodeAnalysisTargetRetrieveParams = {
+    /**
+     * Repository to check, as `organization/repository`. Omit it to see which repository would be used.
+     * @maxLength 255
+     */
+    repository?: string
 }
 
 export type FeatureFlagsAllActivityRetrieveParams = {

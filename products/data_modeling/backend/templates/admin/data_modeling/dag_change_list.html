@@ -1,0 +1,9 @@
+{% extends "admin/change_list.html" %}
+{% block object-tools-items %}
+    {{ block.super }}
+    {% if can_clear_suspensions %}
+        <li>
+            <a href="{% url 'admin:data_modeling_clear_node_suspensions' %}">Clear node suspensions</a>
+        </li>
+    {% endif %}
+{% endblock %}

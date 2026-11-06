@@ -142,8 +142,11 @@ class TestFirstReportScout(BaseTest):
         assert all(
             not call.kwargs["query"].select_from.table.chain[0].startswith("orders") for call in query.call_args_list
         )
-        if row_counts:
-            assert f'"recorded_row_count": {json.dumps(row_counts[-1])}' in context.prompt_context()
+        prompt = context.prompt_context()
+        payload = json.loads(prompt.rsplit("\n\n", 1)[1])
+        assert payload.get("warehouse_tables_connected", False) is bool(row_counts)
+        assert "orders_" not in prompt
+        assert "recorded_row_count" not in prompt
 
     def test_older_product_data_still_qualifies_for_an_investigation(self) -> None:
         with patch(
@@ -154,6 +157,9 @@ class TestFirstReportScout(BaseTest):
         assert context.has_data()
         assert context.product_data["session_replay_fragments"].rows == 0
         assert context.product_data["session_replay_fragments"].has_rows is True
+        sources = json.loads(context.prompt_context().rsplit("\n\n", 1)[1])["posthog_sources"]
+        assert list(sources) == ["Logs", "Traces", "Product analytics", "Session recordings"]
+        assert set(sources.values()) == {"data observed"}
         assert [call.kwargs["workload"] for call in query.call_args_list] == [
             Workload.OFFLINE,
             Workload.OFFLINE,
@@ -218,6 +224,17 @@ class TestFirstReportScout(BaseTest):
             context = build_first_report_context(self.team, self.user)
         assert context.has_data() is ingested_event
         assert context.data_is_unknown()
+        context.inventory.products_in_use = ["error_tracking", "metrics"]
+        sources = json.loads(context.prompt_context().rsplit("\n\n", 1)[1])["posthog_sources"]
+        assert sources == {
+            "Error tracking": "configured; data unverified",
+            "Metrics": "configured; data unverified",
+            **(
+                {"Product analytics": "past event ingestion recorded; current data unverified"}
+                if ingested_event
+                else {}
+            ),
+        }
 
     @parameterized.expand(
         [
@@ -228,10 +245,17 @@ class TestFirstReportScout(BaseTest):
             ("report_created", "ready", "report_created"),
             ("report_created", "pending_input", "report_created"),
             ("report_created", "ready", "report_created", True),
+            ("report_created", "resolved", "report_created", False, True),
+            ("report_created", "suppressed", "report_created", False, True),
         ]
     )
     def test_onboarding_success_requires_a_visible_persisted_report(
-        self, outcome: str, report_status: str | None, expected: str, child_environment: bool = False
+        self,
+        outcome: str,
+        report_status: str | None,
+        expected: str,
+        child_environment: bool = False,
+        previously_visible: bool = False,
     ) -> None:
         activator = User.objects.create_and_join(self.organization, "activator@example.com", None)
         activation_team = (
@@ -245,7 +269,15 @@ class TestFirstReportScout(BaseTest):
         set_first_report_state(self.team.id, "running")
         task = Task.objects.create(team=self.team, title="First investigation", created_by=self.user)
         task_run = TaskRun.objects.create(team=self.team, task=task, status="completed")
-        report = SignalReport.objects.create(team=self.team, status=report_status) if report_status else None
+        report = (
+            SignalReport.objects.create(
+                team=self.team,
+                status=report_status,
+                first_visible_at=timezone.now() if previously_visible else None,
+            )
+            if report_status
+            else None
+        )
         run = SignalScoutRun.objects.create(
             team=self.team,
             task_run=task_run,

@@ -28,7 +28,7 @@ from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.models.property.property import PropertyName
 from posthog.types import FunnelEntityNode
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action, get_action_names
 from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.hogql_queries.funnels.funnel_event_query import FunnelEventQuery
 from products.product_analytics.backend.hogql_queries.funnels.funnel_query_context import FunnelQueryContext
@@ -182,41 +182,26 @@ class FunnelBase(ABC):
         people: Optional[list[uuid.UUID]] = None,
         sampling_factor: Optional[float] = None,
     ) -> dict[str, Any]:
-        if isinstance(step, EventsNode):
-            step_type = "events"
-        elif isinstance(step, ActionsNode):
-            step_type = "actions"
-        elif isinstance(step, FunnelsDataWarehouseNode):
-            step_type = "data_warehouse"
-        elif isinstance(step, GroupNode):
-            step_type = "group"
-        else:
-            raise TypeError(f"Unsupported step type {type(step)}")
-
         if self.context.funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
             return {
-                "action_id": None,
                 "name": f"Completed {index + 1} step{'s' if index != 0 else ''}",
                 "custom_name": None,
                 "order": index,
                 "people": people if people else [],
                 "count": correct_result_for_sampling(count, sampling_factor),
-                "type": step_type,
             }
 
-        action_id: Optional[str | int]
+        name: Optional[str]
         if isinstance(step, EventsNode):
             name = step.event
-            action_id = step.event
         elif isinstance(step, FunnelsDataWarehouseNode):
             name = step.table_name
-            action_id = None
         elif isinstance(step, GroupNode):
             action_ids = [int(node.id) for node in step.nodes if isinstance(node, ActionsNode)]
             actions_by_id = {}
             if action_ids:
-                actions = Action.objects.filter(pk__in=action_ids, team__project_id=self.context.team.project_id)
-                actions_by_id = {action.pk: action.name or "Unnamed action" for action in actions}
+                action_names = get_action_names(project_id=self.context.team.project_id, action_ids=action_ids)
+                actions_by_id = {action_id: name or "Unnamed action" for action_id, name in action_names.items()}
 
             events = []
             for node in step.nodes:
@@ -225,20 +210,18 @@ class FunnelBase(ABC):
                 elif isinstance(node, ActionsNode):
                     events.append(actions_by_id.get(int(node.id), "Unnamed action"))
             name = ", ".join(events)
-            action_id = name
-        else:
-            action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
+        elif isinstance(step, ActionsNode):
+            action = get_action(action_id=int(step.id), project_id=self.context.team.project_id)
             name = action.name
-            action_id = step.id
+        else:
+            raise TypeError(f"Unsupported step type {type(step)}")
 
         return {
-            "action_id": action_id,
             "name": name,
             "custom_name": step.custom_name,
             "order": index,
             "people": people if people else [],
             "count": correct_result_for_sampling(count, sampling_factor),
-            "type": step_type,
         }
 
     @property

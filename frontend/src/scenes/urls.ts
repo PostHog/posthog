@@ -37,7 +37,7 @@ import type { SettingId, SettingLevelId, SettingSectionId } from './settings/typ
 /** The filters the analytics list reads from its URL. */
 export interface AnalyticsListUrlParams {
     orderBy?: string
-    type?: string
+    type?: string | string[]
     createdBy?: string[]
     folder?: string
     search?: string
@@ -46,7 +46,7 @@ export interface AnalyticsListUrlParams {
 
 export const urls = {
     ...productUrls,
-    absolute: (path = ''): string => window.location.origin + path,
+    absolute: (path = ''): string => new URL(path, window.location.origin).href,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
@@ -94,6 +94,7 @@ export const urls = {
         executionTarget,
         sendRawQuery,
         dashboard,
+        tileGroupKey,
         filters,
         metricName,
         metricPrefill,
@@ -110,6 +111,8 @@ export const urls = {
         executionTarget?: HogQLQuery['executionTarget']
         sendRawQuery?: boolean
         dashboard?: number
+        /** The dashboard tile group the saved insight goes into. Only applies with `dashboard`. */
+        tileGroupKey?: string | null
         /** Applied on top of the opened query/insight — carries unsaved view-mode filter edits into the editor */
         filters?: HogQLFilters
         /** Opens the editor bound to this data catalog metric so its query can be updated in place */
@@ -158,6 +161,9 @@ export const urls = {
 
         if (dashboard) {
             params.set('dashboard', String(dashboard))
+            if (tileGroupKey) {
+                params.set('tile_group', tileGroupKey)
+            }
         }
 
         const queryString = params.toString()
@@ -234,6 +240,8 @@ export const urls = {
     credentialReview: (next?: string): string =>
         `/account/credential-review${next ? `?next=${encodeURIComponent(next)}` : ''}`,
     cliAuthorize: (): string => '/cli/authorize',
+    // pinned: the OAuth server sends devices here as verification_uri, see posthog/api/oauth/device.py
+    oauthDeviceAuthorize: (): string => '/device',
     cliLive: (): string => '/cli/live',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
@@ -285,7 +293,6 @@ export const urls = {
         const queryString = params.toString()
         return `${base}${queryString ? `?${queryString}` : ''}`
     },
-    simpleOnboarding: (): string => '/onboarding/simple',
     onboardingWelcome: (): string => '/welcome',
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
@@ -371,6 +378,7 @@ export const urls = {
     projectPendingDeletion: (): string => '/project-pending-deletion',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
+    workloadTrustPolicyRequest: (id: string): string => `/workload-trust-policy-requests/${id}`,
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
     healthAlerts: (presetKinds?: string[]): string =>

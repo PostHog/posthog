@@ -2,18 +2,8 @@
 set -uo pipefail
 
 compute_tag() {
-    if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-        fetch_status=0
-        timeout --kill-after=10s 90s git fetch \
-            --no-tags --prune --no-recurse-submodules --unshallow --filter=tree:0 \
-            origin "+${GITHUB_REF}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
-        if [ "$fetch_status" -ne 0 ]; then
-            echo "::warning title=Ordered release tag skipped::Source history could not be fetched (status $fetch_status)."
-            return 0
-        fi
-    fi
     if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" != "false" ]; then
-        echo "::warning title=Ordered release tag skipped::Complete source history is unavailable."
+        echo "::warning title=Ordered release tag skipped::The checkout must fetch full history."
         return 0
     fi
     if ! head_revision="$(git rev-parse HEAD)" || [ "$head_revision" != "$GITHUB_SHA" ]; then

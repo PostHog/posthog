@@ -19,6 +19,7 @@ export function RetentionContainer({
     embedded,
     inSharedMode,
     vizSpecificOptions,
+    context,
 }: {
     inCardView?: boolean
     embedded?: boolean
@@ -42,7 +43,7 @@ export function RetentionContainer({
             {!inCardView && !inSharedMode && <RetentionEmptyResultsBanner />}
             {showLineGraph && (
                 <div className="RetentionContainer__graph">
-                    <RetentionGraph inSharedMode={inSharedMode} />
+                    <RetentionGraph inSharedMode={inSharedMode} resultMenuEnabled={context?.dashboardResultMenu} />
                 </div>
             )}
             {showLineGraph && showTable ? <LemonDivider /> : null}

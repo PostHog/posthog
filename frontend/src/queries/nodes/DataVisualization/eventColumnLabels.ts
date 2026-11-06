@@ -1,4 +1,4 @@
-import { formatEventName } from 'scenes/insights/utils'
+import { formatEventName } from 'lib/insights/entityFilterNames'
 
 // Matches the events table: only a column literally named `event` is known to hold event names.
 const EVENT_COLUMN_NAME = 'event'

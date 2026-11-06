@@ -1,7 +1,7 @@
 ---
 stamphog:
   size_gate:
-    max_lines: 1000
+    max_lines: 1500
 ---
 
 Desktop PRs are often tall: one feature usually lands across packages/core, packages/ui and the app in a single PR, so substantive line counts run past the global ceiling without adding review risk.

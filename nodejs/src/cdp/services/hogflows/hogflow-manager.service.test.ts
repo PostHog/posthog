@@ -10,7 +10,7 @@ import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub } from '~/types'
 
-import { insertHogFlow } from '../../_tests/fixtures-hogflows'
+import { hideHogFlowsFromReplica, insertHogFlow } from '../../_tests/fixtures-hogflows'
 import { HogFlowManagerService } from './hogflow-manager.service'
 
 describe('HogFlowManager', () => {
@@ -146,6 +146,133 @@ describe('HogFlowManager', () => {
                 jest.spyOn(Date, 'now').mockReturnValue(baseNow)
             }
         }, 10000)
+    })
+
+    it('reads the primary once per batch of workflows the database no longer has, and again once the miss expires', async () => {
+        const [deletedId, secondDeletedId, thirdDeletedId] = Array.from(
+            { length: 3 },
+            () => new FixtureHogFlowBuilder().withTeamId(teamId1).build().id
+        )
+        const querySpy = jest.spyOn(hub.postgres, 'query')
+        const primaryReads = (): number =>
+            querySpy.mock.calls.filter(([use, , , tag]) => use === PostgresUse.COMMON_WRITE && tag === 'fetchHogFlows')
+                .length
+        const baseNow = Date.now()
+
+        try {
+            const flows = await Promise.all(
+                Array.from({ length: 5 }, () => manager.getHogFlowCheckingPrimaryOnMiss(deletedId))
+            )
+            expect(flows).toEqual(Array(5).fill(null))
+            expect(primaryReads()).toBe(1)
+
+            jest.spyOn(Date, 'now').mockReturnValue(baseNow + 59_000)
+            expect(await manager.getHogFlowCheckingPrimaryOnMiss(deletedId)).toBeNull()
+            expect(primaryReads()).toBe(1)
+
+            jest.spyOn(Date, 'now').mockReturnValue(baseNow + 61_000)
+            expect(await manager.getHogFlowCheckingPrimaryOnMiss(deletedId)).toBeNull()
+            expect(primaryReads()).toBe(2)
+
+            const batch = await manager.getHogFlowsCheckingPrimaryOnMiss([
+                secondDeletedId,
+                thirdDeletedId,
+                secondDeletedId,
+                hogFlows[0].id,
+            ])
+            expect(batch).toEqual({
+                [secondDeletedId]: null,
+                [thirdDeletedId]: null,
+                [hogFlows[0].id]: expect.objectContaining({ id: hogFlows[0].id }),
+            })
+            expect(primaryReads()).toBe(3)
+        } finally {
+            jest.spyOn(Date, 'now').mockReturnValue(baseNow)
+        }
+    })
+
+    it('serves a workflow only the primary has from cache until a reload names it or the entry expires', async () => {
+        const lateFlow = await insertHogFlow(
+            hub.postgres,
+            new FixtureHogFlowBuilder().withTeamId(teamId1).withStatus('active').build()
+        )
+        const querySpy = hideHogFlowsFromReplica(hub.postgres, [lateFlow.id])
+        const reads = (): number[] =>
+            [PostgresUse.COMMON_READ, PostgresUse.COMMON_WRITE].map(
+                (use) =>
+                    querySpy.mock.calls.filter(([target, , , tag]) => target === use && tag === 'fetchHogFlows').length
+            )
+        const lateFlowMatch = expect.objectContaining({ id: lateFlow.id })
+        const baseNow = Date.now()
+
+        try {
+            expect(await manager.getHogFlowCheckingPrimaryOnMiss(lateFlow.id)).toEqual(lateFlowMatch)
+            expect(reads()).toEqual([1, 1])
+
+            jest.spyOn(Date, 'now').mockReturnValue(baseNow + 59_000)
+            expect(await manager.getHogFlowsCheckingPrimaryOnMiss([lateFlow.id])).toEqual({
+                [lateFlow.id]: lateFlowMatch,
+            })
+            expect(reads()).toEqual([1, 1])
+
+            manager['onHogFlowsReloaded'](teamId1, [lateFlow.id])
+            expect(await manager.getHogFlowCheckingPrimaryOnMiss(lateFlow.id)).toEqual(lateFlowMatch)
+            expect(reads()).toEqual([2, 2])
+
+            jest.spyOn(Date, 'now').mockReturnValue(baseNow + 120_000)
+            expect(await manager.getHogFlowCheckingPrimaryOnMiss(lateFlow.id)).toEqual(lateFlowMatch)
+            expect(reads()).toEqual([3, 3])
+        } finally {
+            jest.spyOn(Date, 'now').mockReturnValue(baseNow)
+        }
+    })
+
+    it('keeps no primary result from a read that a reload overtook', async () => {
+        const lateFlow = await insertHogFlow(
+            hub.postgres,
+            new FixtureHogFlowBuilder().withTeamId(teamId1).withStatus('active').build()
+        )
+        const querySpy = hideHogFlowsFromReplica(hub.postgres, [lateFlow.id])
+        const hideFromReplica = querySpy.getMockImplementation()!
+        let primaryReadStarted: () => void = () => {}
+        const primaryReadInFlight = new Promise<void>((resolve) => {
+            primaryReadStarted = resolve
+        })
+        let releasePrimaryRead: () => void = () => {}
+        const primaryReadReleased = new Promise<void>((resolve) => {
+            releasePrimaryRead = resolve
+        })
+        let holdNextPrimaryRead = true
+        querySpy.mockImplementation(async (target, queryString, values, tag, logLevel) => {
+            const result = await hideFromReplica(target, queryString, values, tag, logLevel)
+            if (holdNextPrimaryRead && target === PostgresUse.COMMON_WRITE && tag === 'fetchHogFlows') {
+                holdNextPrimaryRead = false
+                primaryReadStarted()
+                await primaryReadReleased
+            }
+            return result
+        })
+
+        try {
+            const overtakenLookup = manager.getHogFlowCheckingPrimaryOnMiss(lateFlow.id)
+            await primaryReadInFlight
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET status = 'draft' WHERE id = $1`,
+                [lateFlow.id],
+                'testKey'
+            )
+            manager['onHogFlowsReloaded'](teamId1, [lateFlow.id])
+            releasePrimaryRead()
+            await overtakenLookup
+
+            expect(await manager.getHogFlowCheckingPrimaryOnMiss(lateFlow.id)).toMatchObject({
+                id: lateFlow.id,
+                status: 'draft',
+            })
+        } finally {
+            querySpy.mockRestore()
+        }
     })
 
     describe('email sending pause', () => {
@@ -390,5 +517,45 @@ describe('HogFlowManager', () => {
             expect(loaded).not.toBeNull()
             expect(loaded).not.toHaveProperty('encrypted_inputs')
         })
+
+        it.each<{ name: string; actions: unknown }>([
+            { name: 'actions is not a list', actions: { trigger: { type: 'trigger' } } },
+            { name: 'actions holds a null entry', actions: [null] },
+            {
+                name: 'the trigger action has a null config',
+                actions: [{ id: 'trigger', type: 'trigger', config: null }],
+            },
+        ])(
+            'leaves out a flow whose secrets cannot be merged when $name, and loads the rest of its batch',
+            async ({ actions }) => {
+                // Served without its secrets, a webhook trigger would skip its auth header check.
+                const flow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder()
+                        .withName('Flow that cannot take its secrets')
+                        .withTeamId(teamId1)
+                        .withStatus('active')
+                        .build()
+                )
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogflow SET encrypted_inputs = $2, actions = $3::jsonb WHERE id = $1`,
+                    [
+                        flow.id,
+                        hub.encryptedFields.encrypt(
+                            JSON.stringify({ trigger: { auth_header: { value: 'Bearer secret' } } })
+                        ),
+                        JSON.stringify(actions),
+                    ],
+                    'testKey'
+                )
+                manager['onHogFlowsReloaded'](teamId1, [flow.id])
+
+                const loaded = await manager.getHogFlows([flow.id, hogFlows[0].id])
+
+                expect(loaded[flow.id]).toBeNull()
+                expect(loaded[hogFlows[0].id]?.id).toBe(hogFlows[0].id)
+            }
+        )
     })
 })

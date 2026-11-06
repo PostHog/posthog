@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -43,6 +45,28 @@ class TestSuppressionListPersonalAPIKeyAccess(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         if expected_status == 200:
             assert set(response.json()) == {"count", "next", "previous", "results"}
+
+    @parameterized.expand(
+        [
+            ("remove_suppression", {"identifier": "a@example.com"}, ["hog_flow:write", "person:read"], 404),
+            ("remove_suppression", {"identifier": "a@example.com"}, ["hog_flow:write"], 403),
+            ("bulk_remove_suppressions", {"identifiers": ["a@example.com"]}, ["hog_flow:write", "person:read"], 200),
+            ("bulk_remove_suppressions", {"identifiers": ["a@example.com"]}, ["hog_flow:write"], 403),
+        ]
+    )
+    def test_removal_requires_person_read(
+        self, action: str, body: dict, scopes: list[str], expected_status: int
+    ) -> None:
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_suppressions/{action}/",
+            body,
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {self._key(scopes)}",
+        )
+
+        assert response.status_code == expected_status
 
 
 class TestSuppressionListSearch(APIBaseTest):
@@ -98,6 +122,9 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
         row = MessageSuppression.objects.for_team(self.team.id).get(identifier="user@example.com")
         assert row.source == SuppressionSource.MANUAL
         assert row.suppressed
+        MessageSuppression.objects.for_team(self.team.id).filter(pk=row.pk).update(
+            hard_bounced_at=timezone.now(), reason="Auto-suppressed after a hard bounce"
+        )
 
         # Remove — the row should be un-suppressed AND its source reset so that the ON CONFLICT
         # branches in the node write path (which skip MANUAL rows) can re-suppress it later.
@@ -105,11 +132,98 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
         assert response.status_code == 204
 
         row.refresh_from_db()
-        assert (row.suppressed, row.deleted, row.transient_bounce_count, row.source) == (
+        assert (
+            row.suppressed,
+            row.deleted,
+            row.transient_bounce_count,
+            row.hard_bounced_at,
+            row.reason,
+            row.source,
+        ) == (
             False,
             True,
             0,
+            None,
+            None,
             SuppressionSource.BOUNCE,
         ), (
             "remove_suppression must reset the row so the node write path can auto-suppress this address again if it later bounces"
         )
+
+
+class TestRemoveSuppressions(APIBaseTest):
+    def _url(self, action: str) -> str:
+        return f"/api/projects/{self.team.id}/messaging_suppressions/{action}/"
+
+    def _suppress(self, identifier: str, source: SuppressionSource) -> None:
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team_id=self.team.id, identifier=identifier, source=source, suppressed=True, suppressed_at=timezone.now()
+        )
+
+    def _suppressed(self) -> set[str]:
+        return set(
+            MessageSuppression.objects.for_team(self.team.id)
+            .filter(suppressed=True, deleted=False)
+            .values_list("identifier", flat=True)
+        )
+
+    @parameterized.expand(
+        [
+            ("unconfirmed", {}, 400, {"spam@example.com"}),
+            ("confirmed", {"confirm_complaints": True}, 204, set()),
+        ]
+    )
+    def test_removing_a_complaint_needs_confirmation(
+        self, _name: str, extra: dict, expected_status: int, still_suppressed: set[str]
+    ) -> None:
+        self._suppress("spam@example.com", SuppressionSource.COMPLAINT)
+
+        response = self.client.post(
+            self._url("remove_suppression"), {"identifier": "spam@example.com", **extra}, format="json"
+        )
+
+        assert response.status_code == expected_status
+        assert self._suppressed() == still_suppressed
+
+    @parameterized.expand(
+        [
+            (
+                "removes what is listed and reports the rest",
+                {"identifiers": ["Bounced@Example.com", "manual@example.com", "unknown@example.com"]},
+                200,
+                {"spam@example.com"},
+            ),
+            (
+                "removes nothing while a complaint is unconfirmed",
+                {"identifiers": ["bounced@example.com", "spam@example.com"]},
+                400,
+                {"bounced@example.com", "manual@example.com", "spam@example.com"},
+            ),
+            (
+                "removes a confirmed complaint",
+                {"identifiers": ["bounced@example.com", "spam@example.com"], "confirm_complaints": True},
+                200,
+                {"manual@example.com"},
+            ),
+        ]
+    )
+    def test_bulk_remove(self, _name: str, body: dict, expected_status: int, still_suppressed: set[str]) -> None:
+        self._suppress("bounced@example.com", SuppressionSource.BOUNCE)
+        self._suppress("manual@example.com", SuppressionSource.MANUAL)
+        self._suppress("spam@example.com", SuppressionSource.COMPLAINT)
+
+        response = self.client.post(self._url("bulk_remove_suppressions"), body, format="json")
+
+        assert response.status_code == expected_status
+        assert self._suppressed() == still_suppressed
+
+    def test_bulk_remove_reports_removed_and_unknown_addresses(self) -> None:
+        self._suppress("bounced@example.com", SuppressionSource.BOUNCE)
+
+        response = self.client.post(
+            self._url("bulk_remove_suppressions"),
+            {"identifiers": ["bounced@example.com", "unknown@example.com"]},
+            format="json",
+        )
+
+        assert response.json() == {"removed": ["bounced@example.com"], "not_found": ["unknown@example.com"]}

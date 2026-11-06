@@ -78,6 +78,9 @@ class ExampleTable:
     labels: np.ndarray
     # (rows, heads) bool, the head's own `holdout_mask`.
     holdout: np.ndarray
+    # (rows, heads) float32 loss weights, or None for a weight of one everywhere. A pair table sets
+    # a broadcast head's weight to 1/pairs of the report, so each report weighs one in that head.
+    weights: np.ndarray | None = None
 
     def network_train_rows(self) -> np.ndarray:
         """Rows with a label for some head and in no head's holdout."""
@@ -150,31 +153,32 @@ def report_matrix(rows: pd.DataFrame, extras: Extras, feature_set: FeatureSet = 
     return matrix
 
 
-def project_context(rows: pd.DataFrame, labels: pa.Table, embeddings: pa.Table) -> ProjectContext:
-    """The project vectors each row reads: its team's, as of the start of its snapshot day.
+def project_context(
+    rows: pd.DataFrame, labels: pa.Table, embeddings: pa.Table, kinds: Sequence[str] = VECTOR_KINDS
+) -> ProjectContext:
+    """The project vectors of `kinds` each row reads: its team's, as of the start of its snapshot day.
 
     One `project_vectors()` call per snapshot day, and only the needed teams' rows are kept from it,
     so the context holds a vector per (team, day) rather than one per example row. `project_inputs`
     turns a day into vectors, the same function the scoring sweep reads the published day with.
     """
-    kinds = len(VECTOR_KINDS)
     pair_keys = rows[["report_team_id", "snapshot_date"]].drop_duplicates().reset_index(drop=True)
-    vectors = np.zeros((len(pair_keys), kinds, EMBEDDING_DIMENSIONS), dtype=np.float32)
-    has_history = np.zeros((len(pair_keys), kinds), dtype=np.float32)
+    vectors = np.zeros((len(pair_keys), len(kinds), EMBEDDING_DIMENSIONS), dtype=np.float32)
+    has_history = np.zeros((len(pair_keys), len(kinds)), dtype=np.float32)
     pair_of: dict[tuple[int, datetime.date], int] = {}
     for date, group in pair_keys.groupby("snapshot_date", sort=True):
         as_of, _ = snapshot_bounds(date.isoformat())
         pairs = group.index.to_numpy()
         team_ids = [int(team_id) for team_id in group["report_team_id"]]
         pair_of.update({(team_id, date): int(pair) for team_id, pair in zip(team_ids, pairs, strict=True)})
-        day = project_inputs(project_vectors(labels, embeddings, as_of).to_pandas(), team_ids)
+        day = project_inputs(project_vectors(labels, embeddings, as_of, kinds).to_pandas(), team_ids, kinds)
         vectors[pairs] = day.vectors
         has_history[pairs] = day.has_history
     index = np.array(
         [pair_of[(int(team_id), date)] for team_id, date in zip(rows["report_team_id"], rows["snapshot_date"])],
         dtype=np.int64,
     )
-    return ProjectContext(vectors=vectors, has_history=has_history, index=index)
+    return ProjectContext(vectors=vectors, has_history=has_history, index=index, kinds=tuple(kinds))
 
 
 @frozen

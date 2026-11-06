@@ -4,9 +4,9 @@ import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 import { ComposableMap, Geographies, Geography } from 'react-simple-maps'
 
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { gradateColor } from 'lib/utils/colors'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
@@ -52,7 +52,7 @@ function useRegionMapTooltip(showPersonsModal: boolean): React.RefObject<HTMLDiv
     const containerRef = useRef<HTMLDivElement>(null)
     const { getTooltip, showTooltip, hideTooltip, positionTooltipAt, resetTooltipPosition, measureTooltip } =
         useInsightTooltip()
-    const groupTypeLabel = aggregationLabel(series?.[0].math_group_type_index).plural
+    const groupTypeLabel = aggregationLabel(series?.[0]?.math_group_type_index).plural
 
     useEffect(() => {
         if (!isTooltipShown || !currentTooltip || !tooltipCoordinates) {
