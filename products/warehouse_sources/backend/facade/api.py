@@ -940,21 +940,22 @@ def _history_table_ref(
     )
 
 
-def _table_and_history_table(
-    team_id: int, table_id: UUID
-) -> tuple[_DataWarehouseTable | None, _DataWarehouseTable | None]:
+def _live_table(team_id: int, table_id: UUID) -> _DataWarehouseTable | None:
+    return _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id, deleted=False).first()
+
+
+def _registered_history_table(table: _DataWarehouseTable | None) -> _DataWarehouseTable | None:
     # Imported here to keep the history-table modules off the `django.setup()` import path.
     from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import registered_history_table
 
-    table = _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id, deleted=False).first()
-    return table, registered_history_table(table) if table is not None else None
+    return registered_history_table(table) if table is not None else None
 
 
 def registered_history_table_for(
     *, team_id: int, table_id: UUID, user_access_control: "UserAccessControl"
 ) -> contracts.HistoryTableRef | None:
     """The table's registered history table, or None when it has none or the caller can't view it."""
-    _, history_table = _table_and_history_table(team_id, table_id)
+    history_table = _registered_history_table(_live_table(team_id, table_id))
     if history_table is None or not user_access_control.check_access_level_for_object(
         history_table, required_level="viewer"
     ):
@@ -975,7 +976,8 @@ def copy_access_rules_to_history_table(
 
     from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import copy_access_rules
 
-    table, history_table = _table_and_history_table(team_id, table_id)
+    table = _live_table(team_id, table_id)
+    history_table = _registered_history_table(table)
     if table is None or history_table is None:
         raise contracts.NoHistoryTableError("This table has no history table.")
     copy_access_rules(User.objects.get(id=user_id), table, history_table)

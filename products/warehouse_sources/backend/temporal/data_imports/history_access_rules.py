@@ -137,7 +137,8 @@ def request_access_rules_copy(schema: ExternalDataSchema, user: User) -> None:
     Does nothing when the schema keeps no history or has no table yet: a table that doesn't exist has no rules.
     """
     table = schema.table
-    if not schema.keeps_history or table is None:
+    # In `cdc_only` mode the schema's table can already be its history table, which has nothing to copy from.
+    if not schema.keeps_history or table is None or table.is_history_table:
         return
     with transaction.atomic():
         # Registration holds the same lock while it creates the history table and reads the request, so a
@@ -210,8 +211,14 @@ def _run_pending_copy(schema_id: UUID, team_id: int, history_table: DataWarehous
     log = logger.bind(team_id=team_id, schema_id=str(schema_id), history_table_id=str(history_table.id))
     user = User.objects.filter(id=pending.get("user_id"), is_active=True).first()
     table = DataWarehouseTable.objects.filter(team_id=team_id, id=pending.get("table_id"), deleted=False).first()
-    if table is None or table.id == history_table.id:
-        log.info("history_access_rules_copy_skipped", reason="table gone")
+    if table is not None and table.id == history_table.id:
+        log.info("history_access_rules_copy_skipped", reason="the request names the history table itself")
+        update_sync_type_config_keys(schema_id, team_id, removes=[PENDING_COPY_KEY])
+        return
+    if table is None:
+        # The rules to copy are gone with the table, so the history table must not fall back to its source's.
+        log.info("history_access_rules_copy_denied", reason="table gone")
+        _deny_history_table(team_id, history_table, keep_manager=None)
         update_sync_type_config_keys(schema_id, team_id, removes=[PENDING_COPY_KEY])
         return
     allowed = False

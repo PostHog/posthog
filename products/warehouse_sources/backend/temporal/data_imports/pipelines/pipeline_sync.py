@@ -742,21 +742,44 @@ async def register_cdc_companion_table(
                 )
                 run_pending_access_rules_copy(schema_id, team_id, table)
             else:
-                logger.debug(f"Creating CDC companion table: {companion_table_name}")
-                companion_table = DataWarehouseTable(
-                    external_data_source_id=job.pipeline.id,
-                    created_via=DataWarehouseTableCreatedVia.SOURCE,
-                    size_in_s3_mib=live_size_mib,
-                    **table_params,
-                )
-                # The batches carry the validity columns of the naming this run chose for the table.
-                companion_table.mark_as_history_table(
-                    ph_naming=history_naming_of(table_schema_dict or {}) == HISTORY_NAMING
-                )
                 # The table and the access rules it waits for commit together, so it is never readable without them.
                 with transaction.atomic():
                     lock_schema_for_history_registration(schema_id, team_id)
-                    companion_table.save()
+                    # A registration that overlapped this one may have created the table while this one waited.
+                    registered = not_another_schemas_table(
+                        DataWarehouseTable.objects.filter(
+                            team_id=team_id,
+                            name=companion_table_name,
+                            external_data_source_id=job.pipeline.id,
+                            deleted=False,
+                        ),
+                        schema_id,
+                    ).first()
+                    if registered is None:
+                        logger.debug(f"Creating CDC companion table: {companion_table_name}")
+                        companion_table = DataWarehouseTable(
+                            external_data_source_id=job.pipeline.id,
+                            created_via=DataWarehouseTableCreatedVia.SOURCE,
+                            size_in_s3_mib=live_size_mib,
+                            **table_params,
+                        )
+                        # The batches carry the validity columns of the naming this run chose for the table.
+                        companion_table.mark_as_history_table(
+                            ph_naming=history_naming_of(table_schema_dict or {}) == HISTORY_NAMING
+                        )
+                        companion_table.save()
+                    else:
+                        previous_queryable_folder = registered.queryable_folder
+                        storage_delta_mib = _storage_delta_mib(registered, live_size_mib)
+                        companion_table = registered
+                        companion_table.format = table_format
+                        companion_table.url_pattern = new_url_pattern
+                        companion_table.queryable_folder = queryable_folder
+                        companion_table.mark_as_history_table()
+                        companion_table.save(
+                            update_fields=["format", "url_pattern", "queryable_folder", "options"],
+                            internally_computed_url_pattern=True,
+                        )
                     run_pending_access_rules_copy(schema_id, team_id, companion_table)
             _record_storage_delta(job, storage_delta_mib)
             _record_query_folder_pointer(

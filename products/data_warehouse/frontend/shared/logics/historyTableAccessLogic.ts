@@ -69,9 +69,9 @@ export interface historyTableAccessLogicMeta {
         canCopyToHistoryTable: (
             featureFlags: FeatureFlagsSet,
             historyTable: HistoryTableRefApi | null,
-            accessControls: any
+            accessControls: AccessControlResponseType | null
         ) => boolean
-        copyDisabledReason: (accessControlsLoading: any) => string | null
+        copyDisabledReason: (accessControlsLoading: boolean) => string | null
     }
 }
 
@@ -133,7 +133,11 @@ export const historyTableAccessLogic = kea<historyTableAccessLogicType>([
     selectors({
         canCopyToHistoryTable: [
             (s) => [s.featureFlags, s.historyTable, s.accessControls],
-            (featureFlags: FeatureFlagsSet, historyTable: HistoryTableRefApi | null, accessControls): boolean =>
+            (
+                featureFlags: FeatureFlagsSet,
+                historyTable: HistoryTableRefApi | null,
+                accessControls: AccessControlResponseType | null
+            ): boolean =>
                 !!featureFlags[FEATURE_FLAGS.WAREHOUSE_HISTORY_ACCESS_RULES] &&
                 !!historyTable?.user_can_manage_access &&
                 !!accessControls?.user_can_edit_access_levels,
@@ -141,7 +145,7 @@ export const historyTableAccessLogic = kea<historyTableAccessLogicType>([
         // A copy started while a rule change saves would read the rules from before the change.
         copyDisabledReason: [
             (s) => [s.accessControlsLoading],
-            (accessControlsLoading): string | null =>
+            (accessControlsLoading: boolean): string | null =>
                 accessControlsLoading ? 'Wait for the access change to save.' : null,
         ],
     }),
