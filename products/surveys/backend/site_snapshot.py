@@ -16,6 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.dataclasses import frozen
+from posthog.errors import ExposedCHQueryError
 from posthog.models import Team, User
 from posthog.session_recordings.models.session_recording import SessionRecording
 
@@ -32,7 +33,6 @@ SNAPSHOT_WINDOW = timedelta(days=7)
 LONGEST_RECORDING = timedelta(days=1)
 NO_SNAPSHOT_TTL = timedelta(minutes=10)
 PAINT_DELAY_SECONDS = 3
-CANDIDATE_PAGEVIEWS = 100
 
 
 class SnapshotDevice(models.TextChoices):
@@ -116,15 +116,12 @@ def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> 
             AND toInt(e.properties.$viewport_width) BETWEEN {min_width} AND {max_width}
             AND toInt(e.properties.$viewport_height) > 0
             AND {url_condition}
-        ORDER BY e.timestamp DESC
-        LIMIT {candidates}
         """,
         placeholders={
             "pageviews_since": ast.Constant(value=pageviews_since),
             "min_width": ast.Constant(value=viewport.min_width),
             "max_width": ast.Constant(value=viewport.max_width),
             "url_condition": _url_condition(survey),
-            "candidates": ast.Constant(value=CANDIDATE_PAGEVIEWS),
         },
     )
     query = cast(
@@ -165,12 +162,16 @@ def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> 
     )
     with tags_context(product=Product.SURVEYS, feature=Feature.QUERY):
         tag_queries(name="survey_site_snapshot_moment")
-        response = execute_hogql_query(
-            query=query,
-            team=team,
-            query_type="survey_site_snapshot_moment",
-            workload=Workload.ONLINE,
-        )
+        try:
+            response = execute_hogql_query(
+                query=query,
+                team=team,
+                query_type="survey_site_snapshot_moment",
+                workload=Workload.ONLINE,
+            )
+        except ExposedCHQueryError:
+            # A URL regex that ClickHouse cannot compile matches no page, since posthog-js may still accept it.
+            return None
     if not response.results:
         return None
     session_id, offset_seconds, page_url, viewport_width, viewport_height = response.results[0]
@@ -181,6 +182,29 @@ def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> 
         viewport_width=viewport_width,
         viewport_height=viewport_height,
     )
+
+
+def _recording_was_deleted(team: Team, session_id: str) -> bool:
+    query = parse_select(
+        """
+        SELECT max(is_deleted)
+        FROM raw_session_replay_events
+        WHERE session_id = {session_id} AND min_first_timestamp >= {recordings_since}
+        """,
+        placeholders={
+            "session_id": ast.Constant(value=session_id),
+            "recordings_since": ast.Constant(value=timezone.now() - SNAPSHOT_WINDOW - LONGEST_RECORDING),
+        },
+    )
+    with tags_context(product=Product.SURVEYS, feature=Feature.QUERY):
+        tag_queries(name="survey_site_snapshot_recording_deleted")
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            query_type="survey_site_snapshot_recording_deleted",
+            workload=Workload.ONLINE,
+        )
+    return bool(response.results and response.results[0][0])
 
 
 def _snapshot_key(survey: Survey, device: SnapshotDevice) -> dict[str, str]:
@@ -237,9 +261,12 @@ def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: 
         .order_by("-created_at")
         .first()
     )
-    if cached is not None and not _is_abandoned(cached):
+    if cached is not None:
         session_id = (cached.export_context or {})["session_recording_id"]
-        return _snapshot_of(cached) if _may_view_recording(user_access_control, team, session_id) else UNAVAILABLE
+        if not _may_view_recording(user_access_control, team, session_id):
+            return UNAVAILABLE
+        if not _is_abandoned(cached) and not _recording_was_deleted(team, session_id):
+            return _snapshot_of(cached)
 
     no_snapshot_key = _no_snapshot_cache_key(team, key)
     if cache.get(no_snapshot_key):

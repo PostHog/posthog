@@ -3045,7 +3045,11 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         ),
     )
     @action(
-        methods=["GET"], detail=True, url_path="site-snapshot", required_scopes=["survey:read"], pagination_class=None
+        methods=["GET"],
+        detail=True,
+        url_path="site-snapshot",
+        required_scopes=["survey:read", "session_recording:read"],
+        pagination_class=None,
     )
     def site_snapshot(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         snapshot = get_site_snapshot(
