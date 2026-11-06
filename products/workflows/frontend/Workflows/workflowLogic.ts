@@ -5103,7 +5103,13 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!workflow) {
                 return
             }
-            const createdWorkflow = await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
+            let createdWorkflow: HogFlow
+            try {
+                createdWorkflow = await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
+            } catch {
+                lemonToast.error('Could not duplicate the workflow. Please try again.')
+                return
+            }
             lemonToast.success('Workflow duplicated')
             router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
         },

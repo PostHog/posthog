@@ -10,6 +10,7 @@ import {
     DataWarehouseColumnsHint,
     DataWarehouseColumnsHintProps,
 } from 'lib/components/CyclotronJob/DataWarehouseColumnsHint'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 
@@ -472,5 +473,19 @@ describe('view-only workflow', () => {
 
         expect(screen.getByText(/You can view this workflow but not edit it/)).toBeInTheDocument()
         expect(document.querySelector('[data-attr="workflow-view-only-duplicate"]') !== null).toBe(offersDuplicate)
+    })
+
+    it('tells a viewer when Duplicate fails', async () => {
+        setWorkflowResourceAccess(AccessControlLevel.Editor)
+        useMocks({ post: { '/api/environments/:team_id/hog_flows/': () => [500, { detail: 'Server error' }] } })
+        const toastError = jest.spyOn(lemonToast, 'error')
+
+        renderForViewer(<WorkflowViewOnlyBanner id={WORKFLOW_ID} />)
+        await act(async () => {
+            fireEvent.click(document.querySelector('[data-attr="workflow-view-only-duplicate"]')!)
+        })
+
+        expect(toastError).toHaveBeenCalledWith('Could not duplicate the workflow. Please try again.')
+        toastError.mockRestore()
     })
 })
