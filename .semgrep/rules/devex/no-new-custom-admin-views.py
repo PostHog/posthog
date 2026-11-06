@@ -57,6 +57,10 @@ class DeletionRequestAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
     # ruleid: no-new-admin-workflow-hooks
+    def save_form(self, request, form, change):
+        return form.save(commit=False)
+
+    # ruleid: no-new-admin-workflow-hooks
     def change_view(self, request, object_id, form_url="", extra_context=None):
         return super().change_view(request, object_id, form_url, extra_context)
 

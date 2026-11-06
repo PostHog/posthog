@@ -69,7 +69,7 @@ rules:
                     ...
           - metavariable-regex:
                 metavariable: $FUNC
-                regex: ^(save_model|delete_model|save_related|save_formset|delete_queryset|add_view|change_view|changeform_view|changelist_view|delete_view|history_view|response_add|response_change|response_delete)$
+                regex: ^(save_form|save_model|delete_model|save_related|save_formset|delete_queryset|add_view|change_view|changeform_view|changelist_view|delete_view|history_view|response_add|response_change|response_delete)$
           - focus-metavariable: $FUNC
       paths:
           include:
