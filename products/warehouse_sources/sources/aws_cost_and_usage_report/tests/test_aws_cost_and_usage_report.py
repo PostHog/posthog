@@ -16,7 +16,6 @@ from products.warehouse_sources.sources.aws_cost_and_usage_report.aws_cost_and_u
     VALIDATION_ERROR_MESSAGES,
     WRONG_REGION_MESSAGE,
     CostAndUsageReportResumeConfig,
-    validate_credentials,
 )
 from products.warehouse_sources.sources.aws_cost_and_usage_report.source import AwsCostAndUsageReportSource
 from products.warehouse_sources.sources.sdk.testing import (
@@ -46,7 +45,7 @@ def config(**overrides: Any) -> AwsCostAndUsageReportSourceConfig:
         "first_billing_period": "2024-03",
     }
     values.update(overrides)
-    return AwsCostAndUsageReportSourceConfig(**values)
+    return AwsCostAndUsageReportSourceConfig.from_dict(values)
 
 
 def listing(
@@ -406,16 +405,7 @@ class TestSync:
 
 
 def probe(c: AwsCostAndUsageReportSourceConfig) -> tuple[bool, str | None]:
-    return validate_credentials(
-        c.aws_access_key_id,
-        c.aws_secret_access_key,
-        c.aws_session_token,
-        c.aws_region,
-        c.bucket,
-        c.prefix,
-        c.export_name,
-        c.first_billing_period,
-    )
+    return AwsCostAndUsageReportSource().validate_credentials(c, team_id=1)
 
 
 class TestDeliveries:
@@ -503,7 +493,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("overrides", "expected"),
         [
-            ({"aws_secret_access_key": ""}, "AWS access key ID and secret access key are required"),
+            ({"aws_secret_access_key": ""}, "Enter both an AWS access key ID and a secret access key."),
             ({"aws_region": "Frankfurt"}, "Enter an AWS region code, for example us-east-1."),
             ({"bucket": "s3://billing-exports/cur"}, "Enter the bucket name only, without s3:// or a path."),
             ({"export_name": " / "}, "Enter the name of the data export."),
