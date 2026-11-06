@@ -523,11 +523,11 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             {
                 loadPulsePins: async (): Promise<PulsePinApi[]> => {
                     const edits = cache.pinEdits ?? 0
-                    const hiddenEdits = cache.hiddenEdits ?? 0
+                    const hiddenEdits = cache.hiddenEdits
                     try {
-                        const { pins, hidden } = await todayPulsePinsRetrieve(String(values.currentProjectId))
-                        if ((cache.hiddenEdits ?? 0) === hiddenEdits) {
-                            actions.setPulseHidden([...(hidden ?? [])])
+                        const { pins, hidden = [] } = await todayPulsePinsRetrieve(String(values.currentProjectId))
+                        if (cache.hiddenEdits === hiddenEdits) {
+                            actions.setPulseHidden([...hidden])
                         }
                         return (cache.pinEdits ?? 0) === edits ? pins : values.pulsePins
                     } catch (error) {

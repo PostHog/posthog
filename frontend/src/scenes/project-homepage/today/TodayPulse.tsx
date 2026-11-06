@@ -226,7 +226,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                                             'hover_card'
                                         )
                                     }
-                                    hideDisabledReason={pulseHideUnavailableReason ?? undefined}
+                                    hideDisabledReason={pulseHideUnavailableReason}
                                     onHide={() => hidePulseMetric(metric, position)}
                                 />
                             }
