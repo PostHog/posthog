@@ -45,6 +45,7 @@ from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.dataclasses import frozen
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.team.team import Team
 
 from products.signals.backend.artefact_schemas import (
@@ -76,7 +77,9 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalScoutRun,
 )
+from products.signals.backend.pull_requests import apply_report_completion, link_pull_request
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
+from products.signals.backend.report_assignments import InvalidPullRequestUrl, PullRequestDetails, _pull_request_details
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerPayloadIndex, bounded_reviewer_reason
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
@@ -827,6 +830,79 @@ def append_report_source_issues(
             team_id=team_id, report_id=report_id, issues=source_issues, attribution=attribution
         )
     return len(written)
+
+
+def _linked_pull_request_keys(team_id: int, report_id: str) -> set[tuple[str, int]]:
+    return set(
+        SignalReportArtefact.objects.filter(
+            team_id=team_id, report_id=report_id, pull_request__isnull=False
+        ).values_list("pull_request__repository", "pull_request__number")
+    )
+
+
+def resolve_scout_report_pull_requests(
+    *, team_id: int, report_id: str, pull_request_urls: Sequence[str]
+) -> list[PullRequestDetails]:
+    """Read the GitHub state of the pull requests the report does not link yet.
+
+    Call it before the edit transaction opens, because each pull request costs one GitHub API call. A
+    pull request the report already links is skipped here, so a retried edit makes no GitHub calls. A
+    repository without a GitHub connection, or a failed lookup, gives `unknown` state rather than an
+    error, the same as the claim path.
+    """
+    _validate_report_id(report_id)
+    if not pull_request_urls:
+        return []
+    linked = _linked_pull_request_keys(team_id, report_id)
+    details: list[PullRequestDetails] = []
+    for url in pull_request_urls:
+        parsed = GitHubIntegrationBase.parse_pull_request_url(url)
+        if parsed is not None and (parsed.repository.lower(), parsed.number) in linked:
+            continue
+        try:
+            details.append(_pull_request_details(team_id, url))
+        except InvalidPullRequestUrl as err:
+            raise InvalidScoutReportError(f"pull request {url!r}: {err}")
+    return details
+
+
+def link_scout_report_pull_requests(
+    *,
+    team_id: int,
+    report_id: str,
+    pull_requests: Sequence[PullRequestDetails],
+    attribution: ArtefactAttribution,
+) -> int:
+    """Link pull requests to an existing report, returning how many the report did not link before.
+
+    Additive and deduplicated by repository and number, like `append_report_source_issues`. A link
+    makes the pull request part of the report's completion: the report resolves when every linked pull
+    request is closed or merged and at least one merged, which `apply_report_completion` checks at once
+    and the GitHub webhook checks again on each later state change.
+
+    The link holds no claim and starts no reviewer side effects. A scout links a pull request that a
+    person or another agent opened, so marking it ready for review, labelling it, or assigning its
+    reviewers would change work that the scout does not own.
+    """
+    _validate_report_id(report_id)
+    if not pull_requests:
+        return 0
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update(no_key=True).filter(team_id=team_id, id=report_id).first()
+        if report is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        # Read again under the report lock, so two concurrent edits that name one pull request link it once.
+        linked = _linked_pull_request_keys(team_id, report_id)
+        new = {(pr.repository, pr.number): pr for pr in pull_requests if (pr.repository, pr.number) not in linked}
+        for _, pr in sorted(new.items()):
+            link_pull_request(report=report, details=pr, actor=attribution, claim_id=None, notify_reviewers=False)
+        if new:
+            apply_report_completion(report)
+    logger.info(
+        "signals_scout.edit_report: pull requests linked",
+        extra={"team_id": team_id, "report_id": report_id, "pull_request_count": len(new)},
+    )
+    return len(new)
 
 
 def record_content_revision(*, team_id: int, report_id: str) -> int:

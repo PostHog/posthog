@@ -3569,7 +3569,7 @@ export const SignalsScoutRecordCheckResultBody = () => zod
     .describe('Request body for `scout-check-record-result`: the verdict on one dispatched report check.')
 
 /**
- * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. `tags` replaces the report's slug tags, and an omitted `tags` keeps them. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
+ * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. `tags` replaces the report's slug tags, and an omitted `tags` keeps them. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs. Set `pull_requests` to link a fix that already exists, so the report resolves when it merges.
  * @summary Edit an existing report for a run
  */
 export const SignalsScoutEditReportParams = () => zod.object({
@@ -3636,6 +3636,10 @@ export const signalsScoutEditReportBodyLinksMax = 10
 export const signalsScoutEditReportBodySourceIssuesItemUrlMax = 500
 
 export const signalsScoutEditReportBodySourceIssuesMax = 5
+
+export const signalsScoutEditReportBodyPullRequestsItemMax = 2048
+
+export const signalsScoutEditReportBodyPullRequestsMax = 5
 
 export const signalsScoutEditReportBodyTagsMax = 10
 
@@ -3969,6 +3973,13 @@ export const SignalsScoutEditReportBody = () => zod
             .optional()
             .describe(
                 'The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call. Additive: issues join the ones the report already names, and an issue it already names is skipped. Only a newly added issue gets a comment.'
+            ),
+        pull_requests: zod
+            .array(zod.url().max(signalsScoutEditReportBodyPullRequestsItemMax))
+            .max(signalsScoutEditReportBodyPullRequestsMax)
+            .optional()
+            .describe(
+                "GitHub pull request URLs (`https:\/\/github.com\/<owner>\/<repo>\/pull\/<number>`) that fix what this report describes, when you found a fix that a person or another agent already opened. A linked pull request is the report's implementation: the report resolves on its own when every linked pull request is closed or merged and at least one merged, and a merged pull request resolves it at once. Additive: a pull request the report already links is skipped. Linking does not claim the report and does not change the pull request itself (no labels, reviewers, or ready-for-review). Link only a pull request whose diff targets this report's cause. At most 5 per call."
             ),
         tags: zod
             .array(zod.string())

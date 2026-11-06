@@ -36,6 +36,7 @@ from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_W
 
 from products.signals.backend.activity_summary.search import MAX_MEMBER_ACTIVITY_OBJECTS, MAX_MEMBERS_WITH_ACTIVITY
 from products.signals.backend.artefact_schemas import (
+    MAX_PULL_REQUESTS_PER_WRITE,
     MAX_REPORT_LINK_REASON_LENGTH,
     MAX_REPORT_LINKS_PER_WRITE,
     MAX_SOURCE_ISSUES_PER_WRITE,
@@ -1974,6 +1975,21 @@ class EditReportRequestSerializer(ReviewerProposalSerializer):
             "it already names is skipped. Only a newly added issue gets a comment."
         ),
     )
+    pull_requests = serializers.ListField(
+        required=False,
+        child=serializers.URLField(max_length=2048),
+        max_length=MAX_PULL_REQUESTS_PER_WRITE,
+        help_text=(
+            "GitHub pull request URLs (`https://github.com/<owner>/<repo>/pull/<number>`) that fix what this "
+            "report describes, when you found a fix that a person or another agent already opened. A linked "
+            "pull request is the report's implementation: the report resolves on its own when every linked "
+            "pull request is closed or merged and at least one merged, and a merged pull request resolves it at "
+            "once. Additive: a pull request the report already links is skipped. Linking does not claim the "
+            "report and does not change the pull request itself (no labels, reviewers, or ready-for-review). "
+            f"Link only a pull request whose diff targets this report's cause. At most {MAX_PULL_REQUESTS_PER_WRITE} "
+            "per call."
+        ),
+    )
     tags = serializers.ListField(
         required=False,
         allow_null=True,
@@ -2083,6 +2099,9 @@ class EditReportResponseSerializer(serializers.Serializer):
     )
     source_issues_appended = serializers.IntegerField(
         help_text="How many source issues this edit added that the report did not name yet; 0 if none."
+    )
+    pull_requests_linked = serializers.IntegerField(
+        help_text="How many pull requests this edit linked that the report did not link yet; 0 if none."
     )
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
     repository_set = serializers.BooleanField(

@@ -19,6 +19,7 @@ from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
+from posthog.models.integration import GitHubIntegration
 from posthog.models.organization import OrganizationMembership
 
 from products.signals.backend.artefact_schemas import (
@@ -681,6 +682,53 @@ class TestScoutReportAPI(APIBaseTest):
             "https://github.com/acme/widgets/issues/42",
             "https://github.com/acme/widgets/issues/43",
         ]
+
+    @parameterized.expand(
+        [
+            ("merged", {"state": "closed", "merged": True, "merged_at": "2026-01-15T10:00:00Z"}, "resolved"),
+            ("draft", {"state": "open", "draft": True}, "ready"),
+        ]
+    )
+    def test_edit_report_links_an_existing_pull_request_without_touching_it(
+        self, _name: str, github_pr: dict, expected_status: str
+    ) -> None:
+        run = _make_run(self.team)
+        pr_url = "https://github.com/acme/widgets/pull/7"
+        github = MagicMock()
+        github.get_pull_request.return_value = {"success": True, "url": pr_url, **github_pr}
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=github),
+            patch("products.signals.backend.tasks.label_implementation_pr.delay") as label,
+            patch("products.signals.backend.tasks.open_implementation_pr_for_review.delay") as ready_for_review,
+            patch("products.signals.backend.tasks.assign_reviewers_on_implementation_pr.delay") as assign_reviewers,
+        ):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(already_addressed=True), format="json"
+            )
+            assert created.status_code == status.HTTP_200_OK, created.json()
+            report_id = created.json()["report_id"]
+
+            # The second call repeats the pull request under another URL form, as a retried edit would.
+            for pull_requests, linked in (([pr_url, f"{pr_url}/files"], 1), ([pr_url], 0)):
+                with self.captureOnCommitCallbacks(execute=True):
+                    edited = self.client.post(
+                        self._edit_url(str(run.id)),
+                        data={"report_id": report_id, "pull_requests": pull_requests},
+                        format="json",
+                    )
+                assert edited.status_code == status.HTTP_200_OK, edited.json()
+                assert edited.json()["pull_requests_linked"] == linked
+
+        github.get_pull_request.assert_called_once_with("acme/widgets", 7)
+        label.assert_not_called()
+        ready_for_review.assert_not_called()
+        assign_reviewers.assert_not_called()
+        report = SignalReport.objects.get(id=report_id)
+        assert report.status == expected_status
+        links = SignalReportArtefact.objects.filter(report_id=report_id, pull_request__isnull=False)
+        assert [(link.pull_request.number, link.claim_id) for link in links] == [(7, None)]
 
     @parameterized.expand(
         [

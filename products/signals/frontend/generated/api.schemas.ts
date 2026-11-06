@@ -10203,6 +10203,12 @@ export interface EditReportRequestApi {
      */
     source_issues?: SourceIssueWriteApi[]
     /**
+     * GitHub pull request URLs (`https://github.com/<owner>/<repo>/pull/<number>`) that fix what this report describes, when you found a fix that a person or another agent already opened. A linked pull request is the report's implementation: the report resolves on its own when every linked pull request is closed or merged and at least one merged, and a merged pull request resolves it at once. Additive: a pull request the report already links is skipped. Linking does not claim the report and does not change the pull request itself (no labels, reviewers, or ready-for-review). Link only a pull request whose diff targets this report's cause. At most 5 per call.
+     * @maxItems 5
+     * @items.maxLength 2048
+     */
+    pull_requests?: string[]
+    /**
      * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
      * @maxItems 10
      * @nullable
@@ -10261,6 +10267,8 @@ export interface EditReportResponseApi {
     links_appended: number
     /** How many source issues this edit added that the report did not name yet; 0 if none. */
     source_issues_appended: number
+    /** How many pull requests this edit linked that the report did not link yet; 0 if none. */
+    pull_requests_linked: number
     /** Whether the report's suggested reviewers were replaced. */
     reviewers_set: boolean
     /** Whether the report's repository was replaced (true for a cleared target too). */

@@ -47,9 +47,11 @@ from posthog.event_usage import groups
 from posthog.git import extract_linked_repo
 from posthog.llm.gateway_client import private_scout_gateway
 from posthog.models import Team
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.artefact_schemas import (
+    MAX_PULL_REQUESTS_PER_WRITE,
     MAX_REPORT_LINKS_PER_WRITE,
     MAX_SOURCE_ISSUES_PER_WRITE,
     ActionabilityAssessment,
@@ -129,12 +131,14 @@ from products.signals.backend.scout_report import (
     get_scout_report_signal_count,
     get_scout_report_status,
     get_scout_report_title,
+    link_scout_report_pull_requests,
     missing_link_targets,
     prepare_scout_supersession,
     record_content_revision,
     record_implementation_decision,
     record_report_edit,
     record_scout_run_task_artefact,
+    resolve_scout_report_pull_requests,
     scout_report_exists,
     scout_report_provenance,
     scout_task_run_content,
@@ -340,6 +344,9 @@ class EditReportResult:
     # How many source issues the edit recorded that the report did not name yet. Additive like
     # `links_appended`.
     source_issues_appended: int = 0
+    # How many pull requests the edit linked that the report did not link yet. Additive like
+    # `links_appended`.
+    pull_requests_linked: int = 0
     # Which work decisions (`actionability`, `priority`) the edit replaced. Empty when the edit set
     # none, or re-sent the decisions the report already held.
     decision_fields_set: tuple[str, ...] = ()
@@ -367,6 +374,7 @@ class EditReportResult:
                 or self.evidence_appended
                 or self.links_appended
                 or self.source_issues_appended
+                or self.pull_requests_linked
                 or self.decision_fields_set
             )
             or self.charts_set is not None
@@ -419,6 +427,13 @@ def _reject_trial_source_issues(store: ScoutTrialStore | None, source_issues: Se
     if store is not None and source_issues:
         store.invalidate("Source issues are not supported by private capture; this run cannot be compared.")
         raise InvalidScoutReportError("Source issues are not supported for this run.")
+
+
+def _reject_trial_pull_requests(store: ScoutTrialStore | None, pull_requests: Sequence[str] | None) -> None:
+    # A linked pull request can resolve the report when it merges, which a private trial must never do.
+    if store is not None and pull_requests:
+        store.invalidate("Pull requests are not supported by private capture; this run cannot be compared.")
+        raise InvalidScoutReportError("Pull requests are not supported for this run.")
 
 
 def _private_report_gateway(function: Callable[_Parameters, _Return]) -> Callable[_Parameters, _Return]:
@@ -1051,6 +1066,28 @@ def _build_source_issues(source_issues: list[str] | None) -> list[SourceIssue]:
         if issue not in built:
             built.append(issue)
     return built
+
+
+def _build_pull_requests(pull_requests: list[str] | None) -> list[str]:
+    """Check the caller's pull request URLs and drop repeats of one pull request, keeping the first URL.
+
+    Pure and cheap, so a malformed URL fails before the edit spends a judge call or a GitHub call.
+    """
+    if not pull_requests:
+        return []
+    if len(pull_requests) > MAX_PULL_REQUESTS_PER_WRITE:
+        raise InvalidScoutReportError(
+            f"a report write accepts at most {MAX_PULL_REQUESTS_PER_WRITE} pull requests ({len(pull_requests)})"
+        )
+    built: dict[tuple[str, int], str] = {}
+    for url in pull_requests:
+        parsed = GitHubIntegrationBase.parse_pull_request_url(url)
+        if parsed is None or parsed.number <= 0:
+            raise InvalidScoutReportError(
+                f"pull request {url!r} is not a GitHub pull request URL; use https://github.com/<owner>/<repo>/pull/<number>"
+            )
+        built.setdefault((parsed.repository.lower(), parsed.number), url)
+    return list(built.values())
 
 
 def _build_metrics(metrics: list[ReportMetricInput] | None) -> list[ReportMetric]:
@@ -1980,6 +2017,7 @@ def _capture_report_edited(
     priority: PriorityAssessment | None = None,
     tags: list[str] | None = None,
     source_issues: list[SourceIssue] | None = None,
+    pull_requests: list[str] | None = None,
 ) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
@@ -2018,6 +2056,7 @@ def _capture_report_edited(
         "links_appended": result.links_appended,
         "link_kinds": sorted({link.kind.value for link in links or []}),
         "source_issues_appended": result.source_issues_appended,
+        "pull_requests_linked": result.pull_requests_linked,
         "decision_fields_set": list(result.decision_fields_set),
         "actionability": actionability.actionability.value
         if "actionability" in result.decision_fields_set and actionability
@@ -2135,6 +2174,10 @@ def _capture_report_edited(
     appended_source_issues = source_issues if result.source_issues_appended and source_issues else None
     if appended_source_issues:
         parts.append(f"source_issues:{json.dumps([issue.url for issue in appended_source_issues])}")
+    # Pull requests are a valid sole input too. Field-tagged and appended only when the edit linked one.
+    linked_pull_requests = pull_requests if result.pull_requests_linked and pull_requests else None
+    if linked_pull_requests:
+        parts.append(f"pull_requests:{json.dumps(linked_pull_requests)}")
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=author.distinct_id,
@@ -2148,7 +2191,8 @@ def _capture_report_edited(
             or result.repository_set
             or bool(decision_key)
             or written_tags is not None
-            or appended_source_issues is not None,
+            or appended_source_issues is not None
+            or linked_pull_requests is not None,
         ),
         properties=properties,
     )
@@ -2619,6 +2663,7 @@ def _do_edit_report(
     priority: PriorityAssessment | None = None,
     tags: list[str] | None = None,
     source_issues: list[SourceIssue] | None = None,
+    pull_requests: list[str] | None = None,
 ) -> EditReportResult:
     """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
     the sync path, via `database_sync_to_async` in the async path. The autostart re-eval bridges an
@@ -2657,11 +2702,19 @@ def _do_edit_report(
         )
 
     attribution = author.attribution()
+    # Read before the transaction opens, because each pull request the report does not link yet costs a
+    # GitHub API call, and a lock held across that call would block every other write to the report.
+    pull_request_details = (
+        resolve_scout_report_pull_requests(team_id=team.id, report_id=report_id, pull_request_urls=pull_requests)
+        if pull_requests
+        else []
+    )
     updated_fields: list[str] = []
     note_appended = False
     repository_set = False
     links_appended = 0
     source_issues_appended = 0
+    pull_requests_linked = 0
     evidence_document_ids: list[str] = []
     charts_changed = False
     metrics_changed = False
@@ -2809,6 +2862,15 @@ def _do_edit_report(
                 source_issues=source_issues,
                 attribution=attribution,
             )
+        # Additive like the source issues above. A linked pull request makes the report resolve when it
+        # merges, so a scout that found the fix records it here instead of only naming it in the summary.
+        if pull_request_details:
+            pull_requests_linked = link_scout_report_pull_requests(
+                team_id=team.id,
+                report_id=report_id,
+                pull_requests=pull_request_details,
+                attribution=attribution,
+            )
         # Replace the report's charts, the way a summary rewrite replaces the summary. Omitting the
         # field leaves the existing ones alone, so an edit that only appends a note keeps them; an
         # explicit empty list takes them down.
@@ -2868,6 +2930,7 @@ def _do_edit_report(
             or evidence_appended
             or links_appended
             or source_issues_appended
+            or pull_requests_linked
             or decision_fields_set
         )
         or charts_set is not None
@@ -2912,6 +2975,7 @@ def _do_edit_report(
             or repository_set
             or links_appended
             or source_issues_appended
+            or pull_requests_linked
             or decision_fields_set
         ) and not (updated_fields or note_appended or reviewers_set or evidence_appended or charts_set is not None)
         if report_status is not None and _surfaced(report_status) and not inbox_only:
@@ -3029,6 +3093,7 @@ def _do_edit_report(
             "decision_fields_set": decision_fields_set,
             "corroboration_collapsed": corroboration_collapsed,
             "source_issues_appended": source_issues_appended,
+            "pull_requests_linked": pull_requests_linked,
         },
     )
     # Resolve the report's effective title for the edited event's classification — the rewritten title
@@ -3064,6 +3129,7 @@ def _do_edit_report(
         corroboration_collapsed=corroboration_collapsed,
         links_appended=links_appended,
         source_issues_appended=source_issues_appended,
+        pull_requests_linked=pull_requests_linked,
         decision_fields_set=tuple(decision_fields_set),
         warnings=reviewer_warnings
         + (
@@ -3166,11 +3232,13 @@ def _validate_edit_inputs(
     priority_explanation=None,
     tags=None,
     source_issues=None,
+    pull_requests=None,
 ) -> None:
     author.assert_owned_by(team)
     trial_store = _author_trial_store(author)
     _reject_trial_report_links(trial_store, links)
     _reject_trial_source_issues(trial_store, source_issues)
+    _reject_trial_pull_requests(trial_store, pull_requests)
     if trial_store is not None:
         validate_scout_report_text("title", title)
         validate_scout_report_text("summary", summary)
@@ -3211,11 +3279,12 @@ def _validate_edit_inputs(
         and priority_explanation is None
         and tags is None
         and not source_issues
+        and not pull_requests
     ):
         raise InvalidScoutReportError(
             "edit_report needs at least one of title, summary, append_note, append_evidence, "
             "suggested_reviewers, repository, charts, metrics, suggested_prompts, links, actionability, priority, "
-            "tags, source_issues"
+            "tags, source_issues, pull_requests"
         )
 
 
@@ -3245,6 +3314,7 @@ async def edit_report(
     priority_explanation: str | None = None,
     tags: list[str] | None = None,
     source_issues: list[str] | None = None,
+    pull_requests: list[str] | None = None,
 ) -> EditReportResult:
     """Edit an existing inbox report: rewrite title/summary, append a note or fresh evidence, set
     suggested reviewers, and/or repoint it at another repository (both re-run autostart, so a report
@@ -3276,6 +3346,7 @@ async def edit_report(
         priority_explanation,
         tags,
         source_issues,
+        pull_requests,
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
@@ -3288,6 +3359,7 @@ async def edit_report(
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
     built_links = _build_links(links)
     built_source_issues = _build_source_issues(source_issues)
+    built_pull_requests = _build_pull_requests(pull_requests)
     built_tags = _build_tags(tags)
     # Off the loop because the gate reads a feature flag, which can block on the flag service.
     allowed_metrics = await database_sync_to_async(_allowed_metrics, thread_sensitive=False)(team, metrics)
@@ -3340,6 +3412,7 @@ async def edit_report(
         priority=built_priority,
         tags=built_tags,
         source_issues=built_source_issues,
+        pull_requests=built_pull_requests,
     )
     if _author_trial_store(author) is not None:
         return result
@@ -3362,6 +3435,7 @@ async def edit_report(
         priority=built_priority,
         tags=built_tags,
         source_issues=built_source_issues,
+        pull_requests=built_pull_requests,
     )
     await _forward_report_event_async(team, forward)
     return result
@@ -3393,6 +3467,7 @@ def edit_report_sync(
     priority_explanation: str | None = None,
     tags: list[str] | None = None,
     source_issues: list[str] | None = None,
+    pull_requests: list[str] | None = None,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
     if reviewer_proposal is not None and reviewer_proposal.outcome != "selected" and suggested_reviewers is None:
@@ -3417,6 +3492,7 @@ def edit_report_sync(
         priority_explanation,
         tags,
         source_issues,
+        pull_requests,
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
@@ -3429,6 +3505,7 @@ def edit_report_sync(
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
     built_links = _build_links(links)
     built_source_issues = _build_source_issues(source_issues)
+    built_pull_requests = _build_pull_requests(pull_requests)
     built_tags = _build_tags(tags)
     allowed_metrics = _allowed_metrics(team, metrics)
     built_metrics = _build_edit_metrics(allowed_metrics)
@@ -3476,6 +3553,7 @@ def edit_report_sync(
         priority=built_priority,
         tags=built_tags,
         source_issues=built_source_issues,
+        pull_requests=built_pull_requests,
     )
     if _author_trial_store(author) is not None:
         return result
@@ -3498,6 +3576,7 @@ def edit_report_sync(
         priority=built_priority,
         tags=built_tags,
         source_issues=built_source_issues,
+        pull_requests=built_pull_requests,
     )
     if forward is not None:
         _forward_report_event_to_team(team=team, forward=forward)

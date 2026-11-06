@@ -965,6 +965,9 @@ class ReportLink(BaseModel):
 # One report is about a handful of issues at most. The cap bounds the writeback each write can start.
 MAX_SOURCE_ISSUES_PER_WRITE = 5
 
+# A scout edit reads each pull request from GitHub before it writes, so the cap bounds those API calls.
+MAX_PULL_REQUESTS_PER_WRITE = 5
+
 
 class SourceIssue(BaseModel):
     """Content schema for a `source_issue` artefact: an issue in an external tracker that this
