@@ -22,7 +22,7 @@ export function TodayNewsLead({ story, onDiveIn }: { story: TodayNewsLeadStory; 
             data-attr="today-news-dive-in"
         >
             <TodayNewsKicker story={story} showChange={false} />
-            <h3 className="m-0 text-3xl leading-tight font-bold tracking-tight text-balance decoration-2 underline-offset-4 group-hover/story:underline">
+            <h3 className="m-0 text-3xl leading-[1.1] font-bold tracking-tighter text-balance decoration-2 underline-offset-4 group-hover/story:underline">
                 {story.title}
             </h3>
             <p className="m-0 text-base text-pretty text-muted-foreground">{story.summary}</p>
@@ -37,13 +37,15 @@ export function TodayNewsLead({ story, onDiveIn }: { story: TodayNewsLeadStory; 
                     </span>
                     <span className="text-foreground group-hover/story:underline">Dive in</span>
                 </figcaption>
-                <span className="min-h-28 flex-1">
+                <span className="min-h-28 flex-1 border-b border-foreground">
                     <Suspense fallback={<Skeleton className="h-full w-full" />}>
                         <TodaySparkline
                             values={story.series}
                             labels={story.seriesLabels}
                             tone={story.tone}
                             emphasizeLast={5}
+                            fromZero
+                            formatValue={(value) => `${value.toLocaleString('en-US')}%`}
                         />
                     </Suspense>
                 </span>

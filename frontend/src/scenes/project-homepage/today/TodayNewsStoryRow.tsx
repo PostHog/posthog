@@ -12,7 +12,7 @@ export function TodayNewsStoryRow({ story, onDiveIn }: { story: TodayNewsStory; 
                 data-attr="today-news-dive-in"
             >
                 <TodayNewsKicker story={story} />
-                <span className="text-lg leading-snug font-bold tracking-tight text-balance decoration-2 underline-offset-4 group-hover/story:underline">
+                <span className="text-lg leading-tight font-bold tracking-tight text-pretty decoration-2 underline-offset-4 group-hover/story:underline">
                     {story.title}
                 </span>
                 <span className="text-sm text-pretty text-muted-foreground">{story.summary}</span>

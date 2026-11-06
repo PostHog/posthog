@@ -73,15 +73,11 @@ export const SAMPLE_NEWS_EDITION: TodayNewsEdition = {
             product: 'error_tracking',
             productLabel: 'Error tracking',
             title: 'A new checkout error reached 214 users',
-            summary: '‘Cannot read properties of null’ on checkout, since Tuesday. Nobody owns it yet.',
+            summary: 'A null error on checkout since Tuesday. Nobody owns it yet.',
             change: null,
             tone: 'risk',
             divePrompt: 'A new checkout error reached 214 users. What causes it, and how do we fix it?',
         },
     ],
-    briefs: [
-        '2 experiments started: the onboarding checklist and search ranking',
-        '12 new feature flags and 3 new dashboards',
-        '41 deploys to production',
-    ],
+    briefs: ['2 experiments started this week', '12 new feature flags', '41 deploys to production'],
 }

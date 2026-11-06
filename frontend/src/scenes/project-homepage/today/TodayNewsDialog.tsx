@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
+import { IconTelescope } from '@posthog/icons'
 import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogTitle } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
@@ -41,7 +42,7 @@ export function TodayNewsDialog(): JSX.Element {
                 <DialogBody>
                     <div className="@container flex flex-col gap-6 px-2 pt-2 pb-1">
                         <header className="flex flex-col gap-2 border-b-4 border-double border-foreground pb-2">
-                            <DialogTitle className="m-0 text-center text-4xl font-bold tracking-tighter">
+                            <DialogTitle className="m-0 text-center text-[3.5rem] leading-none font-bold tracking-tighter">
                                 This week
                             </DialogTitle>
                             <DialogDescription className="flex flex-wrap items-baseline justify-between gap-x-4 font-mono text-xs tracking-wide uppercase">
@@ -64,7 +65,10 @@ export function TodayNewsDialog(): JSX.Element {
                             </ul>
                         </div>
                         {edition.briefs.length > 0 ? <TodayNewsBriefs briefs={edition.briefs} /> : null}
-                        <p className="m-0 flex flex-wrap items-baseline gap-x-2 border-t pt-3 font-mono text-xs tracking-wide text-muted-foreground uppercase">
+                        <p className="m-0 flex flex-wrap items-center gap-x-2 border-t pt-3 font-mono text-xs tracking-wide text-muted-foreground uppercase">
+                            <span className="text-foreground [&_svg]:size-3.5">
+                                <IconTelescope />
+                            </span>
                             <span>{edition.isSample ? 'A scout will edit this news' : 'Edited by a scout'}</span>
                             <span aria-hidden>·</span>
                             <Button
