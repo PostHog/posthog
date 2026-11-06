@@ -6,8 +6,6 @@ oauth.posthog.com proxies and caches it. The content only changes on deploy, so 
 process and served with a long shared cache lifetime.
 """
 
-from functools import lru_cache
-
 from django.http import JsonResponse
 
 from drf_spectacular.utils import extend_schema
@@ -70,8 +68,17 @@ def _action(scope_object: str, action: APIScopeActions, oauth_scopes: frozenset[
     }
 
 
-@lru_cache(maxsize=1)
+_scope_reference: dict | None = None
+
+
 def scope_reference() -> dict:
+    global _scope_reference
+    if _scope_reference is None:
+        _scope_reference = _build_scope_reference()
+    return _scope_reference
+
+
+def _build_scope_reference() -> dict:
     oauth_scopes = frozenset(get_oauth_scopes_supported())
     return {
         "groups": list(SCOPE_GROUPS),
