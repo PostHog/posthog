@@ -14779,7 +14779,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
         run = self._create_run_with_sandbox(task)
         client = self._oauth_client(client_id) if client_id else self.client
-        headers = {"HTTP_X_POSTHOG_CLIENT_PROVENANCE": header} if header else {}
+        headers: dict[str, Any] = {"HTTP_X_POSTHOG_CLIENT_PROVENANCE": header} if header else {}
 
         response = client.post(self._command_url(task, run), self._make_user_message(), format="json", **headers)
 
@@ -14842,7 +14842,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     def test_permission_answer_records_last_client(
         self,
         _name: str,
-        runtime: str,
+        runtime: Task.Runtime,
         method: str,
         params: dict,
         agent_body: dict,
