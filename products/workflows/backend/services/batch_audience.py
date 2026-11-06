@@ -5,7 +5,6 @@ from django.conf import settings
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -18,6 +17,11 @@ from products.feature_flags.backend.user_blast_radius import (
     get_user_blast_radius_persons,
     replace_proxy_properties,
     unevaluable_filters_as_validation_errors,
+)
+from products.workflows.backend.services.audience_group_filters import (
+    audience_group_type_index,
+    audience_query_context,
+    person_audience_filter_expr,
 )
 
 EMAIL_DEDUPE_KEY = "email"
@@ -60,12 +64,21 @@ def get_batch_audience_person_ids(
 
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
-        select_query = _build_audience_person_query(team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key)
+        filter_group_type_index = audience_group_type_index(team, cleaned_filter)
+        select_query = _build_audience_person_query(
+            team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key, group_type_index=filter_group_type_index
+        )
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         # Background traffic: the only caller is the internal batch-send resolver, so route to
         # the offline pool like the group branch does, away from interactive product queries.
-        response = execute_hogql_query(query=select_query, team=team, settings=settings, workload=Workload.OFFLINE)
+        response = execute_hogql_query(
+            query=select_query,
+            team=team,
+            settings=settings,
+            workload=Workload.OFFLINE,
+            context=audience_query_context(team, filter_group_type_index),
+        )
 
     return [str(row[0]) for row in response.results] if response.results else []
 
@@ -88,6 +101,7 @@ def _build_audience_person_query(
     prop_group: PropertyGroup,
     cursor: Optional[str] = None,
     dedupe_key: Optional[str] = None,
+    group_type_index: Optional[int] = None,
 ) -> ast.SelectQuery:
     where_exprs: list[ast.Expr] = [
         ast.CompareOperation(
@@ -95,7 +109,7 @@ def _build_audience_person_query(
             left=ast.Field(chain=["persons", "team_id"]),
             right=ast.Constant(value=team.pk),
         ),
-        property_to_expr(prop_group, team, scope="person"),
+        person_audience_filter_expr(team, prop_group, group_type_index),
     ]
 
     if dedupe_key == EMAIL_DEDUPE_KEY:

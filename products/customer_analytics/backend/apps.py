@@ -20,7 +20,7 @@ class CustomerAnalyticsConfig(AppConfig):
         impls are imported lazily so HogQL stays off the django.setup() path.
         """
         from products.workflows.backend.facade.account_audience import register_account_audience_provider
-        from products.workflows.backend.facade.contracts import AccountAudienceFilters
+        from products.workflows.backend.facade.contracts import AccountAudienceFilters, PersonGroupMembership
 
         class _Provider:
             def count_accounts(self, team, filters: AccountAudienceFilters) -> int:
@@ -39,6 +39,17 @@ class CustomerAnalyticsConfig(AppConfig):
                 from products.customer_analytics.backend.facade import api  # noqa: PLC0415
 
                 return api.get_account_group_type_name(team)
+
+            def get_person_group_membership(self, team) -> PersonGroupMembership | None:
+                from products.customer_analytics.backend.facade import membership  # noqa: PLC0415
+
+                group_type_index = membership.get_membership_group_type_index(team)
+                if group_type_index is None:
+                    return None
+                return PersonGroupMembership(
+                    group_type_index=group_type_index,
+                    ready=membership.get_membership_readiness(team) == membership.MembershipReadiness.READY,
+                )
 
         register_account_audience_provider(_Provider())
 

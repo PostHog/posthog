@@ -739,9 +739,12 @@ function StepTriggerConfigurationBatch({
     }
     const { blastRadius } = useValues(batchTriggerLogic(logicProps))
 
+    const accountGroupTypeIndex = currentTeam?.customer_analytics_config?.account_group_type_index
     const accountAudienceAvailable =
-        !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] &&
-        currentTeam?.customer_analytics_config?.account_group_type_index != null
+        !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && accountGroupTypeIndex != null
+    // People resolve to groups through the membership customer analytics records, which covers its account group only.
+    const accountGroupPropertiesAvailable =
+        !!featureFlags[FEATURE_FLAGS.WORKFLOWS_AUDIENCE_GROUP_PROPERTIES] && accountGroupTypeIndex != null
     const isAccountAudience = config.filters.audience_type === 'accounts'
 
     return (
@@ -791,6 +794,11 @@ function StepTriggerConfigurationBatch({
                         }
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.PersonProperties,
+                            ...(accountGroupPropertiesAvailable
+                                ? [
+                                      `${TaxonomicFilterGroupType.GroupsPrefix}_${accountGroupTypeIndex}` as TaxonomicFilterGroupType,
+                                  ]
+                                : []),
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Metadata,
                         ]}

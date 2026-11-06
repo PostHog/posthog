@@ -1,9 +1,16 @@
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from datetime import UTC, datetime
 
-from django.test import override_settings
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from rest_framework import exceptions
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models.group.util import create_group
+from posthog.models.property.parse import parse_property_group_data
 from posthog.redis import get_client as get_redis_client
 
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
@@ -15,10 +22,23 @@ from products.cohorts.backend.models.team_access import (
     RealtimeCohortTeamAccess,
 )
 from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, get_user_blast_radius_persons
+from products.workflows.backend.facade.contracts import PersonGroupMembership
+from products.workflows.backend.services.audience_group_filters import (
+    GROUP_TYPE_NOT_SUPPORTED_MESSAGE,
+    MEMBERSHIP_NOT_READY_MESSAGE,
+    audience_group_type_index,
+)
 from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
 from products.workflows.backend.services.blast_radius import get_audience_size
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
+ENTERPRISE_FILTERS = {
+    "properties": [
+        *FILTERS["properties"],
+        {"key": "plan", "type": "group", "group_type_index": 0, "value": ["enterprise"], "operator": "exact"},
+    ]
+}
+MEMBERSHIP_PATH = "products.workflows.backend.services.audience_group_filters.get_person_group_membership"
 
 
 def _uuid(index: int) -> str:
@@ -83,6 +103,41 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
                 cursor = page[-1]
 
         assert collected == [_uuid(i) for i in expected_indices]
+
+    @parameterized.expand(
+        [
+            ("email_dedupe", "email", [1]),
+            ("no_dedupe", None, [1, 2]),
+        ]
+    )
+    def test_group_property_condition_matches_members_of_matching_groups(self, _name, dedupe_key, expected_indices):
+        self._create_audience(["a@x.com", "a@x.com", "b@x.com", "c@x.com"])
+        create_group(self.team.pk, 0, "org-enterprise", {"plan": "enterprise"})
+        create_group(self.team.pk, 0, "org-free", {"plan": "free"})
+        seen = datetime(2026, 1, 1, tzinfo=UTC)
+        sync_execute(
+            "INSERT INTO person_group_membership (team_id, group_type_index, group_key, distinct_id, first_seen, last_seen) VALUES",
+            [
+                (self.team.pk, 0, "org-enterprise", "user-1", seen, seen),
+                (self.team.pk, 0, "org-enterprise", "user-2", seen, seen),
+                (self.team.pk, 0, "org-free", "user-3", seen, seen),
+                # The same key under another group type is a different group.
+                (self.team.pk, 1, "org-enterprise", "user-3", seen, seen),
+            ],
+        )
+
+        with patch(MEMBERSHIP_PATH, return_value=PersonGroupMembership(group_type_index=0, ready=True)):
+            page = get_batch_audience_person_ids(self.team, ENTERPRISE_FILTERS, dedupe_key=dedupe_key)
+            size = get_audience_size(
+                team_id=self.team.pk,
+                filters=ENTERPRISE_FILTERS,
+                group_type_index=None,
+                dedupe_key=dedupe_key,
+                sends_email=True,
+            )
+
+        assert sorted(page) == [_uuid(i) for i in expected_indices]
+        assert size.affected == len(expected_indices)
 
     @override_settings(WORKFLOWS_PERSON_BATCH_SIZE=7)
     def test_has_more_page_size_follows_the_audience_kind(self):
@@ -215,3 +270,29 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         assert size.realtime_cohort is None
         mixed = size.realtime_cohort_with_other_conditions
         assert (mixed.id if mixed else None) == (cohort.pk if expect_flagged else None)
+
+
+class TestAudienceGroupTypeIndex(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_account_group_type", None, GROUP_TYPE_NOT_SUPPORTED_MESSAGE),
+            (
+                "other_group_type",
+                PersonGroupMembership(group_type_index=1, ready=True),
+                GROUP_TYPE_NOT_SUPPORTED_MESSAGE,
+            ),
+            # A partial membership would send to only part of the audience.
+            (
+                "membership_backfilling",
+                PersonGroupMembership(group_type_index=0, ready=False),
+                MEMBERSHIP_NOT_READY_MESSAGE,
+            ),
+        ]
+    )
+    def test_rejects_group_conditions_it_cannot_resolve(self, _name, membership, expected_message):
+        prop_group = parse_property_group_data(ENTERPRISE_FILTERS["properties"])
+
+        with patch(MEMBERSHIP_PATH, return_value=membership), self.assertRaises(exceptions.ValidationError) as error:
+            audience_group_type_index(MagicMock(), prop_group)
+
+        assert error.exception.detail == {"filters": expected_message}

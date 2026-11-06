@@ -1,9 +1,7 @@
 from typing import Optional
 
 from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -13,6 +11,7 @@ from posthog.models.team.team import Team
 from products.feature_flags.backend.person_sampling import (
     count_matching_persons,
     count_settings,
+    person_sample_predicate,
     sample_predicate,
     sampled_or_exact_count,
 )
@@ -21,6 +20,11 @@ from products.feature_flags.backend.user_blast_radius import (
     replace_proxy_properties,
     sampled_person_blast_radius,
     unevaluable_filters_as_validation_errors,
+)
+from products.workflows.backend.services.audience_group_filters import (
+    audience_group_type_index,
+    audience_query_context,
+    person_audience_filter_expr,
 )
 from products.workflows.backend.services.batch_audience import (
     EMAIL_DEDUPE_KEY,
@@ -40,9 +44,20 @@ def get_person_audience_count_v2(team: Team, filters: dict) -> BlastRadiusResult
     """
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
+        group_type_index = audience_group_type_index(team, cleaned_filter)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-        return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE)
+        if group_type_index is None:
+            return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE)
+
+        # The flags-owned count compiles the filter for persons alone, so a group property
+        # condition sizes with the same sampling here.
+        database = Database.create_for(team=team)
+        total = count_matching_persons(team, None, database, query_type=QUERY_TYPE)
+        affected = sampled_or_exact_count(
+            lambda sample_modulus: _run_person_count(team, cleaned_filter, group_type_index, database, sample_modulus)
+        )
+        return BlastRadiusResult(affected=min(affected, total), total=total)
 
 
 def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> BlastRadiusResult:
@@ -61,31 +76,67 @@ def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> 
 
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
+        group_type_index = audience_group_type_index(team, cleaned_filter)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         database = Database.create_for(team=team)
 
         total = count_matching_persons(team, None, database, query_type=QUERY_TYPE)
         affected = sampled_or_exact_count(
-            lambda sample_modulus: _run_dedupe_count(team, cleaned_filter, database, sample_modulus)
+            lambda sample_modulus: _run_dedupe_count(team, cleaned_filter, group_type_index, database, sample_modulus)
         )
         return BlastRadiusResult(affected=min(affected, total), total=total)
 
 
-def _run_dedupe_count(team: Team, prop_group: PropertyGroup, database: Database, sample_modulus: Optional[int]) -> int:
-    query = build_dedupe_count_query(team, prop_group, sample_modulus=sample_modulus)
+def _run_person_count(
+    team: Team, prop_group: PropertyGroup, group_type_index: int, database: Database, sample_modulus: Optional[int]
+) -> int:
+    where_exprs: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["persons", "team_id"]),
+            right=ast.Constant(value=team.pk),
+        ),
+        person_audience_filter_expr(team, prop_group, group_type_index),
+    ]
+    if sample_modulus is not None:
+        where_exprs.append(person_sample_predicate(sample_modulus))
+    response = execute_hogql_query(
+        query=ast.SelectQuery(
+            select=[ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+            where=ast.And(exprs=where_exprs),
+        ),
+        team=team,
+        query_type=QUERY_TYPE,
+        context=audience_query_context(team, group_type_index, database),
+        settings=count_settings(sample_modulus),
+    )
+    return response.results[0][0] if response.results else 0
+
+
+def _run_dedupe_count(
+    team: Team,
+    prop_group: PropertyGroup,
+    group_type_index: Optional[int],
+    database: Database,
+    sample_modulus: Optional[int],
+) -> int:
+    query = build_dedupe_count_query(team, prop_group, sample_modulus=sample_modulus, group_type_index=group_type_index)
     response = execute_hogql_query(
         query=query,
         team=team,
         query_type=QUERY_TYPE,
-        context=HogQLContext(team_id=team.pk, database=database),
+        context=audience_query_context(team, group_type_index, database),
         settings=count_settings(sample_modulus),
     )
     # uniqCombined over a nullable expression returns NULL rather than 0 when no person matches.
     return (response.results[0][0] if response.results else None) or 0
 
 
-def build_dedupe_count_query(team: Team, prop_group: PropertyGroup, sample_modulus: Optional[int]) -> ast.SelectQuery:
+def build_dedupe_count_query(
+    team: Team, prop_group: PropertyGroup, sample_modulus: Optional[int], group_type_index: Optional[int] = None
+) -> ast.SelectQuery:
     where_exprs: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -98,7 +149,7 @@ def build_dedupe_count_query(team: Team, prop_group: PropertyGroup, sample_modul
         # WHERE and SELECT must not share one instance.
         where_exprs.append(sample_predicate(email_dedupe_group_expr(), sample_modulus))
     if len(prop_group.flat) > 0:
-        where_exprs.append(property_to_expr(prop_group, team, scope="person"))
+        where_exprs.append(person_audience_filter_expr(team, prop_group, group_type_index))
 
     return ast.SelectQuery(
         select=[ast.Call(name="count", distinct=True, args=[email_dedupe_group_expr()])],

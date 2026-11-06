@@ -62,6 +62,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
+from products.workflows.backend.facade.contracts import PersonGroupMembership
 from products.workflows.backend.facade.enums import HogFlowOriginProduct
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import update_workflow
@@ -88,8 +89,9 @@ BACKFILLED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 class _StubAccountAudienceProvider:
-    def __init__(self, group_type: str | None):
+    def __init__(self, group_type: str | None, membership: PersonGroupMembership | None = None):
         self.group_type = group_type
+        self.membership = membership
 
     def count_accounts(self, team, filters) -> int:
         return 0
@@ -99,6 +101,9 @@ class _StubAccountAudienceProvider:
 
     def get_account_group_type_name(self, team) -> str | None:
         return self.group_type
+
+    def get_person_group_membership(self, team) -> PersonGroupMembership | None:
+        return self.membership
 
 
 def _email_function_template() -> dict:
@@ -4394,11 +4399,42 @@ class TestHogFlowAPI(APIBaseTest):
         hog_flow = {"name": "Test Batch Flow", "status": status, "actions": [trigger_action]}
         return self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
-    def _account_audience_provider(self, group_type: str | None = "account"):
+    def _account_audience_provider(
+        self, group_type: str | None = "account", membership: PersonGroupMembership | None = None
+    ):
         return patch(
             "products.workflows.backend.services.account_audience._provider",
-            _StubAccountAudienceProvider(group_type),
+            _StubAccountAudienceProvider(group_type, membership),
         )
+
+    @parameterized.expand(
+        [
+            # A membership backfill in progress blocks the send, not the edit.
+            ("account_group_type_while_backfilling", PersonGroupMembership(group_type_index=0, ready=False), 0, 201),
+            ("other_group_type", PersonGroupMembership(group_type_index=0, ready=True), 1, 400),
+            ("no_account_group_type", None, 0, 400),
+        ]
+    )
+    def test_hog_flow_batch_trigger_person_audience_group_property_conditions(
+        self, _name, membership, group_type_index, expected_status
+    ):
+        with self._account_audience_provider(membership=membership):
+            response = self._post_batch_flow(
+                {
+                    "properties": [
+                        {
+                            "key": "plan",
+                            "type": "group",
+                            "group_type_index": group_type_index,
+                            "operator": "exact",
+                            "value": ["enterprise"],
+                        }
+                    ]
+                }
+            )
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 400:
+            assert "account group type" in response.json()["detail"]
 
     def test_hog_flow_batch_trigger_accounts_audience_saves(self):
         with self._account_audience_provider():
