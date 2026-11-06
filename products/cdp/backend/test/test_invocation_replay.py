@@ -347,8 +347,10 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         for template_id in ("template-google-ads", "template-snapchat-ads"):
             _insert(_function(self.team, template_id), [_row("a1", "failed"), _recovered()])
         plan = plan_replay(_criteria())
+        claim = claim_replay(plan, actor="test")
+        assert claim
 
-        results = execute_replay(plan, actor="test")
+        results = execute_replay(plan, actor="test", claim=claim)
 
         assert sorted(r.status_code for r in results) == [0, 200]
         assert (get_replay_state(plan.fingerprint) or {})["failed_requests"] == 1
@@ -409,11 +411,12 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         overlapping = plan_replay(_criteria())
         assert (first.invocation_count, overlapping.invocation_count) == (1, 2)
         with time_machine.travel("2026-10-23T08:00:00Z", tick=False):
-            assert claim_replay(first, actor="first")
+            first_claim = claim_replay(first, actor="first")
+            assert first_claim
         with time_machine.travel("2026-10-23T10:00:00Z", tick=False):
             with self.assertRaises(ReplayOverlapError):
                 claim_replay(overlapping, actor="second")
-            execute_replay(first, actor="first")
+            execute_replay(first, actor="first", claim=first_claim)
 
         with time_machine.travel("2026-10-23T12:00:00Z", tick=False):
             if frees_destination:
@@ -421,6 +424,24 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
             else:
                 with self.assertRaises(ReplayOverlapError):
                     claim_replay(overlapping, actor="second")
+
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_a_worker_released_while_paused_stops_sending(self, rerun: MagicMock) -> None:
+        for template_id in ("template-google-ads", "template-snapchat-ads"):
+            _insert(_function(self.team, template_id), [_row("a1", "failed"), _recovered()])
+        plan = plan_replay(_criteria())
+        paused = claim_replay(plan, actor="first")
+        assert paused
+
+        def release_during_the_first_request(**_kwargs: Any) -> MagicMock:
+            mark_replay_failed(plan.fingerprint, "stalled")
+            assert claim_replay(plan, actor="second")
+            return MagicMock(status_code=200, text="{}")
+
+        rerun.side_effect = release_during_the_first_request
+        results = execute_replay(plan, actor="first", claim=paused)
+
+        assert rerun.call_count == len(results) == 1
 
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
     def test_staff_can_release_a_send_only_once_its_worker_stopped_reporting(self, rerun: MagicMock) -> None:
@@ -561,8 +582,9 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
     def test_staff_can_allow_a_resend_after_an_uncertain_send(self, rerun: MagicMock) -> None:
         rerun.side_effect = ReadTimeout("read timed out")
         plan = plan_replay(_criteria())
-        assert claim_replay(plan, actor="first")
-        execute_replay(plan, actor="first")
+        claim = claim_replay(plan, actor="first")
+        assert claim
+        execute_replay(plan, actor="first", claim=claim)
         allow_resend_url = self._allow_resend_url(plan.fingerprint)
         assert not claim_replay(plan, actor="second")
 

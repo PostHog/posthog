@@ -41,7 +41,7 @@ def run_invocation_replay(criteria: dict[str, Any], fingerprint: str, actor: str
         logger.warning("invocation_replay_plan_changed", fingerprint=fingerprint, new_fingerprint=plan.fingerprint)
         mark_replay_refused(fingerprint, "The runs changed between the review and the send, so nothing was sent.")
         return
-    execute_replay(plan, actor=actor)
+    execute_replay(plan, actor=actor, claim=claim)
 
 
 def dispatch_invocation_replay(plan: ReplayPlan, *, actor: str) -> bool:

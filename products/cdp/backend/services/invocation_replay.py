@@ -651,13 +651,17 @@ def claim_replay(plan: ReplayPlan, *, actor: str) -> str | None:
     return claim
 
 
+def _still_holds_claim(fingerprint: str, claim: str) -> bool:
+    return replay_cache.get(_claim_key(fingerprint)) == claim
+
+
 def start_claimed_send(fingerprint: str, claim: str) -> bool:
     """True once per claim, and only while the claim still holds the plan.
 
     A task can start after staff released its plan as stalled and sent it again.
     That task holds the old claim and must send nothing, or the runs go out twice.
     """
-    if replay_cache.get(_claim_key(fingerprint)) != claim:
+    if not _still_holds_claim(fingerprint, claim):
         return False
     if not replay_cache.add(f"{_claim_key(fingerprint)}:started:{claim}", 1, timeout=REPLAY_STATE_TTL_SECONDS):
         return False
@@ -757,9 +761,12 @@ _UNCERTAIN_DETAIL = (
 )
 
 
-def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult]:
+def execute_replay(plan: ReplayPlan, *, actor: str, claim: str) -> list[FunctionReplayResult]:
     """Send a claimed plan, one rerun request per chunk, and record progress under its fingerprint."""
     fingerprint = plan.fingerprint
+    if not _still_holds_claim(fingerprint, claim):
+        logger.warning("invocation_replay_claim_superseded", actor=actor, fingerprint=fingerprint, sent_requests=0)
+        return []
     logger.info(
         "invocation_replay_started",
         actor=actor,
@@ -780,6 +787,15 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
     try:
         for function in plan.replayable_functions:
             for offset in range(0, len(function.invocation_ids), HOG_INVOCATION_RERUN_MAX_COUNT):
+                # A worker can pause past the stalled release and resume. It must stop, because the resend owns the plan now.
+                if not _still_holds_claim(fingerprint, claim):
+                    logger.warning(
+                        "invocation_replay_claim_superseded",
+                        actor=actor,
+                        fingerprint=fingerprint,
+                        sent_requests=len(results),
+                    )
+                    return results
                 chunk = list(function.invocation_ids[offset : offset + HOG_INVOCATION_RERUN_MAX_COUNT])
                 in_flight = True
                 uncertain = False

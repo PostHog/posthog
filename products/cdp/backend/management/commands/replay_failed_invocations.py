@@ -138,7 +138,7 @@ class Command(BaseCommand):
             raise CommandError(f"{error} Nothing was sent.") from error
         if claimed is None:
             raise CommandError("This plan was already sent, so nothing was sent again.")
-        results = execute_replay(plan, actor="management_command")
+        results = execute_replay(plan, actor="management_command", claim=claimed)
         for result in results:
             self.stdout.write(
                 f"  team {result.team_id} function {result.function_id}: {result.invocation_count} "
