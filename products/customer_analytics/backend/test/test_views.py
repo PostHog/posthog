@@ -16,7 +16,7 @@ from rest_framework import status
 
 from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition, Tag, TaggedItem
+from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
@@ -60,6 +60,7 @@ from products.customer_analytics.backend.test.factories import (
     create_custom_property_definition,
     enroll_account,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight
