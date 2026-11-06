@@ -333,18 +333,15 @@ describe('EmailTrackingService', () => {
             // The route enforces a real SNS signature; verifying it needs AWS's private key, so we
             // stub the check and let a posted SNS envelope flow through the real handler + service.
             let verifySignatureSpy: jest.SpyInstance
-            let reportSpy: jest.SpyInstance
 
             beforeEach(() => {
                 verifySignatureSpy = jest
                     .spyOn(SesWebhookHandler.prototype as any, 'verifySnsSignature')
                     .mockResolvedValue(true)
-                reportSpy = jest.spyOn(WorkflowsActivationReporter.prototype, 'report')
             })
 
             afterEach(() => {
                 verifySignatureSpy.mockRestore()
-                reportSpy.mockRestore()
             })
 
             const postBounce = async ({
@@ -469,23 +466,13 @@ describe('EmailTrackingService', () => {
                 })
             })
 
-            const senderFunctionId = async (
-                sender: 'workflow' | 'deleted workflow' | 'hog function'
-            ): Promise<string> => {
-                if (sender === 'workflow') {
-                    return (await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build()))
-                        .id
-                }
-                return sender === 'deleted workflow' ? '0190f0c4-0000-7000-8000-000000000220' : hogFunction.id
-            }
-
-            it.each([
-                ['reports a delivered workflow message', 'workflow', 1, true],
-                ['reports a message delivered after its workflow was deleted', 'deleted workflow', 1, true],
-                ['does not report a delivered hog function message', 'hog function', undefined, false],
-            ] as const)('%s as a workflows activation step', async (_name, sender, workflowVersion, reported) => {
-                const functionId = await senderFunctionId(sender)
-                const trackingCode = signer.generate({ functionId, id: invocationId, teamId: team.id, workflowVersion })
+            it('reports a delivered message as a workflows activation step', async () => {
+                const reportSpy = jest.spyOn(WorkflowsActivationReporter.prototype, 'report')
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                )
+                const trackingCode = signer.generate({ functionId: hogFlow.id, id: invocationId, teamId: team.id })
                 const sesRecord = {
                     eventType: 'Delivery',
                     mail: {
@@ -515,11 +502,11 @@ describe('EmailTrackingService', () => {
                     )
 
                 expect(res.status).toBe(200)
-                expect(reportSpy.mock.calls).toEqual(
-                    reported
-                        ? [[team.id, 'workflows message delivered', { channel: 'email', workflow_id: functionId }]]
-                        : []
-                )
+                expect(reportSpy).toHaveBeenCalledWith(team.id, 'workflows message delivered', {
+                    channel: 'email',
+                    workflow_id: hogFlow.id,
+                })
+                reportSpy.mockRestore()
             })
 
             it('keys the log entry under parentRunId for batch-triggered runs', async () => {

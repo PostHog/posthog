@@ -25,7 +25,6 @@ import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService } from './email-suppression.service'
 import {
     addTrackingToEmail,
-    isWorkflowSend,
     resolveEmailEngagementDistinctId,
     resolveEmailSendingVersion,
 } from './email-tracking.service'
@@ -358,10 +357,10 @@ export class EmailService {
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private recipientsManager: RecipientsManagerService,
-        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
-        private teamEmailRateLimiter: RateLimiterService | null = null
+        private teamEmailRateLimiter: RateLimiterService | null = null,
+        private workflowsActivationReporter?: Pick<WorkflowsActivationReporter, 'report'>
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -615,8 +614,8 @@ export class EmailService {
                 addLog('error', error.message)
                 result.error = error.message
                 result.finished = true
-                if (error instanceof UnverifiedEmailDomainError && isWorkflowSend(invocation) && !isTest) {
-                    void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
+                if (error instanceof UnverifiedEmailDomainError && !isTest) {
+                    void this.workflowsActivationReporter?.report(invocation.teamId, 'workflows send failed', {
                         reason: 'unverified_domain',
                         channel: 'email',
                         workflow_id: invocation.functionId,

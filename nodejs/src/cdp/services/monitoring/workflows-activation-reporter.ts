@@ -4,18 +4,20 @@ import { logger } from '~/common/utils/logger'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { Team } from '~/types'
 
-type WorkflowsActivationEvents = {
-    'workflows message delivered': { workflow_id: string; channel: 'email' }
-    'workflows send blocked': { workflow_id: string; channel: 'email'; reason: 'quota_limited' }
-    'workflows send failed': {
-        workflow_id: string
-        channel: 'email'
-        reason: 'unverified_domain' | 'missing_recipient'
-    }
+export type WorkflowsActivationEvent =
+    | 'workflows message delivered'
+    | 'workflows send blocked'
+    | 'workflows send failed'
+
+export type WorkflowsActivationProperties = {
+    workflow_id: string
+    channel?: 'email'
+    reason?: 'quota_limited' | 'unverified_domain' | 'missing_recipient'
 }
 
 const REPORT_INTERVAL_MS = 60 * 60 * 1000
 
+// One event per send would flood product analytics, and a funnel only needs the first occurrence.
 export class WorkflowsActivationReporter {
     private lastReportedAt = new LRUCache<string, number>({ max: 50_000 })
 
@@ -24,13 +26,12 @@ export class WorkflowsActivationReporter {
         private capture: typeof captureTeamEvent = captureTeamEvent
     ) {}
 
-    public async report<Event extends keyof WorkflowsActivationEvents>(
+    public async report(
         teamId: number,
-        event: Event,
-        properties: WorkflowsActivationEvents[Event]
+        event: WorkflowsActivationEvent,
+        properties: WorkflowsActivationProperties
     ): Promise<void> {
-        const reason = 'reason' in properties ? properties.reason : ''
-        const key = `${teamId}:${event}:${reason}`
+        const key = `${teamId}:${event}:${properties.reason ?? ''}`
         const now = Date.now()
         const lastReportedAt = this.lastReportedAt.get(key)
         if (lastReportedAt !== undefined && now - lastReportedAt < REPORT_INTERVAL_MS) {
@@ -40,13 +41,10 @@ export class WorkflowsActivationReporter {
 
         try {
             const team = await this.teamManager.getTeam(teamId)
-            if (!team) {
-                this.lastReportedAt.delete(key)
-                return
+            if (team) {
+                this.capture(team, event, properties)
             }
-            this.capture(team, event, properties)
         } catch (error) {
-            this.lastReportedAt.delete(key)
             logger.warn('Failed to report a workflows activation event', { teamId, event, error })
         }
     }

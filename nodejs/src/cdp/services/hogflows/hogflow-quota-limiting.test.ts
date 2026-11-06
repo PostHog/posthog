@@ -220,30 +220,16 @@ describe('HogFlow Quota Limiting', () => {
             expect(mockWorkflowsActivationReporter.report).not.toHaveBeenCalled()
         })
 
-        it.each([
-            [
-                'an email send on the email quota',
-                'workflow_emails',
-                'function_email',
-                [
-                    [
-                        teamId,
-                        'workflows send blocked',
-                        { reason: 'quota_limited', channel: 'email', workflow_id: 'test-flow-id' },
-                    ],
-                ],
-            ],
-            ['a webhook on the destination quota', 'workflow_destinations_dispatched', 'function', []],
-        ] as const)('should block %s and emit metrics', async (_name, limitedResource, billableActionType, reports) => {
+        it('should block invocation and emit metrics when quota limited', async () => {
             mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
-                return Promise.resolve(resource === limitedResource)
+                return Promise.resolve(resource === 'workflow_emails')
             })
 
             const item: CyclotronJobInvocationHogFlow = {
                 ...baseItem,
                 hogFlow: {
                     ...baseItem.hogFlow,
-                    billable_action_types: [billableActionType],
+                    billable_action_types: ['function_email'],
                 },
             }
 
@@ -266,7 +252,10 @@ describe('HogFlow Quota Limiting', () => {
                 },
                 'hog_flow'
             )
-            expect(mockWorkflowsActivationReporter.report.mock.calls).toEqual(reports)
+            expect(mockWorkflowsActivationReporter.report).toHaveBeenCalledWith(teamId, 'workflows send blocked', {
+                reason: 'quota_limited',
+                workflow_id: 'test-flow-id',
+            })
         })
 
         it('should handle workflow with no billable actions', async () => {

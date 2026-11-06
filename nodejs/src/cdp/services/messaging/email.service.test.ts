@@ -2,7 +2,6 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 
-import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
@@ -120,6 +119,9 @@ describe('EmailService', () => {
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
+            undefined,
+            null,
+            null,
             workflowsActivationReporter
         )
         mockFetch.mockClear()
@@ -144,8 +146,7 @@ describe('EmailService', () => {
                 hub.SITE_URL,
                 new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
                 new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                new RecipientsManagerService(hub.postgres),
-                { report: jest.fn() }
+                new RecipientsManagerService(hub.postgres)
             )
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 
@@ -243,31 +244,22 @@ describe('EmailService', () => {
                 )
             })
             it.each([
-                ['a workflow send', true, false, 1],
-                ['a workflow test send', true, true, 0],
-                ['a hog function send', false, false, 0],
-            ])(
-                'should fail on an unverified email domain and report it only for a real workflow send: %s',
-                async (_name, fromWorkflow, isTest, reports) => {
-                    invocation.queueParameters = createEmailParams({
-                        from: { integrationId: 2 },
-                    })
-                    const sentInvocation = fromWorkflow
-                        ? { ...invocation, hogFlow: new FixtureHogFlowBuilder().withTeamId(team.id).build() }
-                        : invocation
-                    const result = await service.executeSendEmail(sentInvocation, isTest)
-                    expect(result.error).toMatchInlineSnapshot(
-                        `"The selected email integration domain is not verified"`
-                    )
-                    expect(workflowsActivationReporter.report.mock.calls).toEqual(
-                        Array(reports).fill([
-                            team.id,
-                            'workflows send failed',
-                            { reason: 'unverified_domain', channel: 'email', workflow_id: invocation.functionId },
-                        ])
-                    )
-                }
-            )
+                ['a real send', false, 1],
+                ['a test send', true, 0],
+            ])('should fail on an unverified email domain and report it for %s', async (_name, isTest, reports) => {
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 2 },
+                })
+                const result = await service.executeSendEmail(invocation, isTest)
+                expect(result.error).toMatchInlineSnapshot(`"The selected email integration domain is not verified"`)
+                expect(workflowsActivationReporter.report.mock.calls).toEqual(
+                    Array(reports).fill([
+                        team.id,
+                        'workflows send failed',
+                        { reason: 'unverified_domain', channel: 'email', workflow_id: invocation.functionId },
+                    ])
+                )
+            })
             it('should send identical from and feedback forwarding args', async () => {
                 // This test is important for spam classification - feedback forwarding email MUST match from email
                 invocation.queueParameters = createEmailParams({
@@ -520,7 +512,6 @@ describe('EmailService', () => {
                     new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
                     new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                     new RecipientsManagerService(hub.postgres),
-                    { report: jest.fn() },
                     undefined,
                     { claimOrReserve } as unknown as RateLimiterService
                 )
@@ -692,7 +683,6 @@ describe('EmailService', () => {
                     new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
                     new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                     new RecipientsManagerService(hub.postgres),
-                    { report: jest.fn() },
                     undefined,
                     new RateLimiterService(redis, { name: 'workflow-email-backlog-test' })
                 )
@@ -763,7 +753,6 @@ describe('EmailService', () => {
                     new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
                     new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                     new RecipientsManagerService(hub.postgres),
-                    { report: jest.fn() },
                     undefined,
                     null,
                     { claimAllOrNothingPair } as unknown as RateLimiterService
@@ -892,7 +881,6 @@ describe('EmailService', () => {
                     new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
                     new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                     new RecipientsManagerService(hub.postgres),
-                    { report: jest.fn() },
                     undefined,
                     null,
                     limiter
