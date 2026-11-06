@@ -2017,7 +2017,8 @@ SQL
   }
 
   table "metrics4_samples" {
-    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
+    primary_key  = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
+    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint", "histogram_bounds_hash"]
     partition_by = "original_expiry_date"
     ttl          = "original_expiry_date"
     settings = {
@@ -2067,6 +2068,9 @@ SQL
     }
     column "histogram_bounds" {
       type = "SimpleAggregateFunction(anyLast, Array(Float64))"
+    }
+    column "histogram_bounds_hash" {
+      type = "UInt64"
     }
     column "_topic" {
       type = "SimpleAggregateFunction(any, LowCardinality(String))"

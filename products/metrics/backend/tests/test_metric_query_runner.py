@@ -1639,15 +1639,23 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, self.anchor)
 
-    def test_mismatched_bounds_merge_onto_one_layout(self):
+    @parameterized.expand(
+        [
+            ("two_series", {"resource_labels": {"k8s.pod.name": "other"}}),
+            # One series changes its buckets inside one hour. The merge must keep each point on its own layout.
+            ("one_series_after_merge", {}),
+        ]
+    )
+    def test_mismatched_bounds_merge_onto_one_layout(self, _name, second_series_labels):
         # Two endpoints with their own buckets chart together instead of failing.
         self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [10, 0, 0, 0])], temporality="delta")
         self._seed_histogram(
             [(self.anchor + dt.timedelta(seconds=10), [0, 10, 0, 0])],
             temporality="delta",
             bounds=[0.2, 0.6, 2.0],
-            resource_labels={"k8s.pod.name": "other"},
+            **second_series_labels,
         )
+        sync_execute("OPTIMIZE TABLE metrics4_samples FINAL")
         rows = self._run(0.75)
         self.assertEqual(len(rows), 1)
         # Union edges [0.1, 0.2, 0.5, 0.6, 1.0, 2.0] get counts [10, 0, 7.5, 2.5, 0, 0, 0], so p75 is 2/3 into (0.2, 0.5].
