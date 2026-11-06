@@ -1,5 +1,5 @@
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
 from email.utils import parseaddr
@@ -550,8 +550,8 @@ TEMPLATE_HASH_REFUSAL = (
 )
 
 
-def sends_uploaded_template(data: Mapping[str, Any]) -> bool:
-    return "template_key" in data and not any(field in data for field in RENDERED_CONTENT_FIELDS)
+def sends_uploaded_template(fields: Collection[str]) -> bool:
+    return "template_key" in fields and not any(field in fields for field in RENDERED_CONTENT_FIELDS)
 
 
 class SendEmailSerializer(TransactionalEmailMessageSerializer):
