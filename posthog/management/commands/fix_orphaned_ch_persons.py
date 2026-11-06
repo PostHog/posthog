@@ -64,7 +64,9 @@ class Command(BaseCommand):
         parser.add_argument(
             "--delete-recordings",
             action="store_true",
-            help="Erasure only: also delete the repaired persons' recordings. Needs --person-uuid and --reason.",
+            help="Erasure only: also delete the repaired persons' recordings. Needs --person-uuid and --reason. "
+            "A rerun finds the recordings only until the weekly deletion sweep removes the persons' ClickHouse "
+            "mappings; after that it exits with the persons it can no longer check.",
         )
         parser.add_argument("--reason", default="", help="Why the recordings are deleted. Stored on the workflow.")
 
@@ -123,7 +125,9 @@ def run(options) -> None:
 
     if dry_run:
         if erasing:
-            preview = plan_orphan_data_erasure(team_id, uuids, pending_uuids=[o.uuid for o in orphans])
+            preview = plan_orphan_data_erasure(
+                team_id, uuids, pending_uuids=[o.uuid for o in orphans], with_recordings=delete_recordings
+            )
             _log_erasure(team_id, preview)
             _report_erasure_gaps(team_id, preview, delete_recordings=delete_recordings, log=logger.warning)
         logger.info("Dry run: no tombstones were produced. Re-run with --no-dry-run to apply.")
@@ -142,8 +146,12 @@ def run(options) -> None:
 
     if not erasing:
         return
-    erasure = plan_orphan_data_erasure(team_id, uuids)
+    erasure = plan_orphan_data_erasure(team_id, uuids, with_recordings=delete_recordings)
     _log_erasure(team_id, erasure)
+    # Queued first because it is one idempotent insert, so a failure to start a recording workflow still leaves the
+    # events queued.
+    if delete_events:
+        queue_event_deletion_by_uuid(team_id, erasure.person_uuids, actor=None)
     if delete_recordings:
         workflow_ids = queue_recording_deletion_by_distinct_id(
             team_id, erasure.recording_distinct_ids, deleted_by="fix_orphaned_ch_persons", reason=reason
@@ -154,8 +162,6 @@ def run(options) -> None:
                 team_id=team_id,
                 workflow_ids=workflow_ids,
             )
-    if delete_events:
-        queue_event_deletion_by_uuid(team_id, erasure.person_uuids, actor=None)
     if _report_erasure_gaps(team_id, erasure, delete_recordings=delete_recordings, log=logger.error):
         exit(1)
 
@@ -169,8 +175,9 @@ def _report_erasure_gaps(
     if not recordings_may_remain and not erasure.not_erasable_uuids:
         return False
     log(
-        "This erasure is incomplete. A person in not_erasable_uuids has no persons-DB tombstone, so nothing of theirs "
-        "is erased. Recordings may remain under the distinct ids printed above and for a person in "
+        "This erasure is incomplete. A person in not_erasable_uuids has no persons-DB tombstone, so this run erased "
+        "nothing of theirs: the person is live, or the cleanup already removed its tombstone. Check each one with "
+        "person_inspect. Recordings may remain under the distinct ids printed above and for a person in "
         "persons_without_distinct_ids. Check each one, then delete its recordings from the team admin.",
         team_id=team_id,
         not_erasable_uuids=erasure.not_erasable_uuids,

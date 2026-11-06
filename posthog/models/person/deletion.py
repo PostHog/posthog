@@ -227,12 +227,17 @@ class OrphanDataErasure:
     unconfirmed_distinct_ids: list[str]
     # Persons with no distinct id left in either store, so nothing shows whether they still have recordings.
     persons_without_distinct_ids: list[str]
-    # Named persons with no persons-DB tombstone, so nothing of theirs was erased.
+    # Named persons with no persons-DB tombstone, so nothing of theirs was erased. Such a person is live, or the
+    # cleanup drain already removed its tombstone after the deletion sweep.
     not_erasable_uuids: list[str]
 
 
 def plan_orphan_data_erasure(
-    team_id: int, requested_uuids: list[str], *, pending_uuids: Optional[list[str]] = None
+    team_id: int,
+    requested_uuids: list[str],
+    *,
+    pending_uuids: Optional[list[str]] = None,
+    with_recordings: bool = True,
 ) -> OrphanDataErasure:
     """Work out what an erasure may delete from the persons-DB tombstones, not from the orphans of this run.
 
@@ -244,14 +249,15 @@ def plan_orphan_data_erasure(
     the deletion sweep removes mappings, so those ids come back as unconfirmed. A person the sweep reached with no
     stored distinct ids has nothing left to look up, and comes back in ``persons_without_distinct_ids``.
 
-    ``pending_uuids`` are orphans a dry run has not tombstoned, counted as if it had.
+    ``pending_uuids`` are orphans a dry run has not tombstoned, counted as if it had. Without ``with_recordings``
+    the plan names only the persons, and skips the ClickHouse and persons-DB distinct id reads.
     """
     tombstones = get_person_tombstones(team_id, [UUID(u) for u in requested_uuids])
     erasable = {str(t.uuid) for t in tombstones} | set(pending_uuids or [])
     not_erasable_uuids = sorted({str(UUID(u)) for u in requested_uuids} - erasable)
-    if not erasable:
+    if not erasable or not with_recordings:
         return OrphanDataErasure(
-            person_uuids=[],
+            person_uuids=sorted(erasable),
             recording_distinct_ids=[],
             excluded_distinct_ids=[],
             unconfirmed_distinct_ids=[],

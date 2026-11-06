@@ -264,13 +264,18 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
             self._seed_ch_only_person(str(uuid4()), [], version=1)
 
     def _erase(self, uuids: list[str], **overrides: object) -> tuple[list[str], MagicMock]:
-        return self._run_erasure(uuids, overrides, expect_exit=False)
+        return self._run_erasure(uuids, overrides, expect=None)
 
     def _erase_expecting_exit(self, uuids: list[str], **overrides: object) -> tuple[list[str], MagicMock]:
-        return self._run_erasure(uuids, overrides, expect_exit=True)
+        return self._run_erasure(uuids, overrides, expect=SystemExit)
 
     def _run_erasure(
-        self, uuids: list[str], overrides: dict[str, object], *, expect_exit: bool
+        self,
+        uuids: list[str],
+        overrides: dict[str, object],
+        *,
+        expect: type[BaseException] | None,
+        start_error: Exception | None = None,
     ) -> tuple[list[str], MagicMock]:
         options = {
             "team_id": self.team.pk,
@@ -284,16 +289,16 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
             **overrides,
         }
         temporal = MagicMock()
-        temporal.start_workflow = AsyncMock()
+        temporal.start_workflow = AsyncMock(side_effect=start_error)
         with (
             patch("posthog.models.person.bulk_delete.sync_connect", return_value=temporal),
             patch("posthog.models.person.bulk_delete.queue_person_training_deletion") as training,
         ):
-            if expect_exit:
-                with self.assertRaises(SystemExit):
-                    run_orphan_repair(options)
-            else:
+            if expect is None:
                 run_orphan_repair(options)
+            else:
+                with self.assertRaises(expect):
+                    run_orphan_repair(options)
         inputs = [c.args[1] for c in temporal.start_workflow.call_args_list]
         assert all(i.config.deleted_by == "fix_orphaned_ch_persons" for i in inputs)
         return sorted(d for i in inputs for d in i.distinct_ids), training
@@ -407,12 +412,24 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
         assert recording_ids == ["did-mapped"]
         training.assert_called_once_with(self.team.pk, ["did-mapped"])
 
-    def test_erasure_of_events_alone_does_not_fail_on_unconfirmed_distinct_ids(self):
+    def test_erasure_of_events_alone_skips_the_distinct_id_lookups(self):
         uuid = self._tombstoned_person_with_stored_distinct_id("did-t")
 
-        self._erase([uuid], delete_recordings=False, reason="")
+        with patch(
+            "posthog.models.person.deletion.get_distinct_id_rows", side_effect=RuntimeError("personhog unavailable")
+        ):
+            self._erase([uuid], delete_recordings=False, reason="")
 
         assert self._queued_event_deletions() == {uuid}
+
+    def test_erasure_queues_events_even_when_a_recording_workflow_fails_to_start(self):
+        orphan = str(uuid4())
+        self._seed_ch_only_person(orphan, ["did-a"], version=5)
+        self._seed_rest_of_team()
+
+        self._run_erasure([orphan], {}, expect=RuntimeError, start_error=RuntimeError("temporal unavailable"))
+
+        assert self._queued_event_deletions() == {orphan}
 
     def test_erasure_dry_run_shows_the_distinct_ids_a_real_run_cannot_confirm(self):
         uuid = self._tombstoned_person_with_stored_distinct_id("did-t")
