@@ -80,6 +80,23 @@ def _graphql_errors():
     return _response(json_data={"errors": [{"message": "internal error"}]})
 
 
+def _invalid_website_url(detail):
+    return _response(
+        json_data={
+            "errors": [
+                {
+                    "message": "422: Unprocessable Entity",
+                    "path": ["enrichCompanyByIdentifiers"],
+                    "extensions": {
+                        "code": "INTERNAL_SERVER_ERROR",
+                        "response": {"status": 422, "body": {"detail": detail}},
+                    },
+                }
+            ]
+        }
+    )
+
+
 def _http_500():
     error = aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=500, message="Server Error")
     return _response(raise_status=error)
@@ -166,6 +183,45 @@ async def test_strict_captures_swallowed_error_on_mixed_path(mock_capture_except
         result = await _client().enrich_company_by_domain_strict("posthog.com")
     assert result.company is None
     mock_capture_exception.assert_called_once()
+
+
+@parameterized.expand(
+    [
+        ("comma_separated_list", "a.example.com, b.example.com"),
+        ("empty", ""),
+        ("no_tld", "intranet"),
+        ("reserved_tld", "acme.invalid"),
+    ]
+)
+@pytest.mark.asyncio
+async def test_strict_skips_harmonic_for_a_malformed_domain(_name: str, domain: str) -> None:
+    mock_request = AsyncMock()
+    with (
+        patch(HARMONIC_REQUEST, new=mock_request),
+        patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception") as mock_capture,
+    ):
+        result = await _client().enrich_company_by_domain_strict(domain)
+    assert result.company is None
+    mock_request.assert_not_awaited()
+    mock_capture.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("string_detail", "website_url https://typo.example.com is not a valid website URL"),
+        ("validation_detail", [{"type": "value_error", "loc": ["query", "website_url"], "msg": "Value error"}]),
+    ]
+)
+@pytest.mark.asyncio
+async def test_strict_treats_an_invalid_website_url_rejection_as_not_found(_name: str, detail: Any) -> None:
+    side_effect = [_invalid_website_url(detail), _invalid_website_url(detail)]
+    with (
+        patch(HARMONIC_REQUEST, new=AsyncMock(side_effect=side_effect)),
+        patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception") as mock_capture,
+    ):
+        result = await _client().enrich_company_by_domain_strict("typo.example.com")
+    assert result.company is None
+    mock_capture.assert_not_called()
 
 
 @pytest.mark.asyncio
