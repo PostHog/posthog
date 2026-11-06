@@ -227,18 +227,18 @@ def creates_native_alert(team_id: int) -> bool:
     """Whether a new logs alert of the team gets no logs row. A team whose alerts stay with logs, and an
     environment, whose alert the platform cannot store, keep the logs row."""
     team = Team.objects.only("id", "uuid", "organization_id", "parent_team_id").get(id=team_id)
-    if team.parent_team_id is not None or not takes_new_alert(team_id, new_alert_id=None):
+    if team.parent_team_id is not None:
         return False
-    return bool(
-        posthoganalytics.feature_enabled(
-            NATIVE_CREATE_FLAG,
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                # Both regions read flags from one PostHog project, and project ids repeat across regions.
-                "project": {"id": str(team.id), "uuid": str(team.uuid)},
-            },
-            send_feature_flag_events=False,
-        )
+    flag_on = posthoganalytics.feature_enabled(
+        NATIVE_CREATE_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            # Both regions read flags from one PostHog project, and project ids repeat across regions.
+            "project": {"id": str(team.id), "uuid": str(team.uuid)},
+        },
+        send_feature_flag_events=False,
     )
+    # The flag first, so a team with it off skips the query over its alerts.
+    return bool(flag_on) and takes_new_alert(team_id, new_alert_id=None)
