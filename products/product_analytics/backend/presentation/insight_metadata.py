@@ -555,7 +555,6 @@ def _request_metadata_from_llm(query_summary: str, type_guidance: str, team: Tea
                 timeout=_LLM_TIMEOUT_SECONDS,
                 response_format={"type": "json_object"},
                 distinct_id=team_distinct_id(team.id),
-                use_ai_gateway=True,
             )
         except openai.APITimeoutError as e:
             logger.warning("ai_metadata_generation_timeout", team_id=team.id)

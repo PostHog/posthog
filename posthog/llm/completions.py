@@ -36,7 +36,6 @@ def hit_openai(
     timeout: float | None = None,
     response_format: dict[str, Any] | None = None,
     distinct_id: str | None = None,
-    use_ai_gateway: bool = False,
 ) -> OpenAICompletion:
     # Only forward optional params when set, so callers that don't need them keep the client defaults.
     optional_params: dict[str, Any] = {}
@@ -45,7 +44,7 @@ def hit_openai(
     if response_format is not None:
         optional_params["response_format"] = response_format
 
-    if use_ai_gateway and resolve_ai_gateway_config() is not None:
+    if resolve_ai_gateway_config() is not None:
         properties = posthog_properties or {}
         gateway_client = build_openai_client(
             "django",

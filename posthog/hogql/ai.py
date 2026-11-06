@@ -203,7 +203,6 @@ def write_sql_from_prompt(
             f"{instance_region}/{user.pk}",
             posthog_properties={"ai_product": "hogql", "ai_feature": "draft_sql", "team_id": team.pk},
             distinct_id=user.distinct_id,
-            use_ai_gateway=True,
         )
         prompt_tokens_total += completion.prompt_tokens
         completion_tokens_total += completion.completion_tokens
