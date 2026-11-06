@@ -8,6 +8,7 @@ import {
     serialize,
     serializeOuter,
 } from 'parse5'
+import { Counter } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { RedisV2 } from '~/common/redis/redis-v2'
@@ -16,12 +17,23 @@ import { logger } from '~/common/utils/logger'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
-import { maybeAddPreheaderToEmail } from './helpers/preheader'
+import { preheaderSpan } from './helpers/preheader'
 
 const MAX_TEMPLATE_HTML_BYTES = 75_000
 const MAX_ELEMENT_DEPTH = 256
 const MAX_ATTRIBUTES_PER_TAG = 64
 const MAX_CONDITION_LENGTH = 100
+// Each element in the source takes at least three bytes, so a parse that creates more elements than that is
+// re-opening formatting elements for every text run, which multiplies a small template into millions of nodes.
+const MAX_ELEMENTS_PER_PARSE = Math.ceil(MAX_TEMPLATE_HTML_BYTES / 3)
+
+class FooterNotRetained extends Error {
+    constructor() {
+        super(
+            'The sandbox email template could not retain its identification footer. Update the template and try again.'
+        )
+    }
+}
 
 export interface SandboxEmailSenderConfig {
     enabled: boolean
@@ -38,11 +50,23 @@ const ROUTE_SETTING_NAMES = {
 
 function emptyRouteSettings(config: SandboxEmailSenderConfig): string[] {
     return (Object.keys(ROUTE_SETTING_NAMES) as (keyof typeof ROUTE_SETTING_NAMES)[])
-        .filter((setting) => !config[setting].trim())
+        .filter((setting) => !config[setting])
         .map((setting) => ROUTE_SETTING_NAMES[setting])
 }
 
-export type SandboxEmailBlockReason = 'switch_off' | 'recipient_not_member' | 'recipient_unverified' | 'check_failed'
+export type SandboxEmailBlockReason =
+    | 'switch_off'
+    | 'not_workflow_step'
+    | 'recipient_not_member'
+    | 'recipient_unverified'
+    | 'check_failed'
+
+// The blocked event is captured once per team, reason and hour, so only this counter shows how many sends block.
+const sandboxEmailBlockedTotal = new Counter({
+    name: 'cdp_sandbox_email_blocked_total',
+    help: 'Sandbox sender sends skipped before delivery, by block reason and by whether the send was a test send.',
+    labelNames: ['reason', 'is_test'],
+})
 
 const BLOCKED_EVENT_WINDOW_SECONDS = 3600
 const EVENT_CAPTURE_TIMEOUT_MS = 1000
@@ -137,7 +161,7 @@ function protectFooterAncestors(
 ): void {
     const root = document.childNodes.find(defaultTreeAdapter.isElementNode)!
     const visibleLayout =
-        'display:block!important;position:static!important;margin:0!important;overflow:visible!important;height:auto!important;max-height:none!important;clip:auto!important;clip-path:none!important;transform:none!important;opacity:1!important;visibility:visible!important;filter:none!important;contain:none!important;content-visibility:visible!important;mask:none!important;-webkit-mask:none!important;mix-blend-mode:normal!important;translate:none!important;scale:none!important;rotate:none!important;zoom:1!important;mso-hide:none!important'
+        'display:block!important;position:static!important;margin:0!important;padding:0!important;border:0!important;float:none!important;width:auto!important;min-width:0!important;overflow:visible!important;height:auto!important;max-height:none!important;clip:auto!important;clip-path:none!important;transform:none!important;opacity:1!important;visibility:visible!important;filter:none!important;contain:none!important;content-visibility:visible!important;mask:none!important;-webkit-mask:none!important;mix-blend-mode:normal!important;translate:none!important;scale:none!important;rotate:none!important;zoom:1!important;mso-hide:none!important'
     for (const ancestor of [root, body]) {
         const style = ancestor.attrs.find((attribute) => attribute.name === 'style')
         if (style) {
@@ -168,26 +192,6 @@ function neutralizeRawTextElements(roots: DefaultTreeAdapterMap['childNode'][]):
     }
 }
 
-function leavesOutlookConditionalOpen(roots: DefaultTreeAdapterMap['childNode'][]): boolean {
-    let depth = 0
-    const pending = [...roots].reverse()
-    while (pending.length) {
-        const node = pending.pop()!
-        if (defaultTreeAdapter.isCommentNode(node)) {
-            for (const match of `<!--${node.data}-->`.matchAll(/<!(?:--)?\[(?:(if)\b|endif\](?:--)?>)/gi)) {
-                depth = match[1] ? depth + 1 : Math.max(depth - 1, 0)
-            }
-        } else if (defaultTreeAdapter.isElementNode(node)) {
-            const children =
-                node.tagName === 'template' && node.namespaceURI === htmlSpec.NS.HTML
-                    ? defaultTreeAdapter.getTemplateContent(node as DefaultTreeAdapterMap['template']).childNodes
-                    : node.childNodes
-            pending.push(...[...children].reverse())
-        }
-    }
-    return depth > 0
-}
-
 type ConditionalClient = { mso: number | null; ie: number | null }
 
 const CONDITIONAL_CLIENTS: ConditionalClient[] = [
@@ -200,22 +204,20 @@ type ConditionalMarker =
     | { kind: 'open'; condition: string }
     | { kind: 'close' }
 
-class UnreadableConditional extends Error {}
-
 function conditionHolds(condition: string, client: ConditionalClient): boolean {
     if (condition.length > MAX_CONDITION_LENGTH) {
-        throw new UnreadableConditional()
+        throw new FooterNotRetained()
     }
     const tokens = condition.match(/\(|\)|!|&|\||[a-z]+|\d+(?:\.\d+)?/gi) ?? []
     if (tokens.join('') !== condition.replace(/\s+/g, '')) {
-        throw new UnreadableConditional()
+        throw new FooterNotRetained()
     }
     let position = 0
     const next = (): string | undefined => tokens[position]
     const take = (): string => {
         const token = tokens[position++]
         if (token === undefined) {
-            throw new UnreadableConditional()
+            throw new FooterNotRetained()
         }
         return token
     }
@@ -236,7 +238,7 @@ function conditionHolds(condition: string, client: ConditionalClient): boolean {
                     ? client.mso && 1
                     : undefined
         if (version === undefined) {
-            throw new UnreadableConditional()
+            throw new FooterNotRetained()
         }
         const wanted = /^\d/.test(next() ?? '') ? Number(take()) : null
         if (version === null) {
@@ -244,7 +246,7 @@ function conditionHolds(condition: string, client: ConditionalClient): boolean {
         }
         if (wanted === null) {
             if (operator !== 'eq') {
-                throw new UnreadableConditional()
+                throw new FooterNotRetained()
             }
             return true
         }
@@ -266,7 +268,7 @@ function conditionHolds(condition: string, client: ConditionalClient): boolean {
             take()
             const value = either()
             if (take() !== ')') {
-                throw new UnreadableConditional()
+                throw new FooterNotRetained()
             }
             return value
         }
@@ -290,27 +292,22 @@ function conditionHolds(condition: string, client: ConditionalClient): boolean {
     }
     const value = either()
     if (position !== tokens.length) {
-        throw new UnreadableConditional()
+        throw new FooterNotRetained()
     }
     return value
 }
 
 class AttributeBoundedParser extends Parser<DefaultTreeAdapterMap> {
-    static maxAttributesPerTag = MAX_ATTRIBUTES_PER_TAG
-
     constructor(...args: ConstructorParameters<typeof Parser<DefaultTreeAdapterMap>>) {
         super(...args)
-        const maxAttributesPerTag = (new.target as typeof AttributeBoundedParser).maxAttributesPerTag
         const tokenizer = this.tokenizer as unknown as {
             currentToken: { attrs: unknown[] } | null
             _leaveAttrName: () => void
         }
         const leaveAttrName = tokenizer._leaveAttrName.bind(tokenizer)
         tokenizer._leaveAttrName = () => {
-            if ((tokenizer.currentToken?.attrs.length ?? 0) >= maxAttributesPerTag) {
-                throw new Error(
-                    'The sandbox email template could not retain its identification footer. Update the template and try again.'
-                )
+            if ((tokenizer.currentToken?.attrs.length ?? 0) >= MAX_ATTRIBUTES_PER_TAG) {
+                throw new FooterNotRetained()
             }
             leaveAttrName()
         }
@@ -325,52 +322,65 @@ function refuseDeepNesting(parent: DefaultTreeAdapterMap['parentNode']): void {
     while (current) {
         depth += 1
         if (depth > MAX_ELEMENT_DEPTH) {
-            throw new Error(
-                'The sandbox email template could not retain its identification footer. Update the template and try again.'
-            )
+            throw new FooterNotRetained()
         }
         current = 'parentNode' in current ? current.parentNode : templateOwners.get(current)
     }
 }
 
-const depthBoundedTreeAdapter: TreeAdapter<DefaultTreeAdapterMap> = {
-    ...defaultTreeAdapter,
-    appendChild(parent, node) {
-        refuseDeepNesting(parent)
-        defaultTreeAdapter.appendChild(parent, node)
-    },
-    insertBefore(parent, node, reference) {
-        refuseDeepNesting(parent)
-        defaultTreeAdapter.insertBefore(parent, node, reference)
-    },
-    setTemplateContent(template, content) {
-        templateOwners.set(content, template)
-        defaultTreeAdapter.setTemplateContent(template, content)
-    },
-    adoptAttributes(recipient, attrs) {
-        if (attrs.length === 0) {
-            return
-        }
-        const present = new Set(recipient.attrs.map((attr) => attr.name))
-        if (recipient.attrs.length + attrs.filter((attr) => !present.has(attr.name)).length > MAX_ATTRIBUTES_PER_TAG) {
-            throw new Error(
-                'The sandbox email template could not retain its identification footer. Update the template and try again.'
-            )
-        }
-        defaultTreeAdapter.adoptAttributes(recipient, attrs)
-    },
-}
-
-class FooterStyleAttributeBoundedParser extends AttributeBoundedParser {
-    static override maxAttributesPerTag = MAX_ATTRIBUTES_PER_TAG + 1
+function boundedTreeAdapter(): TreeAdapter<DefaultTreeAdapterMap> {
+    let elements = 0
+    return {
+        ...defaultTreeAdapter,
+        createElement(tagName, namespaceURI, attrs) {
+            elements += 1
+            if (elements > MAX_ELEMENTS_PER_PARSE) {
+                throw new FooterNotRetained()
+            }
+            return defaultTreeAdapter.createElement(tagName, namespaceURI, attrs)
+        },
+        appendChild(parent, node) {
+            refuseDeepNesting(parent)
+            defaultTreeAdapter.appendChild(parent, node)
+        },
+        insertBefore(parent, node, reference) {
+            refuseDeepNesting(parent)
+            defaultTreeAdapter.insertBefore(parent, node, reference)
+        },
+        setTemplateContent(template, content) {
+            templateOwners.set(content, template)
+            defaultTreeAdapter.setTemplateContent(template, content)
+        },
+        adoptAttributes(recipient, attrs) {
+            if (attrs.length === 0) {
+                return
+            }
+            const present = new Set(recipient.attrs.map((attr) => attr.name))
+            if (
+                recipient.attrs.length + attrs.filter((attr) => !present.has(attr.name)).length >
+                MAX_ATTRIBUTES_PER_TAG
+            ) {
+                throw new FooterNotRetained()
+            }
+            defaultTreeAdapter.adoptAttributes(recipient, attrs)
+        },
+    }
 }
 
 function parseBounded(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
-    return AttributeBoundedParser.parse(html, { scriptingEnabled, treeAdapter: depthBoundedTreeAdapter })
+    return AttributeBoundedParser.parse(html, { scriptingEnabled, treeAdapter: boundedTreeAdapter() })
 }
 
-function parseBuiltEmail(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
-    return FooterStyleAttributeBoundedParser.parse(html, { scriptingEnabled, treeAdapter: depthBoundedTreeAdapter })
+function parseBoundedFragment(
+    html: string,
+    context: DefaultTreeAdapterMap['element'] | null
+): DefaultTreeAdapterMap['documentFragment'] {
+    const parser = AttributeBoundedParser.getFragmentParser(context, {
+        scriptingEnabled: false,
+        treeAdapter: boundedTreeAdapter(),
+    })
+    parser.tokenizer.write(html, true)
+    return parser.getFragment()
 }
 
 class TooLargeForSandbox extends Error {
@@ -386,7 +396,7 @@ function conditionalMarker(comment: string): ConditionalMarker | null {
     const hidden = /^\[if\b([^\]]*)\]>([\s\S]*)<!\[endif\]$/i.exec(data)
     if (hidden) {
         if (/\[(?:if\b|endif\])/i.test(hidden[2])) {
-            throw new UnreadableConditional()
+            throw new FooterNotRetained()
         }
         return { kind: 'hidden', condition: hidden[1], content: hidden[2] }
     }
@@ -398,13 +408,13 @@ function conditionalMarker(comment: string): ConditionalMarker | null {
         return { kind: 'close' }
     }
     if (/\[(?:if\b|endif\])/i.test(data)) {
-        throw new UnreadableConditional()
+        throw new FooterNotRetained()
     }
     return null
 }
 
 function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
-    const document = parseBuiltEmail(html)
+    const document = parseBounded(html)
     const marker = `outlook-conditional-${randomUUID()}-`
     const markers: ConditionalMarker[] = []
     const parents: DefaultTreeAdapterMap['parentNode'][] = [document]
@@ -442,7 +452,7 @@ function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
                 skipping = false
                 insideRevealedBranch = false
             } else if (found.kind === 'open' && insideRevealedBranch) {
-                throw new UnreadableConditional()
+                throw new FooterNotRetained()
             } else if (skipping) {
                 continue
             } else if (found.kind === 'open') {
@@ -455,20 +465,12 @@ function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
         }
         views.add(view)
     }
-    return [...views].map((view) => parseBuiltEmail(view))
+    return [...views].map((view) => parseBounded(view))
 }
 
 function insertPreheader(body: DefaultTreeAdapterMap['element'], preheaderHtml: string): void {
-    if (!preheaderHtml) {
-        return
-    }
-    const parser = AttributeBoundedParser.getFragmentParser(body, {
-        scriptingEnabled: false,
-        treeAdapter: depthBoundedTreeAdapter,
-    })
-    parser.tokenizer.write(preheaderHtml, true)
     const firstChild = body.childNodes[0]
-    for (const node of [...parser.getFragment().childNodes]) {
+    for (const node of [...parseBoundedFragment(preheaderHtml, body).childNodes]) {
         if (firstChild) {
             defaultTreeAdapter.insertBefore(body, node, firstChild)
         } else {
@@ -481,61 +483,41 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
     if (Buffer.byteLength(html) + Buffer.byteLength(preheader ?? '') > MAX_TEMPLATE_HTML_BYTES) {
         throw new TooLargeForSandbox()
     }
-    const preheaderParser = AttributeBoundedParser.getFragmentParser(null, {
-        scriptingEnabled: false,
-        treeAdapter: depthBoundedTreeAdapter,
-    })
-    preheaderParser.tokenizer.write(preheader ?? '', true)
-    const preheaderText = preheaderParser.getFragment()
+    const preheaderText = parseBoundedFragment(preheader ?? '', null)
     neutralizeRawTextElements(preheaderText.childNodes)
     const document = parseBounded(html)
     const body = htmlBody(document)
     if (!body) {
         throw new Error('The sandbox email template must have an HTML body. Update the template and try again.')
     }
-    insertPreheader(body, maybeAddPreheaderToEmail('', serialize(preheaderText, { scriptingEnabled: false })))
+    const preheaderHtml = serialize(preheaderText, { scriptingEnabled: false })
+    if (preheaderHtml) {
+        insertPreheader(body, preheaderSpan(preheaderHtml))
+    }
     neutralizeRawTextElements(document.childNodes)
     protectFooterAncestors(document, body)
-    const paragraph = defaultTreeAdapter.createElement('div', body.namespaceURI, [
+    const footerElement = defaultTreeAdapter.createElement('div', body.namespaceURI, [
         {
             name: 'style',
-            value: 'all:initial!important;display:block!important;visibility:visible!important;opacity:1!important;position:relative!important;z-index:2147483647!important;inset:auto!important;float:none!important;width:auto!important;max-width:none!important;min-width:0!important;height:auto!important;max-height:none!important;overflow:visible!important;margin:0!important;transform:none!important;translate:none!important;scale:none!important;rotate:none!important;clip-path:none!important;filter:none!important;mask:none!important;-webkit-mask:none!important;mix-blend-mode:normal!important;text-indent:0!important;letter-spacing:normal!important;word-spacing:normal!important;text-transform:none!important;text-shadow:none!important;white-space:normal!important;font:12px sans-serif!important;color:#525252!important;background:#fff!important;padding:16px 0!important;mso-hide:none!important',
+            value: 'all:initial!important;display:block!important;visibility:visible!important;opacity:1!important;position:relative!important;z-index:2147483647!important;inset:auto!important;float:none!important;width:auto!important;max-width:none!important;min-width:0!important;height:auto!important;max-height:none!important;overflow:visible!important;margin:0!important;transform:none!important;translate:none!important;scale:none!important;rotate:none!important;clip-path:none!important;filter:none!important;mask:none!important;-webkit-mask:none!important;mix-blend-mode:normal!important;text-indent:0!important;direction:ltr!important;unicode-bidi:isolate!important;text-align:left!important;letter-spacing:normal!important;word-spacing:normal!important;text-transform:none!important;text-shadow:none!important;white-space:normal!important;font:12px sans-serif!important;color:#525252!important;background:#fff!important;padding:16px 0!important;mso-hide:none!important',
         },
     ])
-    defaultTreeAdapter.insertText(paragraph, footer)
-    defaultTreeAdapter.appendChild(body, paragraph)
+    defaultTreeAdapter.insertText(footerElement, footer)
+    defaultTreeAdapter.appendChild(body, footerElement)
     const serialized = serialize(document, { scriptingEnabled: false })
     if (Buffer.byteLength(serialized) > MAX_TEMPLATE_HTML_BYTES) {
         throw new TooLargeForSandbox()
     }
-    if (leavesOutlookConditionalOpen(document.childNodes)) {
-        throw new Error(
-            'The sandbox email template could not retain its identification footer. Update the template and try again.'
-        )
-    }
-    let conditionalRenderings: DefaultTreeAdapterMap['document'][]
-    try {
-        conditionalRenderings = outlookViews(serialized)
-    } catch (error) {
-        if (error instanceof UnreadableConditional) {
-            throw new Error(
-                'The sandbox email template could not retain its identification footer. Update the template and try again.'
-            )
-        }
-        throw error
-    }
-    const renderings = [parseBuiltEmail(serialized), parseBuiltEmail(serialized, true), ...conditionalRenderings]
+    const renderings = [parseBounded(serialized), parseBounded(serialized, true), ...outlookViews(serialized)]
     for (const rendering of renderings) {
         const deliveredFooter = htmlBody(rendering)?.childNodes.at(-1)
         if (
             !deliveredFooter ||
             !defaultTreeAdapter.isElementNode(deliveredFooter) ||
             deliveredFooter.namespaceURI !== body.namespaceURI ||
-            serializeOuter(deliveredFooter) !== serializeOuter(paragraph)
+            serializeOuter(deliveredFooter) !== serializeOuter(footerElement)
         ) {
-            throw new Error(
-                'The sandbox email template could not retain its identification footer. Update the template and try again.'
-            )
+            throw new FooterNotRetained()
         }
     }
     return serialized
@@ -564,16 +546,16 @@ export class SandboxEmailSender {
             configurationSetName: config.configurationSetName.trim(),
             fromAddress: config.fromAddress.trim(),
         }
-        const emptySettings = emptyRouteSettings(config)
-        if (config.enabled && emptySettings.length) {
+        const emptySettings = emptyRouteSettings(this.config)
+        if (this.config.enabled && emptySettings.length) {
             logger.error('The sandbox sender is switched on with empty route settings, so it skips every send', {
                 emptySettings,
             })
         }
-        this.canSend = config.enabled && !emptySettings.length
+        this.canSend = this.config.enabled && !emptySettings.length
     }
 
-    public async withIdentificationFooter(
+    public async buildSandboxMessage(
         params: CyclotronInvocationQueueParametersEmailType,
         senderName: string,
         teamId: number
@@ -612,6 +594,7 @@ export class SandboxEmailSender {
         reason: SandboxEmailBlockReason,
         blockedRecipientCount: number
     ): Promise<void> {
+        sandboxEmailBlockedTotal.inc({ reason, is_test: String(isTest) })
         await this.captureEvent(
             teamId,
             'workflows sandbox email blocked',
@@ -667,16 +650,14 @@ export class SandboxEmailSender {
         isTest: boolean,
         reason: SandboxEmailBlockReason
     ): Promise<boolean> {
-        const firstBlock = await this.blockedEventRedis.useClient(
-            { name: 'sandbox-blocked-event', timeout: 1000 },
-            (client) =>
-                client.set(
-                    `@posthog/workflows-sandbox-blocked/${teamId}/${reason}/${isTest ? 'test' : 'live'}`,
-                    '1',
-                    'EX',
-                    BLOCKED_EVENT_WINDOW_SECONDS,
-                    'NX'
-                )
+        const firstBlock = await this.blockedEventRedis.useClient({ name: 'sandbox-blocked-event' }, (client) =>
+            client.set(
+                `@posthog/workflows-sandbox-blocked/${teamId}/${reason}/${isTest ? 'test' : 'live'}`,
+                '1',
+                'EX',
+                BLOCKED_EVENT_WINDOW_SECONDS,
+                'NX'
+            )
         )
         return firstBlock === 'OK'
     }
