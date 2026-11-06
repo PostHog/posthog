@@ -960,7 +960,16 @@ export class EmailService {
                         ccAddresses: route.ccAddresses?.map(stored),
                         bccAddresses: route.bccAddresses?.map(stored),
                     }
-                    await this.sendEmailWithSES(result, deliveryParams, from, false, isTest, queueWait, files, memberRoute)
+                    await this.sendEmailWithSES(
+                        result,
+                        deliveryParams,
+                        from,
+                        false,
+                        isTest,
+                        queueWait,
+                        files,
+                        memberRoute
+                    )
                     await this.sandboxSender!.captureSent(invocation.teamId, isTest, deliveryRecipients.length)
                     break
                 }
