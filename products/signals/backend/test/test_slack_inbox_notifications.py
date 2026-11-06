@@ -141,7 +141,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button(use_
     )
     blocks, text = _build_message_blocks(
         report,
-        reviewer_mentions=["<@U123>"],
+        reviewer_labels=["<@U123>"],
         use_section_blocks=use_section_blocks,
         priority=AutonomyPriority.P1,
         offer_implementation=True,
@@ -186,7 +186,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button(use_
 )
 def test_build_message_blocks_shows_only_the_impact_section(summary: str, expected: str) -> None:
     report = SignalReport(id="report-uuid", title="Impact test", summary=summary)
-    blocks, _ = _build_message_blocks(report, reviewer_mentions=[])
+    blocks, _ = _build_message_blocks(report, reviewer_labels=[])
 
     body = blocks[1]["text"]
     if expected:
@@ -197,7 +197,7 @@ def test_build_message_blocks_shows_only_the_impact_section(summary: str, expect
 
 def test_build_message_blocks_mentions_every_routed_reviewer() -> None:
     report = SignalReport(id="report-uuid", title="Shared channel")
-    blocks, _ = _build_message_blocks(report, reviewer_mentions=["<@U1>", "<@U2>"])
+    blocks, _ = _build_message_blocks(report, reviewer_labels=["<@U1>", "<@U2>"])
 
     assert blocks[1]["text"] == "**Shared channel**"
     assert blocks[2]["elements"][0]["text"] == "👤 Suggested owners: <@U1> <@U2>"
@@ -205,7 +205,7 @@ def test_build_message_blocks_mentions_every_routed_reviewer() -> None:
 
 def test_build_message_blocks_caps_section_body_without_truncating_mentions() -> None:
     report = SignalReport(id="report-uuid", title="🚀" * 2000)
-    blocks, _ = _build_message_blocks(report, reviewer_mentions=["<@U123>"], use_section_blocks=True)
+    blocks, _ = _build_message_blocks(report, reviewer_labels=["<@U123>"], use_section_blocks=True)
 
     body = blocks[1]["text"]["text"]
     assert len(body.encode("utf-16-le")) // 2 <= 3000
@@ -231,7 +231,7 @@ def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields(use_section_b
         summary=summary,
         signal_count=1,
     )
-    blocks, _ = _build_message_blocks(report, reviewer_mentions=["<@U123>"], use_section_blocks=use_section_blocks)
+    blocks, _ = _build_message_blocks(report, reviewer_labels=["<@U123>"], use_section_blocks=use_section_blocks)
 
     section_text = blocks[1]["text"]["text"] if use_section_blocks else blocks[1]["text"]
     assert "<!" not in section_text
@@ -250,12 +250,12 @@ def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields(use_section_b
 def test_build_message_blocks_does_not_share_conversion_state_between_reports() -> None:
     _build_message_blocks(
         SignalReport(id="first-report", summary="```python\nexample()\n```"),
-        reviewer_mentions=[],
+        reviewer_labels=[],
         use_section_blocks=True,
     )
     blocks, _ = _build_message_blocks(
         SignalReport(id="second-report", summary="**Details** are [here](https://example.com)."),
-        reviewer_mentions=[],
+        reviewer_labels=[],
         use_section_blocks=True,
     )
 
@@ -887,8 +887,6 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
 
 @pytest.mark.django_db
 def test_dispatch_posts_team_channel_when_reviewer_has_own_channel(org_and_team):
-    # The only reviewer has their own channel. The team channel still gets the report, without
-    # mentioning that reviewer a second time.
     org, team = org_and_team
     user = _make_reviewer_user(org, "own-only@example.com", "own-only-bot")
     integration = _make_slack_integration(team, user)
@@ -905,7 +903,7 @@ def test_dispatch_posts_team_channel_when_reviewer_has_own_channel(org_and_team)
         patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
         patch(
             "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
-            return_value=None,
+            return_value="U_OWN",
         ),
     ):
         slack_cls.return_value.client = fake_client
@@ -914,7 +912,8 @@ def test_dispatch_posts_team_channel_when_reviewer_has_own_channel(org_and_team)
     assert sent == 2
     posts = {c.kwargs["channel"]: c.kwargs["blocks"] for c in fake_client.chat_postMessage.call_args_list}
     assert set(posts) == {"CUSER", "CTEAM"}
-    assert "Suggested" not in json.dumps(posts["CTEAM"])
+    assert posts["CUSER"][2]["elements"][0]["text"] == "👤 Suggested owner: <@U_OWN>"
+    assert posts["CTEAM"][2]["elements"][0]["text"] == "👤 Suggested owner: Reviewer Bot"
 
 
 @pytest.mark.django_db
@@ -955,6 +954,7 @@ def test_dispatch_team_channel_tags_only_fallback_reviewers(org_and_team):
     assert set(by_channel) == {"CUSER", "CTEAM"}
     assert "<@U_OWN>" in by_channel["CUSER"] and "<@U_FALLBACK>" not in by_channel["CUSER"]
     assert "<@U_FALLBACK>" in by_channel["CTEAM"] and "<@U_OWN>" not in by_channel["CTEAM"]
+    assert "Reviewer Bot" in by_channel["CTEAM"]
 
 
 @pytest.mark.django_db
@@ -981,9 +981,7 @@ def test_dispatch_respects_per_user_min_priority_filter(org_and_team):
 
 
 @pytest.mark.django_db
-def test_dispatch_filtered_own_channel_reviewer_is_not_mentioned_in_team_channel(org_and_team):
-    # A reviewer whose own channel is filtered out by their min-priority chose that
-    # threshold, so the team channel gets the report without mentioning them.
+def test_dispatch_filtered_own_channel_reviewer_is_shown_without_a_mention_in_team_channel(org_and_team):
     org, team = org_and_team
     user = _make_reviewer_user(org, "low-pri@example.com", "low-bot")
     integration = _make_slack_integration(team, user)
@@ -1011,7 +1009,7 @@ def test_dispatch_filtered_own_channel_reviewer_is_not_mentioned_in_team_channel
     assert sent == 1
     call_kwargs = fake_client.chat_postMessage.call_args.kwargs
     assert call_kwargs["channel"] == "CTEAM"
-    assert "Suggested" not in json.dumps(call_kwargs["blocks"])
+    assert call_kwargs["blocks"][2]["elements"][0]["text"] == "👤 Suggested owner: Reviewer Bot"
 
 
 @pytest.mark.django_db
