@@ -22,6 +22,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey, max_personal_api_keys_for_user
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -394,7 +395,19 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert response.json()["detail"] == "You must be a member of all teams that you are scoping the key to."
 
-    def test_roll_api_key(self):
+    @parameterized.expand(
+        [("no_policy",), ("unscoped",), ("team",), ("organization",), ("mixed",), ("allowed",), ("unrelated",)]
+    )
+    @override_settings(IS_BEHIND_PROXY=False, TRUST_ALL_PROXIES=False)
+    def test_roll_api_key(self, policy):
+        restricted_org, _, restricted_team = Organization.objects.bootstrap(self.user, name="Restricted organization")
+        self.user.current_organization = self.organization
+        self.user.current_team = self.team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        if policy != "no_policy":
+            OrganizationIPRestrictions.objects.create(
+                organization=restricted_org, ip_restrictions=["203.0.113.0/24"], enabled=True
+            )
         original_value = generate_random_token_personal()
         original_key = PersonalAPIKey.objects.create(
             label="Test roll",
@@ -405,10 +418,27 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             ],
         )
 
+        if policy in ("team", "mixed"):
+            original_key.scoped_teams = [restricted_team.id]
+        if policy == "organization":
+            original_key.scoped_organizations = [str(restricted_org.id)]
+        elif policy in ("mixed", "unrelated"):
+            original_key.scoped_organizations = [str(self.organization.id)]
+        original_key.save()
+        original_hash = original_key.secure_value
+
         response = self.client.post(
             f"/api/personal_api_keys/{original_key.id}/roll",
             {},
+            REMOTE_ADDR="203.0.113.7" if policy == "allowed" else "198.51.100.7",
         )
+        if policy in ("unscoped", "team", "organization", "mixed"):
+            assert response.status_code == 403
+            original_key.refresh_from_db()
+            assert original_key.secure_value == original_hash
+            assert original_key.last_rolled_at is None
+            assert "value" not in response.json()
+            return
         assert response.status_code == 200
         data = response.json()
 

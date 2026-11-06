@@ -1082,7 +1082,16 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(discover_state.connect_from, "posthog_code")
 
     @parameterized.expand(
-        [("no_policy",), ("allowed",), ("blocked",), ("removed_member",), ("demoted",), ("missing_team",)]
+        [
+            ("no_policy",),
+            ("allowed",),
+            ("blocked",),
+            ("removed_member",),
+            ("demoted",),
+            ("missing_team",),
+            ("new_member",),
+            ("new_member_blocked",),
+        ]
     )
     @override_settings(
         GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret", IS_BEHIND_PROXY=False
@@ -1112,19 +1121,24 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         }
         mock_client_request.side_effect = [mock_install_info, mock_access_token]
 
-        # Writing a team integration requires admin-level access.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        team_integration = Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="12345",
-            config={"installation_id": "12345"},
-            sensitive_config={"access_token": "ghs_install_token"},
-            created_by=self.user,
-        )
-        mock_integration_from_install.return_value = team_integration
+        def create_team_integration(*args):
+            return Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id="12345",
+                config={"installation_id": "12345"},
+                sensitive_config={"access_token": "ghs_install_token"},
+                created_by=self.user,
+            )
+
+        team_integration = None if policy.startswith("new_member") else create_team_integration()
+        if team_integration is None:
+            mock_integration_from_install.side_effect = create_team_integration
+        else:
+            mock_integration_from_install.return_value = team_integration
 
         state = "tok_team_oauth_123"
         store_unified_authorize_state(
@@ -1142,13 +1156,13 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.user.current_organization = other_org
         self.user.current_team = other_team
         self.user.save(update_fields=["current_organization", "current_team"])
-        if policy in ("allowed", "blocked"):
+        if policy in ("allowed", "blocked", "new_member_blocked"):
             OrganizationIPRestrictions.objects.create(
                 organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
             )
         elif policy == "removed_member":
             self.organization_membership.delete()
-        elif policy == "demoted":
+        if policy in ("demoted", "new_member", "new_member_blocked"):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
 
@@ -1158,17 +1172,21 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             REMOTE_ADDR="203.0.113.7" if policy == "allowed" else "198.51.100.7",
         )
 
-        if policy in ("blocked", "removed_member", "demoted", "missing_team"):
-            self.assertEqual(response.status_code, 403 if policy == "blocked" else 302)
+        if policy in ("blocked", "removed_member", "demoted", "missing_team", "new_member_blocked"):
+            self.assertEqual(response.status_code, 403 if policy in ("blocked", "new_member_blocked") else 302)
             mock_user_from_code.assert_not_called()
             mock_integration_from_install.assert_not_called()
             self.assertFalse(UserIntegration.objects.filter(user=self.user).exists())
             self.assertIsNotNone(load_authorize_state(state, user_id=self.user.id))
-            team_integration.refresh_from_db()
-            self.assertEqual(team_integration.sensitive_config, {"access_token": "ghs_install_token"})
+            if team_integration is not None:
+                team_integration.refresh_from_db()
+                self.assertEqual(team_integration.sensitive_config, {"access_token": "ghs_install_token"})
+            else:
+                self.assertFalse(Integration.objects.filter(team=self.team, kind="github").exists())
             return
 
         self.assertEqual(response.status_code, 302)
+        team_integration = Integration.objects.get(team=self.team, kind="github", integration_id="12345")
         # Used the OAuth-flow redirect URI so the code exchange matches GitHub's expectation.
         mock_user_from_code.assert_called_once()
         _, kwargs = mock_user_from_code.call_args

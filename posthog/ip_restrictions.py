@@ -1,6 +1,6 @@
 from collections.abc import Callable, Iterable
 from ipaddress import ip_address, ip_network
-from typing import TYPE_CHECKING, Any, ParamSpec, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, ParamSpec, Protocol, TypeVar, cast
 from uuid import UUID, uuid4
 
 from django.core.cache import caches
@@ -19,6 +19,8 @@ from posthog.models.team import Team
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
+
+    from posthog.models.user import User
 
     class _OrganizationScopedView(Protocol):
         kwargs: dict[str, Any]
@@ -42,6 +44,7 @@ __all__ = [
     "IPRestrictionsPermission",
     "MAX_IP_RESTRICTIONS",
     "enforce_ip_restrictions",
+    "enforce_credential_ip_restrictions",
     "get_ip_restriction_denial",
     "get_ip_blocked_organization_ids",
     "get_restriction_client_ip",
@@ -408,6 +411,33 @@ def _is_impersonated_request(request: HttpRequest, authenticator: Any) -> bool:
     return access_token is not None and access_token.impersonated_by_id is not None
 
 
+def _is_enforcement_exempt(request: Any, user: Any, authenticator: Any) -> bool:
+    credential_type = getattr(authenticator, "activity_credential_type", None)
+    return (
+        is_ip_restriction_exempt(request, credential_type)
+        or user is None
+        or not getattr(user, "is_authenticated", False)
+        or credential_type in _INTERNAL_CREDENTIAL_TYPES
+        or _is_impersonated_request(request, authenticator)
+    )
+
+
+def enforce_credential_ip_restrictions(
+    request: "Request", scoped_organization_ids: list[str] | None, scoped_team_ids: list[int] | None
+) -> None:
+    user = cast("User", request.user)
+    organization_ids = {str(UUID(str(org_id))) for org_id in scoped_organization_ids or []}
+    if scoped_team_ids:
+        organization_ids.update(
+            str(org_id)
+            for org_id in Team.objects.filter(pk__in=scoped_team_ids).values_list("organization_id", flat=True)
+        )
+    if not scoped_organization_ids and not scoped_team_ids:
+        organization_ids = {str(org_id) for org_id in user.organizations.values_list("id", flat=True)}
+    for organization_id in organization_ids:
+        enforce_ip_restrictions(request, user, request.successful_authenticator, organization_id=organization_id)
+
+
 def enforce_ip_restrictions(
     request: Any,
     user: Any,
@@ -422,17 +452,7 @@ def enforce_ip_restrictions(
     custom endpoints pass the organization resolved by their own tenant guards.
     """
     django_request = getattr(request, "_request", request)
-    credential_type = getattr(authenticator, "activity_credential_type", None)
-    if is_ip_restriction_exempt(django_request, credential_type):
-        return
-
-    if user is None or not getattr(user, "is_authenticated", False):
-        return
-
-    if credential_type in _INTERNAL_CREDENTIAL_TYPES:
-        return
-
-    if _is_impersonated_request(django_request, authenticator):
+    if _is_enforcement_exempt(django_request, user, authenticator):
         return
 
     if view is None and organization_id is None and _uses_view_scope(django_request):
@@ -457,17 +477,20 @@ def enforce_ip_restrictions(
     django_request._ip_restrictions_checked_principal = user
 
 
-def get_ip_blocked_organization_ids(request: "Request") -> list[str]:
+def get_ip_blocked_organization_ids(request: "Request") -> frozenset[str]:
     user = request.user
-    blocked = []
-    django_request = getattr(request, "_request", request)
-    for organization_id, _ in _request_policies(django_request, user):
-        try:
-            enforce_ip_restrictions(
-                request, user, getattr(request, "successful_authenticator", None), organization_id=organization_id
-            )
-        except PermissionDenied:
-            blocked.append(organization_id)
+    django_request: Any = getattr(request, "_request", request)
+    if _is_enforcement_exempt(django_request, user, getattr(request, "successful_authenticator", None)):
+        return frozenset()
+    policies = _request_policies(django_request, user)
+    ip = get_restriction_client_ip(django_request)
+    cached: tuple[Any, list[tuple[str, list[str]]], str | None, frozenset[str]] | None = getattr(
+        django_request, "_ip_restrictions_blocked_organizations", None
+    )
+    if cached is not None and cached[0] is user and cached[1] is policies and cached[2] == ip:
+        return cached[3]
+    blocked = frozenset(org_id for org_id, rules in policies if ip is None or not is_ip_allowed(ip, rules))
+    django_request._ip_restrictions_blocked_organizations = (user, policies, ip, blocked)
     return blocked
 
 

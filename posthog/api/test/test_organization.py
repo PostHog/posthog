@@ -1,6 +1,7 @@
 import hmac
 import hashlib
 from datetime import timedelta
+from ipaddress import ip_network
 from typing import cast
 from uuid import uuid4
 
@@ -748,12 +749,17 @@ class TestOrganizationAPI(APIBaseTest):
         other_org, _, other_team = Organization.objects.bootstrap(self.user, name="Available organization")
         selected_org = self.organization if selected_is_blocked else other_org
         selected_team = self.team if selected_is_blocked else other_team
-        self.user.current_organization = selected_org
-        self.user.current_team = selected_team
-        self.user.save(update_fields=["current_organization", "current_team"])
         OrganizationIPRestrictions.objects.create(
             organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
         )
+        for name in ("Restricted example one", "Restricted example two"):
+            restricted_org, _, _ = Organization.objects.bootstrap(self.user, name=name)
+            OrganizationIPRestrictions.objects.create(
+                organization=restricted_org, ip_restrictions=["203.0.113.0/24"], enabled=True
+            )
+        self.user.current_organization = selected_org
+        self.user.current_team = selected_team
+        self.user.save(update_fields=["current_organization", "current_team"])
         if api_key:
             token = generate_random_token_personal()
             PersonalAPIKey.objects.create(
@@ -777,7 +783,9 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(orgs[str(self.organization.id)]["projects"], [])
         self.assertEqual(orgs[str(other_org.id)]["teams"][0]["api_token"], other_team.api_token)
 
-        response = self.client.get("/api/users/@me/", REMOTE_ADDR="198.51.100.7")
+        with patch("posthog.ip_restrictions.ip_network", wraps=ip_network) as parse_network:
+            response = self.client.get("/api/users/@me/", REMOTE_ADDR="198.51.100.7")
+        self.assertEqual(parse_network.call_count, 3)
         self.assertEqual(response.status_code, 200)
         data = response.json()
         nested_org = next(org for org in data["organizations"] if org["id"] == str(self.organization.id))

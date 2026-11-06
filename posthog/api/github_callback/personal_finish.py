@@ -66,7 +66,17 @@ def finish_personal(request: HttpRequest) -> FinishResult:
         if team_id is None:
             return _error("invalid_state")
         team = user.teams.select_related("organization").filter(id=team_id).first()
-        if team is None or not state.has_team_management_access(user, team):
+        if team is None:
+            return _error("insufficient_permissions")
+        existing_integration = IntegrationManager.github.oauth.find(
+            team.id, external_id=str(authorize_state.installation_id)
+        )
+        has_required_access = (
+            state.has_team_management_access(user, team)
+            if existing_integration is not None
+            else state.has_team_membership_access(user, team)
+        )
+        if not has_required_access:
             return _error("insufficient_permissions")
         try:
             enforce_ip_restrictions(request, user, organization_id=str(team.organization_id))
