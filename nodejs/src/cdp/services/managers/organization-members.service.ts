@@ -100,7 +100,7 @@ export class OrganizationMembersService {
             check.blocked.length &&
             Date.now() - snapshot.loadedAt > BLOCK_RECHECK_AGE_MS
         ) {
-            this.snapshots.markForRefresh(id)
+            await this.snapshots.reload(id)
             return checkAgainst(await this.cachedSnapshot(id), recipients)
         }
         return check

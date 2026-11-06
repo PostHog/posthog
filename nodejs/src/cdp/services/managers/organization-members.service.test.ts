@@ -412,6 +412,26 @@ describe('OrganizationMembersService', () => {
             }
         })
 
+        it('keeps serving the cached members to later sends when the reload of a cached block fails', async () => {
+            const start = Date.now()
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
+            const query = jest
+                .fn()
+                .mockResolvedValueOnce({ rows: [memberRow('member@example.com')] })
+                .mockRejectedValue(new Error('primary unavailable'))
+            const service = new OrganizationMembersService(routerFor(query))
+            try {
+                expect((await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked).toEqual([])
+                clock.mockReturnValue(start + 5_001)
+
+                await expect(service.checkRecipients(1, ['outside@example.com'], { fresh: false })).rejects.toThrow()
+                expect((await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked).toEqual([])
+                expect(query).toHaveBeenCalledTimes(2)
+            } finally {
+                clock.mockRestore()
+            }
+        })
+
         it('does not let a fresh check join a lookup that started before it', async () => {
             let finishEarlierLookup: (rows: unknown) => void = () => {}
             const query = jest

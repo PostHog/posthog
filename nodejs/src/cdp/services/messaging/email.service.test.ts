@@ -468,22 +468,23 @@ describe('EmailService', () => {
                 capture.mockRestore()
             })
 
+            const workflowStep = (): object => ({})
+            const broadcast = (): object => ({
+                hogFlow: { id: invocation.functionId, team_id: team.id, trigger: { type: 'batch' } },
+            })
+
             it.each([
-                ['the switch is off', false, false, {}],
-                ['the switch is off', true, false, {}],
-                ['the switch is off for a broadcast', false, false, {}],
-                ['the tenant is empty', false, true, { tenantName: '' }],
-                ['the configuration set is blank', true, true, { configurationSetName: '   ' }],
-                ['the From address is empty', false, true, { fromAddress: '' }],
+                ['the switch is off', false, false, workflowStep, {}],
+                ['the switch is off', true, false, workflowStep, {}],
+                ['the switch is off for a broadcast', false, false, broadcast, {}],
+                ['the tenant is empty', false, true, workflowStep, { tenantName: '' }],
+                ['the configuration set is blank', true, true, workflowStep, { configurationSetName: '   ' }],
+                ['the From address is empty', false, true, workflowStep, { fromAddress: '' }],
             ] as const)(
                 'skips when the sandbox sender is switched off because %s (isTest=%s)',
-                async (reason, isTest, enabled, routeSettings: Partial<SandboxEmailSenderConfig>) => {
+                async (_reason, isTest, enabled, sentFrom, routeSettings: Partial<SandboxEmailSenderConfig>) => {
                     service = createSandboxService(enabled, { senderSettings: routeSettings })
-                    if (reason === 'the switch is off for a broadcast') {
-                        Object.assign(invocation, {
-                            hogFlow: { id: invocation.functionId, team_id: team.id, trigger: { type: 'batch' } },
-                        })
-                    }
+                    Object.assign(invocation, sentFrom())
 
                     const result = await service.executeSendEmail(invocation, isTest)
 
