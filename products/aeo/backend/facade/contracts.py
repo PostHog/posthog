@@ -69,6 +69,7 @@ class PromptEngineCheck:
     engine: str
     cited: bool
     check_failed: bool
+    search_queries: tuple[str, ...]
     checked_at: dt.datetime
 
 

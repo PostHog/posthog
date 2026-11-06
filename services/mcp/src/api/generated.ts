@@ -20,6 +20,8 @@ export namespace Schemas {
       cited: boolean;
       /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
       check_failed: boolean;
+      /** The web searches the engine ran while answering, in the order it ran them. Empty when it ran none or the check failed. */
+      search_queries: string[];
       /** When the check ran. */
       checked_at: string;
     }

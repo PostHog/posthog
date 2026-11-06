@@ -257,9 +257,30 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
     current_version: 1,
     version_count: 1,
     latest_checks: [
-        { engine: 'claude-web-search', cited: true, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
-        { engine: 'openai-web-search', cited: false, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
-        { engine: 'exa-answer', cited: true, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
+        {
+            engine: 'claude-web-search',
+            cited: true,
+            check_failed: false,
+            search_queries: [
+                'best open source product analytics for startups 2026',
+                'open source product analytics comparison',
+            ],
+            checked_at: '2026-09-29T09:00:00Z',
+        },
+        {
+            engine: 'openai-web-search',
+            cited: false,
+            check_failed: false,
+            search_queries: ['best open source product analytics for startups 2026'],
+            checked_at: '2026-09-29T09:00:00Z',
+        },
+        {
+            engine: 'exa-answer',
+            cited: true,
+            check_failed: false,
+            search_queries: [],
+            checked_at: '2026-09-29T09:00:00Z',
+        },
     ],
 }
 
@@ -270,9 +291,27 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         id: '00000000-0000-4000-8000-000000000302',
         prompt: 'How do I track funnels without writing SQL, and can I break the results down by country and browser?',
         latest_checks: [
-            { engine: 'claude-web-search', cited: false, check_failed: false, checked_at: '2026-09-28T09:00:00Z' },
-            { engine: 'openai-web-search', cited: false, check_failed: true, checked_at: '2026-09-28T09:00:00Z' },
-            { engine: 'gemini-google-search', cited: true, check_failed: false, checked_at: '2026-09-28T09:00:00Z' },
+            {
+                engine: 'claude-web-search',
+                cited: false,
+                check_failed: false,
+                search_queries: ['funnel analysis without SQL breakdown by country'],
+                checked_at: '2026-09-28T09:00:00Z',
+            },
+            {
+                engine: 'openai-web-search',
+                cited: false,
+                check_failed: true,
+                search_queries: [],
+                checked_at: '2026-09-28T09:00:00Z',
+            },
+            {
+                engine: 'gemini-google-search',
+                cited: true,
+                check_failed: false,
+                search_queries: [],
+                checked_at: '2026-09-28T09:00:00Z',
+            },
         ],
         last_checked_at: '2026-09-28T09:00:00Z',
     },
@@ -291,7 +330,13 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         prompt: 'Is there a free alternative to paid feature flag services?',
         topic: '',
         latest_checks: [
-            { engine: 'exa-answer', cited: false, check_failed: false, checked_at: '2026-09-27T09:00:00Z' },
+            {
+                engine: 'exa-answer',
+                cited: false,
+                check_failed: false,
+                search_queries: [],
+                checked_at: '2026-09-27T09:00:00Z',
+            },
         ],
         last_checked_at: '2026-09-27T09:00:00Z',
     },
@@ -303,7 +348,13 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         active: false,
         archived_at: '2026-09-20T12:00:00Z',
         latest_checks: [
-            { engine: 'claude-web-search', cited: false, check_failed: false, checked_at: '2026-09-19T09:00:00Z' },
+            {
+                engine: 'claude-web-search',
+                cited: false,
+                check_failed: false,
+                search_queries: [],
+                checked_at: '2026-09-19T09:00:00Z',
+            },
         ],
         last_checked_at: '2026-09-19T09:00:00Z',
     },

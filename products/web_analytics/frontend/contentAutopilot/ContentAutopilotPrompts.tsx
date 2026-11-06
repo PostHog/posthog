@@ -12,6 +12,7 @@ import {
     LemonTable,
     LemonTag,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -27,7 +28,7 @@ import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetai
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
-import { draftableOpportunity, engineLabel } from './utils'
+import { draftableOpportunity, engineLabel, promptSearches } from './utils'
 
 const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
     const check = prompt.latest_checks.find((latest) => latest.engine === engine)
@@ -35,6 +36,33 @@ const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
         return <span className="text-muted whitespace-nowrap">Not checked</span>
     }
     return <ContentAutopilotCheckResultTag cited={check.cited} checkFailed={check.check_failed} />
+}
+
+const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element | null => {
+    const { primary, byEngine, distinct } = promptSearches(prompt)
+    if (!primary) {
+        return null
+    }
+    return (
+        <Tooltip
+            title={
+                <div className="flex flex-col gap-1">
+                    {byEngine.map(({ engine, queries }) => (
+                        <div key={engine}>
+                            <div className="font-semibold">{engineLabel(engine)} searched</div>
+                            {queries.map((query) => (
+                                <div key={query}>{query}</div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            }
+        >
+            <div className="mt-0.5 text-xs text-muted truncate max-w-120" data-attr="content-autopilot-prompt-searches">
+                Searched for "{primary}"{distinct > 1 ? ` +${distinct - 1} more` : ''}
+            </div>
+        </Tooltip>
+    )
 }
 
 export const ContentAutopilotPrompts = (): JSX.Element => {
@@ -200,6 +228,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                     >
                                         {prompt.prompt}
                                     </Link>
+                                    <PromptSearchesLine prompt={prompt} />
                                 </div>
                             ),
                         },
