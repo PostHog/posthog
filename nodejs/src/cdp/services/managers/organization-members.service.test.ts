@@ -432,7 +432,7 @@ describe('OrganizationMembersService', () => {
             try {
                 const firstLoad = service.checkRecipients(1, ['member@example.com'], { fresh: false })
                 await jest.advanceTimersByTimeAsync(0)
-                expect((await firstLoad).blocked).toEqual([])
+                expect(memberCheck(await firstLoad).blocked).toEqual([])
                 jest.setSystemTime(start + 5_001)
 
                 const first = service.checkRecipients(1, ['outside@example.com'], { fresh: false })
@@ -447,7 +447,7 @@ describe('OrganizationMembersService', () => {
                 releaseReload()
                 await jest.advanceTimersByTimeAsync(0)
                 const checks = await Promise.all([first, ...later])
-                expect(checks.map((check) => check.blocked)).toEqual(Array(6).fill(outsider))
+                expect(checks.map((check) => memberCheck(check).blocked)).toEqual(Array(6).fill(outsider))
             } finally {
                 jest.useRealTimers()
             }
