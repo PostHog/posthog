@@ -8,6 +8,7 @@ import {
     type Series,
     type TooltipContext,
     ValueLabels,
+    measureLabelWidth,
 } from '@posthog/quill-charts'
 import { Skeleton } from '@posthog/quill-primitives'
 
@@ -20,10 +21,21 @@ import { ChartTooltip } from './ChartTooltip'
 
 const MAX_TOOLS = 8
 const ROW_HEIGHT_PX = 40
-const LABEL_WIDTH_PX = 180
-// A fixed left gutter, instead of one sized to the widest label, so the bars of every instance start
-// at the same x. The extra 18px is the gap that quill-charts keeps between a row label and the plot.
-const CHART_MARGINS = { top: 4, right: 20, bottom: 22, left: LABEL_WIDTH_PX + 18 }
+const MAX_LABEL_WIDTH_PX = 180
+// The gap that quill-charts keeps between a row label and the plot.
+const LABEL_GAP_PX = 18
+const CHART_MARGINS = { top: 4, right: 20, bottom: 22 }
+
+function topByErrorRate(rows: ToolRow[]): ToolRow[] {
+    return [...rows].sort((a, b) => b.error_rate_pct - a.error_rate_pct).slice(0, MAX_TOOLS)
+}
+
+// The left gutter fits the widest label that any of the given charts shows, so charts that pass each
+// other's rows start their bars at the same x. A label wider than the cap gets an ellipsis.
+function labelGutterPx(rowSets: ToolRow[][]): number {
+    const widths = rowSets.flatMap((rows) => topByErrorRate(rows).map((row) => measureLabelWidth(row.tool)))
+    return Math.ceil(Math.min(Math.max(0, ...widths), MAX_LABEL_WIDTH_PX)) + LABEL_GAP_PX
+}
 
 // Upper bound for the error-rate track: a bit above the worst tool's rate, rounded up to a clean 10 —
 // so the track ends just past the data (a 30% max gives a 50% track) rather than an empty-looking 100%.
@@ -33,6 +45,7 @@ function niceErrorAxisMax(maxRate: number): number {
 
 export function ToolErrorRateChart({
     rows,
+    alignWithRows,
     loading,
     theme,
     onToolClick,
@@ -40,16 +53,16 @@ export function ToolErrorRateChart({
     emptyMessage = 'No tool calls yet.',
 }: {
     rows: ToolRow[]
+    /** Rows of a sibling error rate chart. Both charts then reserve the same label gutter, so their bars line up. */
+    alignWithRows?: ToolRow[]
     loading: boolean
     theme: ChartTheme
     onToolClick?: (tool: string) => void
     title?: string
     emptyMessage?: string
 }): JSX.Element {
-    const sorted = useMemo(
-        () => [...rows].sort((a, b) => b.error_rate_pct - a.error_rate_pct).slice(0, MAX_TOOLS),
-        [rows]
-    )
+    const sorted = useMemo(() => topByErrorRate(rows), [rows])
+    const labelGutter = useMemo(() => labelGutterPx([rows, alignWithRows ?? []]), [rows, alignWithRows])
     const labels = useMemo(() => sorted.map((r) => r.tool), [sorted])
     const series = useMemo<Series[]>(
         () => [
@@ -73,12 +86,12 @@ export function ToolErrorRateChart({
             showGrid: true,
             yTickFormatter: (value: number) => formatPercentage(value, { compact: true }),
             tooltip: { placement: 'cursor' },
-            margins: CHART_MARGINS,
-            maxCategoryLabelWidth: LABEL_WIDTH_PX,
+            margins: { ...CHART_MARGINS, left: labelGutter },
+            maxCategoryLabelWidth: MAX_LABEL_WIDTH_PX,
             barCornerRadius: 4,
             bars: { minBandSize: 30, valueDomain: { min: 0, max: axisMax } },
         }
-    }, [sorted])
+    }, [sorted, labelGutter])
     const byTool = useMemo(() => new Map(sorted.map((r) => [r.tool, r])), [sorted])
     const renderTooltip = useCallback(
         (ctx: TooltipContext): JSX.Element | null => {

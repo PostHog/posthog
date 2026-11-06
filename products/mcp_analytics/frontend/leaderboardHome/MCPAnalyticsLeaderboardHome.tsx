@@ -253,6 +253,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 <TwoColumns>
                     <ToolErrorRateChart
                         rows={toolRows}
+                        alignWithRows={harnessErrorRows}
                         loading={toolRowsLoading}
                         theme={theme}
                         onToolClick={openToolReport}
@@ -268,6 +269,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 <TwoColumns>
                     <ToolErrorRateChart
                         rows={harnessErrorRows}
+                        alignWithRows={toolRows}
                         loading={harnessRowsLoading}
                         theme={theme}
                         title="Error rate by harness"
