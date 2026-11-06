@@ -10,10 +10,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { goalDot } from '../../../utils/goal/status'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutRosterRow, scoutSubtitle } from '../../../utils/scoutGroups'
 import { runStripEmptyLabel, scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
 import { ScoutSpendLabel } from '../../spend/ScoutSpendLabel'
+import { GoalScoutLine } from './goal/GoalScoutLine'
 import { ScoutDeprecationBadge, ScoutExemptionBadge, ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
@@ -44,25 +46,32 @@ function MetaSeparator(): JSX.Element {
  */
 export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
     const { config, group } = row
-    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunsCoverFleet } = useValues(scoutFleetLogic)
+    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunsCoverFleet, goalsById } =
+        useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
     const rollup = rollups.get(config.skill_name)
     const runs = rollup?.runs ?? []
-    const subtitle = scoutSubtitle(config, rollup, now)
+    const goal = goalsById[config.id]
+    const dot = goal ? goalDot(goal) : null
+    const subtitle = goal ? null : scoutSubtitle(config, rollup, now)
     // Only enabled scouts have a next run; a paused one would otherwise carry an empty dash.
     const hasNextRun = nextRunAt(config, currentTeam?.timezone ?? 'UTC', now) !== null
 
     return (
-        <div className={cn(inboxCardRowClassName(false), !config.enabled && 'opacity-65')}>
+        <div className={cn(inboxCardRowClassName(false), !config.enabled && !goal && 'opacity-65')}>
             <Link
                 to={urls.inboxScout(config.skill_name)}
                 className="flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline"
                 data-attr="inbox-scout-card"
             >
                 <span className="flex h-5 shrink-0 items-center">
-                    <ScoutStatusDot group={group} />
+                    {dot ? (
+                        <ScoutStatusDot group={dot.group} tooltip={dot.tooltip} className={dot.className} />
+                    ) : (
+                        <ScoutStatusDot group={group} />
+                    )}
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -80,21 +89,25 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                             {subtitle.text}
                         </p>
                     )}
-                    <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-none text-tertiary select-none">
-                        <span>{SCOUT_GROUP_LABEL[group]}</span>
-                        <MetaSeparator />
-                        <span>
-                            <ScoutCadenceLabel config={config} />
-                        </span>
-                        {hasNextRun && (
-                            <>
-                                <MetaSeparator />
-                                <span className="tabular-nums">
-                                    Next run <ScoutNextRunLabel config={config} />
-                                </span>
-                            </>
-                        )}
-                    </div>
+                    {goal ? (
+                        <GoalScoutLine goal={goal} />
+                    ) : (
+                        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-none text-tertiary select-none">
+                            <span>{SCOUT_GROUP_LABEL[group]}</span>
+                            <MetaSeparator />
+                            <span>
+                                <ScoutCadenceLabel config={config} />
+                            </span>
+                            {hasNextRun && (
+                                <>
+                                    <MetaSeparator />
+                                    <span className="tabular-nums">
+                                        Next run <ScoutNextRunLabel config={config} />
+                                    </span>
+                                </>
+                            )}
+                        </div>
+                    )}
                     <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
                         <ScoutSpendLabel skillName={config.skill_name} average />
                     </FlaggedFeature>
@@ -117,11 +130,13 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                         </span>
                     )}
                 </div>
-                <ScoutEnabledSwitch
-                    config={config}
-                    onUpdate={updateScoutConfig}
-                    updating={updatingScoutIds.includes(config.id)}
-                />
+                {!goal && (
+                    <ScoutEnabledSwitch
+                        config={config}
+                        onUpdate={updateScoutConfig}
+                        updating={updatingScoutIds.includes(config.id)}
+                    />
+                )}
             </div>
         </div>
     )

@@ -417,6 +417,8 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIsNotNone(facade.get_task_run(run.id, team_id=self.team.id))
         self.assertIsNone(facade.get_task_run(run.id, team_id=other_team.id))
         self.assertIsNone(facade.get_task_run("00000000-0000-0000-0000-000000000000"))
+        self.assertEqual(list(facade.get_task_runs([run.id], team_id=self.team.id)), [str(run.id)])
+        self.assertEqual(facade.get_task_runs([run.id], team_id=other_team.id), {})
 
     def test_resume_in_cloud_rejects_run_from_previous_owner(self):
         task = self._make_task(state={TASK_OWNERSHIP_VERSION_STATE_KEY: "current-version"})

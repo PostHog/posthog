@@ -39,8 +39,6 @@ from products.signals.backend.auto_start import (
     ReportSteering,
     ReviewerContent,
     SupersedeDecision,
-    _build_autostart_task_description,
-    _create_implementation_task_if_absent,
     _generate_self_driving_head_branch,
     _has_unimplemented_work,
     _latest_reviewers_content,
@@ -49,6 +47,8 @@ from products.signals.backend.auto_start import (
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
     _resolve_triggering_user,
+    build_implementation_task_description,
+    create_implementation_task_if_absent,
     load_report_steering,
     maybe_autostart_from_report_artefacts,
     maybe_autostart_implementation_task,
@@ -586,7 +586,7 @@ def test_create_implementation_task_rejects_a_changed_reviewer_list(organization
 
     with patch.object(tasks_facade, "create_and_run_task") as create_task:
         with pytest.raises(ReportChangedDuringAutostart, match="Reviewers changed"):
-            _create_implementation_task_if_absent(
+            create_implementation_task_if_absent(
                 team_id=team.id,
                 report_id=str(report.id),
                 title="t",
@@ -714,20 +714,20 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create:
         assignment_model = apps.get_model("signals", "SignalReportAssignment")
         assignment_model.all_teams.create(team=team, report=report, actor_kind="user", actor_user=user)
-        assert _create_implementation_task_if_absent(**kwargs) is False
+        assert create_implementation_task_if_absent(**kwargs) is False
         mock_create.assert_not_called()
         assignment_model.all_teams.filter(report=report).update(actor_kind=None, actor_user=None)
         if concurrent_change is not None:
             SignalReport.objects.filter(id=report.id).update(**concurrent_change)
             with pytest.raises(ReportChangedDuringAutostart):
-                _create_implementation_task_if_absent(**kwargs)
+                create_implementation_task_if_absent(**kwargs)
             mock_create.assert_not_called()
             report.refresh_from_db()
             assert report.implemented_at_run_count is None
             assert report.implemented_at_revision_count is None
             kwargs["expected_content"] = ImplementationReportContent.from_report(report)
-        first = _create_implementation_task_if_absent(**kwargs)
-        second = _create_implementation_task_if_absent(**kwargs)
+        first = create_implementation_task_if_absent(**kwargs)
+        second = create_implementation_task_if_absent(**kwargs)
 
     assert first is True
     assert second is False
@@ -812,7 +812,7 @@ def test_create_implementation_task_freezes_billing_exemption(
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task),
         patch("products.signals.backend.auto_start.fetch_source_products_for_reports", return_value={}),
     ):
-        created = _create_implementation_task_if_absent(
+        created = create_implementation_task_if_absent(
             team_id=team.id,
             report_id=str(report.id),
             title="t",
@@ -864,7 +864,7 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=pinned),
     ):
-        _create_implementation_task_if_absent(**kwargs)
+        create_implementation_task_if_absent(**kwargs)
 
     call_kwargs = mock_create.call_args.kwargs
     assert call_kwargs["runtime_adapter"] == "codex"
@@ -1052,7 +1052,7 @@ async def test_already_addressed_report_does_not_autostart(already_addressed):
     ],
 )
 def test_autostart_description_lists_source_issues_only_when_references_exist(source_references, expect_references):
-    description = _build_autostart_task_description(
+    description = build_implementation_task_description(
         report_id="0198c0de-0000-7000-8000-000000000001",
         team_id=1,
         summary="Fix the auth panel.",
@@ -1074,7 +1074,7 @@ def test_autostart_description_lists_source_issues_only_when_references_exist(so
 
 
 def test_autostart_description_opens_the_pr_before_the_simplify_pass():
-    description = _build_autostart_task_description(
+    description = build_implementation_task_description(
         report_id="0198c0de-0000-7000-8000-000000000001",
         team_id=1,
         summary="Fix the auth panel.",
@@ -1113,7 +1113,7 @@ def test_autostart_description_opens_the_pr_before_the_simplify_pass():
     ],
 )
 def test_autostart_description_appends_fix_loop_instructions_only_for_metric_reports(summary, expect_fix_loop):
-    description = _build_autostart_task_description(
+    description = build_implementation_task_description(
         report_id="0198c0de-0000-7000-8000-000000000001",
         team_id=1,
         summary=summary,
@@ -1137,7 +1137,7 @@ def test_autostart_description_appends_fix_loop_instructions_only_for_metric_rep
 
 def test_autostart_description_carries_steering_only_when_it_rendered():
     # The description is the only channel that tells the run the notes and the scratchpad exist.
-    steered = _build_autostart_task_description(
+    steered = build_implementation_task_description(
         report_id="0198c0de-0000-7000-8000-000000000001",
         team_id=1,
         summary="Fix the auth panel.",
@@ -1152,7 +1152,7 @@ def test_autostart_description_carries_steering_only_when_it_rendered():
     )
     assert "Skim `scout-notes-list` first." in steered
 
-    plain = _build_autostart_task_description(
+    plain = build_implementation_task_description(
         report_id="0198c0de-0000-7000-8000-000000000001",
         team_id=1,
         summary="Fix the auth panel.",
@@ -1872,8 +1872,8 @@ def test_supersede_without_permission_leaves_the_gate_closed(organization, team)
         "base_branch": None,
     }
     with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task):
-        assert _create_implementation_task_if_absent(**kwargs) is True
-        assert _create_implementation_task_if_absent(**kwargs, supersede=NO_SUPERSEDE) is False
+        assert create_implementation_task_if_absent(**kwargs) is True
+        assert create_implementation_task_if_absent(**kwargs, supersede=NO_SUPERSEDE) is False
 
 
 @pytest.mark.parametrize("allowed", [True, False])
@@ -1883,7 +1883,7 @@ def test_autostart_description_names_the_pr_it_replaces(allowed):
         if allowed
         else NO_SUPERSEDE
     )
-    description = _build_autostart_task_description(
+    description = build_implementation_task_description(
         report_id="report-1",
         team_id=1,
         summary="s",

@@ -77,7 +77,11 @@ from products.signals.backend.report_monitoring_provenance import monitoring_rep
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.reviewer_rules import ReviewerRules, contains_reviewer
-from products.signals.backend.scout_authorship import report_is_from_background_scout, resolve_touching_scout_skills
+from products.signals.backend.scout_authorship import (
+    report_is_from_background_scout,
+    report_is_from_goal_scout,
+    resolve_touching_scout_skills,
+)
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.signal_metadata import (
     SignalSourceReference,
@@ -375,7 +379,18 @@ def _superseded_pr_instruction(supersede: SupersedeDecision) -> str:
     )
 
 
-def _build_autostart_task_description(
+FIX_SYMPTOM_INSTRUCTIONS = (
+    "Address the symptom described above — not merely an adjacent issue you notice nearby. "
+    "Investigate the root cause, implement the fix, and open a PR if appropriate. "
+    "If your change fixes something related but does not change what the user actually observed, "
+    "say so explicitly and stop rather than opening a PR for the wrong problem. "
+    "For visual or UX symptoms (loading states, layout, flashes), reproduce the state or review a "
+    "session recording of the affected flow to confirm your fix changes it — unit tests alone do not "
+    "verify a visual symptom.\n\n"
+)
+
+
+def build_implementation_task_description(
     *,
     report_id: str,
     team_id: int,
@@ -385,6 +400,7 @@ def _build_autostart_task_description(
     source_references: list[SignalSourceReference] | None = None,
     steering: ReportSteering = NO_STEERING,
     supersede: SupersedeDecision = NO_SUPERSEDE,
+    work_instructions: str | None = None,
 ) -> str:
     priority_line = f"Priority: {priority.priority.value}\nReason: {priority.explanation}\n\n" if priority else ""
     report_link = build_report_url(team_id, report_id, ReportLinkSource.TASK)
@@ -409,13 +425,7 @@ def _build_autostart_task_description(
         f"{source_issues_line}"
         f"{steering_section}"
         f"{_fix_loop_instructions(summary)}"
-        "Address the symptom described above — not merely an adjacent issue you notice nearby. "
-        "Investigate the root cause, implement the fix, and open a PR if appropriate. "
-        "If your change fixes something related but does not change what the user actually observed, "
-        "say so explicitly and stop rather than opening a PR for the wrong problem. "
-        "For visual or UX symptoms (loading states, layout, flashes), reproduce the state or review a "
-        "session recording of the affected flow to confirm your fix changes it — unit tests alone do not "
-        "verify a visual symptom.\n\n"
+        f"{work_instructions if work_instructions is not None else FIX_SYMPTOM_INSTRUCTIONS}"
         "Before you edit, read the repository's own guidance: CONTRIBUTING.md and the AGENTS.md, CLAUDE.md or "
         "Cursor rules the harness points you to. Conventions such as disabled build tools, required commands and "
         "directories not to touch live there. If the report or the history of the lines you would change shows "
@@ -769,7 +779,7 @@ def _resolve_supersede(
     )
 
 
-def _create_implementation_task_if_absent(
+def create_implementation_task_if_absent(
     *,
     team_id: int,
     report_id: str,
@@ -1094,11 +1104,11 @@ def start_requested_implementation(
             request.team_id, request.report_id, memory_writable=grants_scratchpad_write(IMPLEMENTATION_MCP_SCOPES)
         )
         team_config = SignalTeamConfig.objects.filter(team_id=request.team_id).first()
-        created = _create_implementation_task_if_absent(
+        created = create_implementation_task_if_absent(
             team_id=request.team_id,
             report_id=request.report_id,
             title=report.title,
-            description=_build_autostart_task_description(
+            description=build_implementation_task_description(
                 report_id=request.report_id,
                 team_id=request.team_id,
                 summary=report.summary,
@@ -1381,7 +1391,7 @@ async def maybe_autostart_implementation_task(
     (a `SignalReportTask` implementation gate row), if the report is not immediately
     actionable, if it's already addressed, or if priority is missing. The "already
     started" check is enforced atomically under a row lock in
-    `_create_implementation_task_if_absent`, so concurrent evaluations
+    `create_implementation_task_if_absent`, so concurrent evaluations
     (reviewer-edit hook, pipeline, custom agent) can't double-start.
 
     A typed `report_link` to another report can also hold it back — a duplicate, an unmet
@@ -1412,6 +1422,8 @@ async def maybe_autostart_implementation_task(
     """
     if not await database_sync_to_async(assignment_side_effects_allowed)(team_id=team_id, report_id=report_id):
         return AutostartOutcome(status="cancelled", reason="Assignment side effects are disabled")
+    if await database_sync_to_async(report_is_from_goal_scout)(team_id, report_id):
+        return AutostartOutcome(status="blocked", reason="Goal scout ideas are built from the goal page")
 
     # Cheap pre-check to skip the expensive assignee resolution when a task already exists;
     # the authoritative, race-free check happens under the lock below.
@@ -1634,14 +1646,14 @@ async def maybe_autostart_implementation_task(
     )
 
     try:
-        created = await database_sync_to_async(_create_implementation_task_if_absent, thread_sensitive=False)(
+        created = await database_sync_to_async(create_implementation_task_if_absent, thread_sensitive=False)(
             team_id=team_id,
             report_id=report_id,
             implementation_spend_kind=implementation_spend_kind,
             title=title,
             expected_content=expected_content,
             expected_reviewers=assignment.state,
-            description=_build_autostart_task_description(
+            description=build_implementation_task_description(
                 report_id=report_id,
                 team_id=team_id,
                 summary=summary,
@@ -1789,6 +1801,8 @@ async def maybe_autostart_from_report_artefacts(
             reason="report from background scout",
         )
         return AutostartOutcome(status="blocked", reason="Reports from background scouts do not auto-start")
+    if await database_sync_to_async(report_is_from_goal_scout)(team_id, report_id):
+        return AutostartOutcome(status="blocked", reason="Goal scout ideas are built from the goal page")
     if dispatch is None:
         from products.signals.backend.implementation_dispatch import (
             ImplementationDispatcher,  # noqa: PLC0415 - breaks the dispatcher/autostart cycle

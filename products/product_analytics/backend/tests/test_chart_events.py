@@ -11,8 +11,12 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.workload import Workload
+
 from products.actions.backend.facade.testing import create_action
 from products.product_analytics.backend.chart_events import ChartEvents, chart_events
+from products.product_analytics.backend.facade.measurement import insight_delivery_evidence
+from products.product_analytics.backend.models.insight import Insight
 
 SERIES = {"kind": "EventsNode", "event": "signed up"}
 STEPS = [SERIES, {"kind": "EventsNode", "event": "paid"}]
@@ -144,3 +148,35 @@ class TestChartEventsCounts(ClickhouseTestMixin, BaseTest):
         events = self._chart_events({"kind": "FunnelsQuery", "series": [series, SERIES]})
 
         assert self._count(events, events.sort_key_where) == expected
+
+    @parameterized.expand(
+        [
+            ("whole_range", None, 3, NOW - timedelta(days=7)),
+            ("since_a_merge", NOW - timedelta(days=3), 2, NOW - timedelta(days=3)),
+        ]
+    )
+    def test_delivery_evidence_counts_the_insight_events(
+        self, _name: str, since: datetime | None, count: int, first: datetime
+    ) -> None:
+        Insight.objects.create(
+            team=self.team,
+            short_id="delivery",
+            saved=True,
+            query={
+                "kind": "InsightVizNode",
+                "source": {"kind": "TrendsQuery", "series": [SERIES, PAID_PRO], "dateRange": LAST_WEEK},
+            },
+        )
+
+        evidence = insight_delivery_evidence(
+            team=self.team, user=self.user, short_id="delivery", workload=Workload.OFFLINE, since=since
+        )
+
+        assert evidence is not None
+        assert (evidence.events, evidence.participants, evidence.first_event_at, evidence.last_event_at) == (
+            count,
+            1,
+            first,
+            NOW - timedelta(days=2),
+        )
+        assert sorted(evidence.event_names) == ["paid", "signed up"]

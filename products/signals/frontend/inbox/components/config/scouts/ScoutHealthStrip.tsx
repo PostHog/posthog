@@ -10,6 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
+import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutGroupKey, scoutGroup } from '../../../utils/scoutGroups'
 import {
     filedOrAddedLabel,
@@ -63,6 +64,7 @@ export function ScoutHealthStrip({
 }): JSX.Element {
     const { scoutRunsLoadedOnce, scoutRunsCoverScout } = useValues(scoutDetailLogic({ skillName: config.skill_name }))
     const { currentTeam } = useValues(teamLogic)
+    const { goalsById } = useValues(scoutFleetLogic)
     const now = new Date()
 
     const runs = rollup?.runs ?? []
@@ -72,33 +74,36 @@ export function ScoutHealthStrip({
     // Only an enabled scout has a next run; a paused one would otherwise carry an empty dash.
     const hasNextRun = nextRunAt(config, currentTeam?.timezone ?? 'UTC', now) !== null
     const group = scoutRunsLoadedOnce ? scoutGroup(config, rollup, now) : null
+    const isGoal = config.id in goalsById
 
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-secondary">
-            <Segment tooltip="Where this scout stands, and when it next runs.">
-                {/* The dot's group is read off the run window, so an unloaded rollup would show a
-                    scout that files plenty as "nothing worth filing", and it would keep saying so
-                    for as long as the runs request fails. The tag beside it is config-only, so it
-                    stays right either way. */}
-                {group && (
-                    <>
-                        <ScoutStatusDot group={group} />
-                        {/* Named in text, not colour alone: a reader would otherwise have to hover
-                            an 8px dot to tell a producing scout from a quiet or a brand-new one.
-                            The roster pairs the dot with this same label. */}
-                        {TAG_SILENT_GROUPS.includes(group) && (
-                            <span className="whitespace-nowrap">{SCOUT_GROUP_LABEL[group]}</span>
-                        )}
-                    </>
-                )}
-                <ScoutStatusTag config={config} />
-                <ScoutCadenceLabel config={config} />
-                {hasNextRun && (
-                    <span className="tabular-nums">
-                        · next run <ScoutNextRunLabel config={config} />
-                    </span>
-                )}
-            </Segment>
+            {!isGoal && (
+                <Segment tooltip="Where this scout stands, and when it next runs.">
+                    {/* The dot's group is read off the run window, so an unloaded rollup would show a
+                        scout that files plenty as "nothing worth filing", and it would keep saying so
+                        for as long as the runs request fails. The tag beside it is config-only, so it
+                        stays right either way. */}
+                    {group && (
+                        <>
+                            <ScoutStatusDot group={group} />
+                            {/* Named in text, not colour alone: a reader would otherwise have to hover
+                                an 8px dot to tell a producing scout from a quiet or a brand-new one.
+                                The roster pairs the dot with this same label. */}
+                            {TAG_SILENT_GROUPS.includes(group) && (
+                                <span className="whitespace-nowrap">{SCOUT_GROUP_LABEL[group]}</span>
+                            )}
+                        </>
+                    )}
+                    <ScoutStatusTag config={config} />
+                    <ScoutCadenceLabel config={config} />
+                    {hasNextRun && (
+                        <span className="tabular-nums">
+                            · next run <ScoutNextRunLabel config={config} />
+                        </span>
+                    )}
+                </Segment>
+            )}
 
             <Segment tooltip={`Runs this scout made in the ${SCOUT_RUNS_PER_SCOUT_LABEL}, quiet ones included.`}>
                 {runs.length > 0 ? (

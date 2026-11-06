@@ -26,6 +26,20 @@ import type {
     FleetFindingsSummaryApi,
     ForgetRequestApi,
     ForgetResponseApi,
+    GoalScoutActApi,
+    GoalScoutActivityApi,
+    GoalScoutBuildApi,
+    GoalScoutDetailApi,
+    GoalScoutEntryApi,
+    GoalScoutGuardrailOptionApi,
+    GoalScoutGuardrailRequestApi,
+    GoalScoutIdeaApi,
+    GoalScoutLabelsApi,
+    GoalScoutLabelsRequestApi,
+    GoalScoutMeasureRequestApi,
+    GoalScoutMeasureSearchApi,
+    GoalScoutMetricApi,
+    GoalScoutWriteApi,
     InboxOnboardingDraftApi,
     InboxOnboardingStateApi,
     InboxSummaryApi,
@@ -37,6 +51,7 @@ import type {
     PaginatedSignalReportCheckListApi,
     PaginatedSignalReportListListApi,
     PaginatedSignalSourceConfigListApi,
+    PatchedGoalScoutWriteApi,
     PatchedPullRequestReviewCommentUpdateApi,
     PatchedReviewerExclusionUpdateApi,
     PatchedSignalReportArtefactLogUpdateApi,
@@ -174,6 +189,7 @@ import type {
     SignalsScoutConfigTrialHistoryParams,
     SignalsScoutConfigTrialResultParams,
     SignalsScoutConfigTrialSetupParams,
+    SignalsScoutGoalsMetricPreviewRetrieveParams,
     SignalsScoutMembersListParams,
     SignalsScoutNotesListParams,
     SignalsScoutProjectProfileGetParams,
@@ -2456,6 +2472,232 @@ export const signalsScoutConfigToolCatalogue = async (
     options?: RequestInit
 ): Promise<ScoutToolCatalogueApi> => {
     return apiMutator<ScoutToolCatalogueApi>(getSignalsScoutConfigToolCatalogueUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutGoalsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/goals/`
+}
+
+export const signalsScoutGoalsList = async (projectId: string, options?: RequestInit): Promise<GoalScoutEntryApi[]> => {
+    return apiMutator<GoalScoutEntryApi[]>(getSignalsScoutGoalsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutGoalsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/goals/`
+}
+
+export const signalsScoutGoalsCreate = async (
+    projectId: string,
+    goalScoutWriteApi: GoalScoutWriteApi,
+    options?: RequestInit
+): Promise<GoalScoutDetailApi> => {
+    return apiMutator<GoalScoutDetailApi>(getSignalsScoutGoalsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(goalScoutWriteApi),
+    })
+}
+
+export const getSignalsScoutGoalsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/goals/${id}/`
+}
+
+export const signalsScoutGoalsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<GoalScoutDetailApi> => {
+    return apiMutator<GoalScoutDetailApi>(getSignalsScoutGoalsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutGoalsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/goals/${id}/`
+}
+
+export const signalsScoutGoalsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedGoalScoutWriteApi?: PatchedGoalScoutWriteApi,
+    options?: RequestInit
+): Promise<GoalScoutDetailApi> => {
+    return apiMutator<GoalScoutDetailApi>(getSignalsScoutGoalsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedGoalScoutWriteApi),
+    })
+}
+
+export const getSignalsScoutGoalsActCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/goals/${id}/act/`
+}
+
+export const signalsScoutGoalsActCreate = async (
+    projectId: string,
+    id: string,
+    goalScoutActApi: GoalScoutActApi,
+    options?: RequestInit
+): Promise<GoalScoutDetailApi> => {
+    return apiMutator<GoalScoutDetailApi>(getSignalsScoutGoalsActCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(goalScoutActApi),
+    })
+}
+
+export const getSignalsScoutGoalsActivityRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/goals/${id}/activity/`
+}
+
+export const signalsScoutGoalsActivityRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<GoalScoutActivityApi[]> => {
+    return apiMutator<GoalScoutActivityApi[]>(getSignalsScoutGoalsActivityRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutGoalsBuildCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/goals/${id}/build/`
+}
+
+export const signalsScoutGoalsBuildCreate = async (
+    projectId: string,
+    id: string,
+    goalScoutBuildApi: GoalScoutBuildApi,
+    options?: RequestInit
+): Promise<GoalScoutDetailApi> => {
+    return apiMutator<GoalScoutDetailApi>(getSignalsScoutGoalsBuildCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(goalScoutBuildApi),
+    })
+}
+
+export const getSignalsScoutGoalsCloseCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/goals/${id}/close/`
+}
+
+export const signalsScoutGoalsCloseCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<GoalScoutDetailApi> => {
+    return apiMutator<GoalScoutDetailApi>(getSignalsScoutGoalsCloseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSignalsScoutGoalsIdeasCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/goals/${id}/ideas/`
+}
+
+export const signalsScoutGoalsIdeasCreate = async (
+    projectId: string,
+    id: string,
+    goalScoutIdeaApi: GoalScoutIdeaApi,
+    options?: RequestInit
+): Promise<GoalScoutDetailApi> => {
+    return apiMutator<GoalScoutDetailApi>(getSignalsScoutGoalsIdeasCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(goalScoutIdeaApi),
+    })
+}
+
+export const getSignalsScoutGoalsGuardrailsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/goals/guardrails/`
+}
+
+export const signalsScoutGoalsGuardrailsCreate = async (
+    projectId: string,
+    goalScoutGuardrailRequestApi: GoalScoutGuardrailRequestApi,
+    options?: RequestInit
+): Promise<GoalScoutGuardrailOptionApi[]> => {
+    return apiMutator<GoalScoutGuardrailOptionApi[]>(getSignalsScoutGoalsGuardrailsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(goalScoutGuardrailRequestApi),
+    })
+}
+
+export const getSignalsScoutGoalsLabelsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/goals/labels/`
+}
+
+export const signalsScoutGoalsLabelsCreate = async (
+    projectId: string,
+    goalScoutLabelsRequestApi: GoalScoutLabelsRequestApi,
+    options?: RequestInit
+): Promise<GoalScoutLabelsApi> => {
+    return apiMutator<GoalScoutLabelsApi>(getSignalsScoutGoalsLabelsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(goalScoutLabelsRequestApi),
+    })
+}
+
+export const getSignalsScoutGoalsMeasuresCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/goals/measures/`
+}
+
+export const signalsScoutGoalsMeasuresCreate = async (
+    projectId: string,
+    goalScoutMeasureRequestApi: GoalScoutMeasureRequestApi,
+    options?: RequestInit
+): Promise<GoalScoutMeasureSearchApi> => {
+    return apiMutator<GoalScoutMeasureSearchApi>(getSignalsScoutGoalsMeasuresCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(goalScoutMeasureRequestApi),
+    })
+}
+
+export const getSignalsScoutGoalsMetricPreviewRetrieveUrl = (
+    projectId: string,
+    params: SignalsScoutGoalsMetricPreviewRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/goals/metric_preview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/goals/metric_preview/`
+}
+
+export const signalsScoutGoalsMetricPreviewRetrieve = async (
+    projectId: string,
+    params: SignalsScoutGoalsMetricPreviewRetrieveParams,
+    options?: RequestInit
+): Promise<GoalScoutMetricApi> => {
+    return apiMutator<GoalScoutMetricApi>(getSignalsScoutGoalsMetricPreviewRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

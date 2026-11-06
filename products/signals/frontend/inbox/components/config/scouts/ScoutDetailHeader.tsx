@@ -20,8 +20,10 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { isLive } from '../../../utils/goal/status'
 import { scoutPausedByLine } from '../../../utils/scoutGroups'
 import { scoutDisplayName, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import { GoalActions } from './goal/GoalActions'
 import { ScoutExemptionBadge } from './ScoutBadges'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutHealthStrip } from './ScoutHealthStrip'
@@ -154,7 +156,7 @@ export function ScoutDetailHeader({
     noteCount: number
     learnedCount: number
 }): JSX.Element {
-    const { updatingScoutIds, manualRunScoutIds, publishingScoutIds, runNotePopoverConfigId } =
+    const { updatingScoutIds, manualRunScoutIds, publishingScoutIds, runNotePopoverConfigId, goalsById } =
         useValues(scoutFleetLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
@@ -162,6 +164,7 @@ export function ScoutDetailHeader({
     const { updateScoutConfig, runScoutNow, publishScoutToCommunity, setRunNotePopoverConfigId } =
         useActions(scoutFleetLogic)
 
+    const goal = goalsById[config.id]
     const updating = updatingScoutIds.includes(config.id)
     const running = manualRunScoutIds.includes(config.id)
     const publishing = publishingScoutIds.includes(config.id)
@@ -199,98 +202,112 @@ export function ScoutDetailHeader({
                     <span className="min-w-0 truncate">{scoutDisplayName(config)}</span>
                 </h2>
                 <LemonTag size="small" type={config.scout_origin === 'canonical' ? 'muted' : 'highlight'}>
-                    {config.scout_origin === 'canonical' ? 'Canonical' : 'Custom'}
+                    {goal ? 'Goal' : config.scout_origin === 'canonical' ? 'Canonical' : 'Custom'}
                 </LemonTag>
                 {/* The page has no roster group, and the role is not a windowed judgment anyway. */}
                 <ScoutExemptionBadge config={config} group="watching" />
                 <ScoutOwners config={config} />
                 <span className="flex-1" />
-                <LeaveScoutNoteButton skillName={config.skill_name} />
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconRefresh />}
-                    loading={running}
-                    disabledReason={running ? 'Starting a run' : undefined}
-                    tooltip="Dispatch a run now, outside the schedule. Counts against the project's daily run budget."
-                    onClick={() => runScoutNow(config.id)}
-                    sideAction={{
-                        tooltip: 'Run with a note',
-                        'aria-label': 'Run with a note',
-                        'data-attr': 'scout-run-now-with-note',
-                        // A run note reaches the agent verbatim, so the backend asks for the same
-                        // skill editor access as a scout note.
-                        disabledReason:
-                            getAccessControlDisabledReason(
-                                AccessControlResourceType.LlmSkill,
-                                AccessControlLevel.Editor
-                            ) ?? undefined,
-                        dropdown: {
-                            placement: 'bottom-end',
-                            closeOnClickInside: false,
-                            visible: runNotePopoverConfigId === config.id,
-                            onVisibilityChange: (visible) => setRunNotePopoverConfigId(visible ? config.id : null),
-                            overlay: <ScoutRunNoteForm configId={config.id} />,
-                        },
-                    }}
-                >
-                    Run now
-                </LemonButton>
-                <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
-                <ScoutRubricsButton config={config} />
-                {communitySkillsEnabled && config.scout_origin !== 'canonical' && (
-                    <Tooltip title="Share this scout in the community store, so other projects can set it up with the same instructions and schedule.">
+                {goal ? (
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        <LeaveScoutNoteButton skillName={config.skill_name} />
+                        <GoalActions goalId={goal.id} />
+                        {(isLive(goal) || goal.status === 'paused') && (
+                            <ScoutEnabledSwitch config={config} onUpdate={updateScoutConfig} updating={updating} />
+                        )}
+                    </div>
+                ) : (
+                    <>
+                        <LeaveScoutNoteButton skillName={config.skill_name} />
                         <LemonButton
                             type="secondary"
                             size="small"
-                            icon={<IconUpload />}
-                            loading={publishing}
-                            disabledReason={publishDisabledReason}
-                            onClick={() =>
-                                openPublishToCommunityDialog({
+                            icon={<IconRefresh />}
+                            loading={running}
+                            disabledReason={running ? 'Starting a run' : undefined}
+                            tooltip="Dispatch a run now, outside the schedule. Counts against the project's daily run budget."
+                            onClick={() => runScoutNow(config.id)}
+                            sideAction={{
+                                tooltip: 'Run with a note',
+                                'aria-label': 'Run with a note',
+                                'data-attr': 'scout-run-now-with-note',
+                                // A run note reaches the agent verbatim, so the backend asks for the same
+                                // skill editor access as a scout note.
+                                disabledReason:
+                                    getAccessControlDisabledReason(
+                                        AccessControlResourceType.LlmSkill,
+                                        AccessControlLevel.Editor
+                                    ) ?? undefined,
+                                dropdown: {
+                                    placement: 'bottom-end',
+                                    closeOnClickInside: false,
+                                    visible: runNotePopoverConfigId === config.id,
+                                    onVisibilityChange: (visible) =>
+                                        setRunNotePopoverConfigId(visible ? config.id : null),
+                                    overlay: <ScoutRunNoteForm configId={config.id} />,
+                                },
+                            }}
+                        >
+                            Run now
+                        </LemonButton>
+                        <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
+                        <ScoutRubricsButton config={config} />
+                        {communitySkillsEnabled && config.scout_origin !== 'canonical' && (
+                            <Tooltip title="Share this scout in the community store, so other projects can set it up with the same instructions and schedule.">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconUpload />}
+                                    loading={publishing}
+                                    disabledReason={publishDisabledReason}
+                                    onClick={() =>
+                                        openPublishToCommunityDialog({
+                                            skillName: config.skill_name,
+                                            // The scout page doesn't load the skills logic that resolves a
+                                            // linked GitHub identity, so the handle field starts empty here.
+                                            githubLogin: null,
+                                            isScout: true,
+                                            teamId: canonicalProjectId,
+                                            onPublish: (_skillName, options) =>
+                                                publishScoutToCommunity(config.id, options),
+                                        })
+                                    }
+                                >
+                                    Publish
+                                </LemonButton>
+                            </Tooltip>
+                        )}
+                        {/* Captured on the way down: Link swallows Cmd/Ctrl-clicks before its onClick runs, and
+                        those opens count too. */}
+                        <span
+                            className="contents"
+                            onClickCapture={() =>
+                                captureScoutAction({
+                                    actionType: 'open_skill_in_posthog',
+                                    surface: 'scout_detail',
                                     skillName: config.skill_name,
-                                    // The scout page doesn't load the skills logic that resolves a
-                                    // linked GitHub identity, so the handle field starts empty here.
-                                    githubLogin: null,
-                                    isScout: true,
-                                    teamId: canonicalProjectId,
-                                    onPublish: (_skillName, options) => publishScoutToCommunity(config.id, options),
                                 })
                             }
                         >
-                            Publish
-                        </LemonButton>
-                    </Tooltip>
+                            <Tooltip title="A scout is defined by its skill: editable instructions for what it watches and reports.">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconExternal />}
+                                    to={urls.skill(config.skill_name)}
+                                >
+                                    View skill
+                                </LemonButton>
+                            </Tooltip>
+                        </span>
+                        <ScoutEnabledSwitch config={config} onUpdate={updateScoutConfig} updating={updating} />
+                    </>
                 )}
-                {/* Captured on the way down: Link swallows Cmd/Ctrl-clicks before its onClick runs, and
-                    those opens count too. */}
-                <span
-                    className="contents"
-                    onClickCapture={() =>
-                        captureScoutAction({
-                            actionType: 'open_skill_in_posthog',
-                            surface: 'scout_detail',
-                            skillName: config.skill_name,
-                        })
-                    }
-                >
-                    <Tooltip title="A scout is defined by its skill: editable instructions for what it watches and reports.">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconExternal />}
-                            to={urls.skill(config.skill_name)}
-                        >
-                            View skill
-                        </LemonButton>
-                    </Tooltip>
-                </span>
-                <ScoutEnabledSwitch config={config} onUpdate={updateScoutConfig} updating={updating} />
             </div>
 
-            {config.description && <ScoutDescription text={config.description} />}
+            {config.description && !goal && <ScoutDescription text={config.description} />}
 
-            <ScoutPausedBy config={config} />
+            {!goal && <ScoutPausedBy config={config} />}
 
             <ScoutHealthStrip config={config} rollup={rollup} noteCount={noteCount} learnedCount={learnedCount} />
         </div>
@@ -307,7 +324,10 @@ export function ScoutAttentionBanner({ config }: { config: SignalScoutConfig }):
     const { updateScoutConfig } = useActions(scoutFleetLogic)
     const updating = updatingScoutIds.includes(config.id)
 
-    if (config.status !== 'paused_by_system' && config.status !== 'pending_pause') {
+    if (
+        (config.status !== 'paused_by_system' && config.status !== 'pending_pause') ||
+        config.pause_reason === 'goal_ended'
+    ) {
         return null
     }
 

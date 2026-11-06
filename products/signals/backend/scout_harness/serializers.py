@@ -50,6 +50,7 @@ from products.signals.backend.models import (
     SignalReportMonitoringResult,
     SignalScoutConfig,
     SignalScoutEmission,
+    SignalScoutGoal,
     scout_lists_reports_in_inbox,
 )
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutOrigin
@@ -4096,7 +4097,19 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
 
     def validate_repositories(self, value: list[str]) -> list[str]:
         current = self.instance.repositories if isinstance(self.instance, SignalScoutConfig) else None
-        return validate_scout_repositories(value, self.context, current=current)
+        validated = validate_scout_repositories(value, self.context, current=current)
+        if (
+            isinstance(self.instance, SignalScoutConfig)
+            and validated != list(current or [])
+            and SignalScoutGoal.objects.for_team(self.instance.team_id)
+            .filter(config=self.instance)
+            .exclude(status=SignalScoutGoal.Status.SETTING_UP)
+            .exists()
+        ):
+            raise serializers.ValidationError(
+                "This goal scout keeps its repositories once it runs. Close the goal and create a new one to change them."
+            )
+        return validated
 
     def validate_write_scopes(self, value: list[str]) -> list[str]:
         return _validate_write_scopes(value)

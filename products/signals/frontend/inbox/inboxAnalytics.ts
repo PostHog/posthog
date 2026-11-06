@@ -293,6 +293,7 @@ export type ScoutActionType =
     | 'open_memory'
     | 'filter_enabled'
     | 'filter_owner'
+    | 'filter_kind'
     | 'search_scouts'
     | 'expand_run_group'
     | 'sort_roster'
@@ -1309,7 +1310,7 @@ export function captureScoutChatStarted(params: {
 }
 
 /** How a person creates a scout: in a chat with an agent, or in the form. */
-export type ScoutCreatePath = 'chat' | 'form'
+export type ScoutCreatePath = 'chat' | 'form' | 'goal'
 
 /** A person picked a way to create a scout from the "New scout" entry. */
 export function captureScoutCreatePathChosen(params: { path: ScoutCreatePath; surface: ScoutSurface }): void {

@@ -1,4 +1,4 @@
-import { IconChat, IconDocument, IconPlus } from '@posthog/icons'
+import { IconChat, IconDocument, IconPlus, IconTarget } from '@posthog/icons'
 import { Badge, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
 export interface QuillScoutNewMenuProps {
@@ -6,6 +6,7 @@ export interface QuillScoutNewMenuProps {
     chatDisabledReason: string | null | undefined
     onChat: () => void
     onForm: () => void
+    onGoal?: () => void
 }
 
 export function QuillScoutNewMenu({
@@ -13,6 +14,7 @@ export function QuillScoutNewMenu({
     chatDisabledReason,
     onChat,
     onForm,
+    onGoal,
 }: QuillScoutNewMenuProps): JSX.Element {
     return (
         <DropdownMenu>
@@ -41,6 +43,16 @@ export function QuillScoutNewMenu({
                     <IconDocument />
                     Fill in the form
                 </DropdownMenuItem>
+                {onGoal && (
+                    <DropdownMenuItem
+                        onClick={onGoal}
+                        data-attr="scout-new-goal"
+                        description="Say what you believe and the number that proves it. The scout finds ideas and tests the ones you choose."
+                    >
+                        <IconTarget />
+                        Move a metric
+                    </DropdownMenuItem>
+                )}
             </DropdownMenuContent>
         </DropdownMenu>
     )

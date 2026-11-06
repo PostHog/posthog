@@ -14,19 +14,28 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Q
 
 import pydantic
 import structlog
+from asgiref.sync import async_to_sync
+from rest_framework.exceptions import APIException
 
-from posthog.schema import ExperimentEventExposureConfig
+from posthog.schema import ExperimentEventExposureConfig, MaxExperimentMetricResult, MaxExperimentVariantResultBayesian
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
+from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
 from products.experiments.backend.flag_enrollment import enrolled_people_by_flag
+from products.experiments.backend.health.exposure_inputs import load_exposure_inputs
 from products.experiments.backend.health.inputs_payload import health_inputs_payload
 from products.experiments.backend.health.loader import load_experiment_health_context, load_experiment_health_inputs
 from products.experiments.backend.health.registry import (
@@ -54,6 +63,7 @@ from products.experiments.backend.models.team_experiments_config import (
     TeamExperimentsConfig,
     validate_recalculation_times as _validate_stored_recalculation_times,
 )
+from products.experiments.backend.running_time_calculator import calculate_running_time_days, calculate_sample_size
 from products.experiments.backend.running_time_target import load_running_time_target
 from products.experiments.stats.shared.enums import DifferenceType
 
@@ -63,16 +73,24 @@ from .contracts import (
     DigestLaunchedExperiment,
     EndedExperiment,
     Experiment,
+    ExperimentActionRefused,
+    ExperimentActivityEvent,
     ExperimentAssistantContext,
     ExperimentDetectableEffectCheckpoint,
     ExperimentFlagVariantSplit,
     ExperimentHealth,
+    ExperimentHealthFindingCode,
     ExperimentHealthReaderAccess,
+    ExperimentMetricEffects,
+    ExperimentResults,
+    ExperimentRunningTimeEstimate,
     ExperimentRunningTimeOutlook,
     ExperimentRunningTimeTarget,
     ExperimentValidationError,
+    ExperimentVariantEffect,
     LinkedExperiment,
     RunningExperiment,
+    RunningTimeMetricType,
     RunningTimeMode,
     StoredArmResult,
     StoredPrimaryResult,
@@ -592,3 +610,185 @@ def live_experiments_by_flag(feature_flag_ids: Collection[int]) -> dict[int, tup
             LinkedExperiment(id=experiment.id, name=experiment.name, is_running=experiment.is_running)
         )
     return {flag_id: tuple(linked) for flag_id, linked in experiments.items()}
+
+
+def experiment_for_read(*, team: Team, user: User, feature_flag_key: str) -> Experiment | None:
+    experiment = (
+        ExperimentModel.objects.filter(team=team, deleted=False, feature_flag__key=feature_flag_key)
+        .select_related("feature_flag")
+        .order_by("-created_at")
+        .first()
+    )
+    if experiment is None or not UserAccessControl(user=user, team=team).check_access_level_for_object(
+        experiment, "viewer"
+    ):
+        return None
+    return _experiment_model_to_dto(experiment)
+
+
+def _editable_experiment(team: Team, user: User, experiment_id: int) -> ExperimentModel:
+    experiment = ExperimentModel.objects.filter(team=team, id=experiment_id, deleted=False).first()
+    if experiment is None or not UserAccessControl(user=user, team=team).check_access_level_for_object(
+        experiment, "editor"
+    ):
+        raise ExperimentActionRefused("The experiment is gone, or this person cannot edit it.")
+    return experiment
+
+
+def ship(
+    *, team: Team, user: User, experiment_id: int, variant: str, conclusion: str, comment: str, repository: str
+) -> None:
+    experiment = _editable_experiment(team, user, experiment_id)
+    try:
+        ExperimentService(team, user).ship_variant(
+            experiment,
+            variant,
+            release_to_everyone=True,
+            conclusion=conclusion,
+            conclusion_comment=comment,
+            open_cleanup_pr=not experiment.end_date,
+            repository=repository,
+            request=None,
+        )
+    except (APIException, DjangoValidationError) as error:
+        raise ExperimentActionRefused(str(getattr(error, "detail", error))) from error
+
+
+def conclude(*, team: Team, user: User, experiment_id: int, conclusion: str, comment: str, repository: str) -> None:
+    experiment = _editable_experiment(team, user, experiment_id)
+    if experiment.end_date:
+        return
+    try:
+        ExperimentService(team, user).end_experiment(
+            experiment,
+            conclusion=conclusion,
+            conclusion_comment=comment,
+            open_cleanup_pr=True,
+            repository=repository,
+        )
+    except (APIException, DjangoValidationError) as error:
+        raise ExperimentActionRefused(str(getattr(error, "detail", error))) from error
+
+
+def cleanup_task_id(*, team: Team, experiment_id: int) -> UUID | None:
+    return (
+        ExperimentModel.objects.filter(team=team, id=experiment_id, deleted=False)
+        .values_list("flag_cleanup_task_id", flat=True)
+        .first()
+    )
+
+
+def activity_for_experiments(
+    *, team: Team, user: User, experiment_ids: Collection[int], limit: int
+) -> list[ExperimentActivityEvent]:
+    access = UserAccessControl(user=user, team=team)
+    if not experiment_ids or not access.check_access_level_for_resource("activity_log", "viewer"):
+        return []
+    query = Q(pk__in=[])
+    names: dict[tuple[str, str], str] = {}
+    for experiment in ExperimentModel.objects.filter(team=team, id__in=experiment_ids, deleted=False).select_related(
+        "feature_flag"
+    ):
+        if not access.check_access_level_for_object(experiment, "viewer"):
+            continue
+        names[("Experiment", str(experiment.id))] = experiment.name
+        query |= Q(scope="Experiment", item_id=str(experiment.id)) & (
+            Q(detail__type__isnull=True) | ~Q(detail__type__in=["holdout", "shared_metric"])
+        )
+        if access.check_access_level_for_object(experiment.feature_flag, "viewer"):
+            names[("FeatureFlag", str(experiment.feature_flag_id))] = experiment.feature_flag.key
+            query |= Q(scope="FeatureFlag", item_id=str(experiment.feature_flag_id))
+    if not names:
+        return []
+    rows = apply_activity_visibility_restrictions(ActivityLog.objects.filter(team_id=team.id).filter(query), user)
+    since = get_activity_log_lookback_restriction(team.organization)
+    if since:
+        rows = rows.filter(created_at__gte=since)
+    return [
+        ExperimentActivityEvent(
+            id=str(row.id),
+            at=row.created_at,
+            scope="Experiment" if row.scope == "Experiment" else "FeatureFlag",
+            item_id=str(row.item_id),
+            name=names.get((row.scope, str(row.item_id)), row.scope),
+            activity=row.activity,
+            changes=tuple((row.safe_detail or {}).get("changes") or ()),
+        )
+        for row in rows.order_by("-created_at")[:limit]
+    ]
+
+
+def _metric_effects(results: Sequence[MaxExperimentMetricResult]) -> tuple[ExperimentMetricEffects, ...]:
+    effects: list[ExperimentMetricEffects] = []
+    for metric in results:
+        variants: list[ExperimentVariantEffect] = []
+        for variant in metric.variant_results:
+            bounds = (
+                variant.credible_interval
+                if isinstance(variant, MaxExperimentVariantResultBayesian)
+                else variant.confidence_interval
+            ) or []
+            usable = len(bounds) == 2 and bounds[0] <= bounds[1]
+            variants.append(
+                ExperimentVariantEffect(
+                    key=variant.key,
+                    low=float(bounds[0]) if usable else None,
+                    high=float(bounds[1]) if usable else None,
+                    significant=bool(variant.significant),
+                )
+            )
+        effects.append(ExperimentMetricEffects(name=metric.name, variants=tuple(variants)))
+    return tuple(effects)
+
+
+def _finding_codes(experiment: ExperimentModel, user: User) -> tuple[ExperimentHealthFindingCode, ...]:
+    exposures = load_exposure_inputs(experiment, user=user, can_query_events=True)
+    known = {code.value for code in ExperimentHealthFindingCode}
+    return tuple(
+        ExperimentHealthFindingCode(finding.code.value) for finding in exposures.findings if finding.code.value in known
+    )
+
+
+def get_experiment_results(
+    *, team: Team, user: User, experiment_id: int, fresh: bool = False
+) -> ExperimentResults | None:
+    experiment = (
+        ExperimentModel.objects.filter(team=team, id=experiment_id, deleted=False)
+        .select_related("feature_flag", "team")
+        .first()
+    )
+    if experiment is None or not UserAccessControl(user=user, team=team).check_access_level_for_object(
+        experiment, "viewer"
+    ):
+        return None
+    if experiment.start_date is None:
+        return ExperimentResults(start_date=None, variants=(), exposures={}, primary=(), secondary=(), finding_codes=())
+    with tags_context(product=Product.EXPERIMENTS, feature=Feature.QUERY, team_id=team.id, user_id=user.id):
+        data = async_to_sync(ExperimentSummaryDataService(team, user).fetch_experiment_data)(experiment.id, fresh=fresh)
+        finding_codes = _finding_codes(experiment, user)
+    return ExperimentResults(
+        start_date=experiment.start_date,
+        variants=tuple(data.context.variants),
+        exposures=dict(data.context.exposures or {}),
+        primary=_metric_effects(data.context.primary_metrics_results),
+        secondary=_metric_effects(data.context.secondary_metrics_results),
+        finding_codes=finding_codes,
+    )
+
+
+def estimate_running_time(
+    *,
+    metric_type: RunningTimeMetricType,
+    baseline_value: float,
+    minimum_detectable_effect: float,
+    exposures_per_day: float | None,
+    number_of_variants: int = 2,
+) -> ExperimentRunningTimeEstimate | None:
+    sample_size = calculate_sample_size(metric_type, baseline_value, minimum_detectable_effect, number_of_variants)
+    if sample_size is None:
+        return None
+    return ExperimentRunningTimeEstimate(
+        minimum_detectable_effect=minimum_detectable_effect,
+        sample_size=sample_size,
+        days=calculate_running_time_days(sample_size, exposures_per_day),
+    )

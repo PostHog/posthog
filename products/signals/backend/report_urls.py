@@ -8,6 +8,7 @@ A link can also carry a `link_action` query param. The inbox reads it once and r
 """
 
 from enum import StrEnum
+from urllib.parse import quote
 from uuid import UUID
 
 from posthog.utils import absolute_uri
@@ -43,3 +44,7 @@ def build_report_url(
     team_id: int, report_id: str | UUID, source: ReportLinkSource, action: ReportLinkAction | None = None
 ) -> str:
     return absolute_uri(report_path(team_id, report_id, source, action))
+
+
+def scout_path(team_id: int, skill_name: str) -> str:
+    return f"/project/{team_id}/inbox/scouts/{quote(skill_name, safe='')}"

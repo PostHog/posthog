@@ -1168,6 +1168,14 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     return _task_run_to_dto(run)
 
 
+def get_task_runs(run_ids: Iterable[str | UUID], team_id: int) -> dict[str, contracts.TaskRunDTO]:
+    ids = [str(run_id) for run_id in run_ids]
+    if not ids:
+        return {}
+    runs = TaskRun.objects.select_related("task", "task__created_by").filter(team_id=team_id, id__in=ids)
+    return {str(run.id): _task_run_to_dto(run) for run in runs}
+
+
 def latest_agent_startup_success(*, team_id: int, repository: str, provider: str, runtime: str) -> datetime | None:
     started = (
         TaskRun.objects.filter(

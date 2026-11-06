@@ -2,6 +2,7 @@ import time
 from contextlib import suppress
 from datetime import timedelta
 from decimal import Decimal
+from uuid import UUID
 
 from django.core.cache import cache
 from django.db import OperationalError, connections
@@ -1436,3 +1437,24 @@ def refresh_signal_repository_activity(after_team_id: int | None = None, after_r
             kwargs={"after_team_id": last_team_id, "after_repository": last_repository},
             countdown=_REFRESH_BATCH_INTERVAL_SECONDS,
         )
+
+
+@shared_task(ignore_result=True, soft_time_limit=50, time_limit=60)
+@skip_team_scope_audit
+def sweep_goal_scouts() -> None:
+    from products.signals.backend.goal_scouts.sweep import (  # noqa: PLC0415 — the goal sweep imports scout serializers, which import this module
+        live_goal_keys,
+    )
+
+    for team_id, goal_id in live_goal_keys():
+        advance_goal_scout.delay(team_id, str(goal_id))
+
+
+@shared_task(ignore_result=True, soft_time_limit=240, time_limit=270)
+@with_team_scope()
+def advance_goal_scout(team_id: int, goal_id: str) -> None:
+    from products.signals.backend.goal_scouts.sweep import (  # noqa: PLC0415 — the goal sweep imports scout serializers, which import this module
+        advance_goal,
+    )
+
+    advance_goal(team_id, UUID(goal_id))

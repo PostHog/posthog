@@ -2977,6 +2977,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         # The background lane stopped managing this scout and paused it. Owned by the background
         # coordinator alone, so no other system writer resumes a scout nobody set up.
         BACKGROUND_REMOVED = "background_removed", "Background removed"
+        GOAL_ENDED = "goal_ended", "Goal ended"
 
     class ManagedBy(models.TextChoices):
         """Who controls this scout now.
@@ -4512,4 +4513,123 @@ class AnomalyScoringDueInsight(TeamScopedRootMixin, UUIDModel):
         ]
         indexes = [
             models.Index(fields=["next_due_at"], name="signals_anomaly_due_next_idx"),
+        ]
+
+
+class SignalScoutGoal(TeamScopedRootMixin, models.Model):
+    class Status(models.TextChoices):
+        SETTING_UP = "setting_up", "Setting up"
+        RUNNING = "running", "Running"
+        REACHED = "reached", "Goal reached"
+        SPENT = "spent", "Budget used"
+        CLOSED = "closed", "Closed"
+
+    class Direction(models.TextChoices):
+        INCREASE = "increase", "Increase"
+        DECREASE = "decrease", "Decrease"
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    config = models.OneToOneField(SignalScoutConfig, on_delete=models.CASCADE, primary_key=True, related_name="goal")
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    belief = models.TextField()
+    target = models.DecimalField(max_digits=20, decimal_places=4, null=True, blank=True)
+    budget_cents = models.PositiveBigIntegerField()
+    insight_short_id = models.CharField(max_length=32, null=True, blank=True)
+    goal_description = models.TextField(blank=True, default="")
+    metric_name = models.CharField(max_length=255)
+    unit = models.CharField(max_length=32, blank=True, default="")
+    direction = models.CharField(max_length=8, choices=Direction.choices, default=Direction.INCREASE)
+    guardrails = models.JSONField(default=list, blank=True)
+    owner_ideas = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.SETTING_UP)
+    baseline_value = models.FloatField(null=True, blank=True)
+    baseline_at = models.DateTimeField(null=True, blank=True)
+    goal_met_since = models.DateTimeField(null=True, blank=True)
+    reached_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    note = models.TextField(blank=True, default="")
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        indexes = [models.Index(fields=["status"], name="signal_goal_status_idx")]
+
+
+class SignalScoutGoalIdea(TeamScopedRootMixin, UUIDModel):
+    class Kind(models.TextChoices):
+        TRACKING = "tracking", "Tracking"
+        IDEA = "idea", "Idea"
+
+    class Stage(models.TextChoices):
+        BUILDING = "building", "Building"
+        REVIEW = "review", "In review"
+        LIVE = "live", "Live"
+        DONE = "done", "Done"
+        DROPPED = "dropped", "Dropped"
+        STUCK = "stuck", "Stuck"
+
+    class Outcome(models.TextChoices):
+        WON = "won", "Won"
+        LOST = "lost", "Lost"
+        FLAT = "flat", "No clear effect"
+        HARMED = "harmed", "Guardrail regression"
+        BROKEN = "broken", "Broken test"
+        DROPPED = "dropped", "Dropped"
+
+    OPEN_STAGES = (Stage.BUILDING, Stage.REVIEW, Stage.LIVE, Stage.STUCK)
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    goal = models.ForeignKey(SignalScoutGoal, on_delete=models.CASCADE, db_index=False, related_name="ideas")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="+")
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    number = models.PositiveIntegerField()
+    flag_key = models.CharField(max_length=200, blank=True, default="")
+    experiment_id = models.BigIntegerField(null=True, blank=True)
+    stage = models.CharField(max_length=16, choices=Stage.choices, default=Stage.BUILDING)
+    outcome = models.CharField(max_length=16, choices=Outcome.choices, blank=True, default="")
+    plan = models.JSONField(default=dict, blank=True)
+    result = models.JSONField(default=dict, blank=True)
+    note = models.TextField(blank=True, default="")
+    chosen_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+    merged_at = models.DateTimeField(null=True, blank=True)
+    exposed_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    cleanup_task_id = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["goal", "kind"],
+                condition=models.Q(stage__in=["building", "review", "live", "stuck"]),
+                name="signal_goal_one_open_idea",
+            ),
+            models.UniqueConstraint(fields=["goal", "kind", "number"], name="signal_goal_idea_number"),
         ]

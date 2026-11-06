@@ -73,6 +73,17 @@ class SavedInsightDefinition:
     query: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class InsightDeliveryEvidence:
+    events: int
+    participants: int
+    first_event_at: datetime | None
+    last_event_at: datetime | None
+    window_start: datetime
+    window_end: datetime
+    event_names: tuple[str, ...]
+
+
 class InsightSeriesNotReady(Exception):
     def __init__(self, query_id: str | None = None) -> None:
         super().__init__(query_id)

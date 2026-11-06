@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
-import { ScoutEnabledFilter, ScoutRosterSort, scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { ScoutEnabledFilter, ScoutKindFilter, ScoutRosterSort, scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { ScoutOwnerFilter } from './ScoutOwnerFilter'
 import { ScoutTagsFilter } from './ScoutTagsFilter'
 
@@ -10,6 +10,12 @@ const ENABLED_FILTER_OPTIONS: { value: ScoutEnabledFilter; label: string }[] = [
     { value: 'all', label: 'All scouts' },
     { value: 'enabled', label: 'Turned on' },
     { value: 'disabled', label: 'Turned off' },
+]
+
+const KIND_FILTER_OPTIONS: { value: ScoutKindFilter; label: string }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'goals', label: 'Goals' },
+    { value: 'watching', label: 'Watching' },
 ]
 
 const SORT_OPTIONS: { value: ScoutRosterSort; label: string }[] = [
@@ -34,9 +40,17 @@ export function ScoutsRosterFilters(): JSX.Element {
         activeScoutTags,
         scoutOwnerOptions,
         activeScoutOwner,
+        scoutKindFilter,
+        hasGoalScouts,
     } = useValues(scoutFleetLogic)
-    const { setScoutSearch, setScoutEnabledFilter, setScoutRosterSort, setScoutTagFilter, setScoutOwnerFilter } =
-        useActions(scoutFleetLogic)
+    const {
+        setScoutSearch,
+        setScoutEnabledFilter,
+        setScoutRosterSort,
+        setScoutTagFilter,
+        setScoutOwnerFilter,
+        setScoutKindFilter,
+    } = useActions(scoutFleetLogic)
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -50,6 +64,16 @@ export function ScoutsRosterFilters(): JSX.Element {
                 allowClear
                 data-attr="inbox-scout-search"
             />
+            {hasGoalScouts && (
+                <div data-attr="scout-kind-filter">
+                    <LemonSegmentedButton
+                        size="small"
+                        value={scoutKindFilter}
+                        onChange={setScoutKindFilter}
+                        options={KIND_FILTER_OPTIONS}
+                    />
+                </div>
+            )}
             <LemonSelect
                 size="small"
                 value={scoutEnabledFilter}

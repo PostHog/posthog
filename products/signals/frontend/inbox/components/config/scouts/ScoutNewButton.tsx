@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChat, IconDocument, IconPlus } from '@posthog/icons'
+import { IconChat, IconDocument, IconPlus, IconTarget } from '@posthog/icons'
 import { LemonButton, type LemonButtonProps, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -15,6 +15,7 @@ import {
 } from '../../../inboxAnalytics'
 import type { ScoutCreateInitialValues } from '../../../logics/scoutCreateModalLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { GoalScoutFormModal } from './goal/GoalScoutFormModal'
 import { QuillScoutNewMenu } from './QuillScoutNewMenu'
 import { SCOUT_CHAT_PROMPT_MAX_LENGTH, ScoutChatModal } from './ScoutChatModal'
 import { ScoutCreateModalHost, useScoutCreateDisabledReason } from './ScoutCreateModalHost'
@@ -27,6 +28,7 @@ type OpenScoutModal =
           formInitialValues?: ScoutCreateInitialValues
       }
     | { kind: 'form'; initialValues: ScoutCreateInitialValues; descriptionOverride?: string }
+    | { kind: 'goal' }
 
 export interface ScoutNewButtonProps {
     /** `menu` puts both ways in behind one button. `buttons` shows them side by side. */
@@ -47,9 +49,13 @@ export function ScoutNewButton({
     size = 'small',
 }: ScoutNewButtonProps): JSX.Element {
     const [openModal, setOpenModal] = useState<OpenScoutModal | null>(null)
-    const { runningChatType, scoutChatDisabledReason } = useValues(scoutFleetLogic)
+    const { runningChatType, scoutChatDisabledReason, goalScoutsEnabled } = useValues(scoutFleetLogic)
     const creationDisabledReason = useScoutCreateDisabledReason()
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const openGoal = (): void => {
+        captureScoutCreatePathChosen({ path: 'goal', surface })
+        setOpenModal({ kind: 'goal' })
+    }
     const chatDisabledReason =
         scoutChatDisabledReason ?? (runningChatType !== null ? 'Starting another task…' : undefined)
 
@@ -70,6 +76,7 @@ export function ScoutNewButton({
                     chatDisabledReason={chatDisabledReason}
                     onChat={openChat}
                     onForm={openForm}
+                    onGoal={goalScoutsEnabled ? openGoal : undefined}
                 />
             ) : layout === 'menu' ? (
                 <LemonMenu
@@ -97,6 +104,17 @@ export function ScoutNewButton({
                             icon: <IconDocument />,
                             onClick: openForm,
                             'data-attr': 'scout-new-form',
+                        },
+                        goalScoutsEnabled && {
+                            label: (
+                                <ScoutNewMenuItemLabel
+                                    title="Move a metric"
+                                    description="Say what you believe and the number that proves it. The scout finds ideas and tests the ones you choose."
+                                />
+                            ),
+                            icon: <IconTarget />,
+                            onClick: openGoal,
+                            'data-attr': 'scout-new-goal',
                         },
                     ]}
                     placement="bottom-end"
@@ -154,6 +172,9 @@ export function ScoutNewButton({
                         )
                     }}
                 />
+            ) : null}
+            {openModal?.kind === 'goal' ? (
+                <GoalScoutFormModal isOpen goalId="new" onClose={() => setOpenModal(null)} />
             ) : null}
             <ScoutCreateModalHost
                 initialValues={openModal?.kind === 'form' ? openModal.initialValues : null}

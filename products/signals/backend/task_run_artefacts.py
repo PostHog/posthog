@@ -35,6 +35,7 @@ from products.signals.backend.billing import mark_report_billing_exempt, report_
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.report_assignments import ReportClaimConflict, claim_report_for_task, release_claim
 from products.signals.backend.report_claims import get_active_claim, is_user_claim_of, is_user_claim_of_task_creator
+from products.signals.backend.scout_authorship import report_is_from_goal_scout
 
 # The task-run vocabulary lives in `artefact_schemas` (a leaf module the model layer can import
 # without a cycle); re-exported here so existing `from task_run_artefacts import …` callers keep
@@ -236,7 +237,7 @@ def enforce_report_task_cap(
     over the gateway's `signals_interactive` per-user budget and per-task spend ceiling.
 
     Must be called inside an open transaction: it locks the report row — the same lock
-    auto-start's `_create_implementation_task_if_absent` takes — so concurrent creates
+    auto-start's `create_implementation_task_if_absent` takes — so concurrent creates
     serialize instead of both passing the count check.
 
     A discussion whose `description` pushes to the report's pull request ("Get it merged", "Make it
@@ -249,6 +250,10 @@ def enforce_report_task_cap(
         # The serializer already team-scoped the report; behave as the create path would without a cap.
         return
     if relationship is None or relationship == TASK_RUN_TYPE_IMPLEMENTATION:
+        if report_is_from_goal_scout(team_id, report_id):
+            raise ReportTaskCapExceeded(
+                kind=TASK_RUN_TYPE_IMPLEMENTATION, detail="Build this goal scout idea from its goal page."
+            )
         claim = _implementation_slot_claim(team_id=team_id, report_id=report_id)
         if claim is not None:
             raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claim.detail)
