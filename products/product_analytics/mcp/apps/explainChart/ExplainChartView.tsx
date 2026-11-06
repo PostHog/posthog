@@ -6,7 +6,6 @@ import { Button, Text } from '@posthog/quill'
 import type { ExplainChartData, StoryChapter, StoryEvidence } from './explainChartTypes'
 import { StoryChapterView } from './StoryChapterView'
 import { StoryChartOverlay } from './StoryChartOverlay'
-import { StoryEvidenceCaption } from './StoryEvidenceCaption'
 import { buildStoryPages, type StoryPage } from './storyPages'
 import { StoryPanelResizeGrip } from './StoryPanelResizeGrip'
 import { StorySingleChapterView } from './StorySingleChapterView'
@@ -146,21 +145,19 @@ export function ExplainChartView({
         <div className="@container/story" data-attr="explain-chart">
             <div ref={rowRef} className="flex flex-col @3xl/story:flex-row">
                 <div className="min-w-0 flex-1">
-                    {/* The header is one line in both views, so showing an evidence chart moves nothing. */}
+                    {/* The header is one line in both views, so showing an evidence chart moves nothing. The evidence's text stays highlighted in the panel. */}
                     {evidenceCharts && evidenceView ? (
                         <>
-                            <div className="box-content flex h-5 items-center gap-2 pb-2">
+                            <div className="box-content flex h-5 items-center pb-2">
                                 <Button
                                     variant="outline"
                                     size="xs"
-                                    className="shrink-0"
                                     onClick={() => setShownEvidenceIndex(null)}
                                     data-attr="explain-chart-evidence-back"
                                 >
                                     <ArrowLeft className="size-3" />
-                                    Back
+                                    Back to the explanation
                                 </Button>
-                                <StoryEvidenceCaption text={evidenceView.text} />
                             </div>
                             {evidenceCharts.render(evidenceView)}
                         </>

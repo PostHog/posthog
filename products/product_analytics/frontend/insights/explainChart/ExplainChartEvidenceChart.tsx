@@ -9,11 +9,18 @@ import type { StoryEvidence } from 'products/product_analytics/mcp/apps/explainC
 import { StoryEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/StoryEvidenceChart'
 import { isSeriesNamedIn } from 'products/product_analytics/mcp/apps/explainChart/storyNamedSeries'
 
-// A breakdown or a second series draws several lines, which only a legend tells apart.
-function drawsSeveralLines(query: Record<string, unknown>): boolean {
+type EvidenceSeries = { custom_name?: string; event?: string | null; name?: string }
+
+// The chart has no title, so a legend tells several lines apart and an axis label names a single one.
+function evidenceTrendsFilter(query: Record<string, unknown>): Record<string, unknown> {
+    const trendsFilter = (query.trendsFilter as Record<string, unknown> | undefined) ?? {}
     const breakdownFilter = query.breakdownFilter as { breakdown?: unknown; breakdowns?: unknown[] } | undefined
-    const series = query.series as unknown[] | undefined
-    return !!breakdownFilter?.breakdown || !!breakdownFilter?.breakdowns?.length || (series?.length ?? 0) > 1
+    const series = (query.series as EvidenceSeries[] | undefined) ?? []
+    if (breakdownFilter?.breakdown || breakdownFilter?.breakdowns?.length || series.length > 1) {
+        return { ...trendsFilter, showLegend: true, legendPosition: 'bottom' }
+    }
+    const name = series[0]?.custom_name || series[0]?.event || series[0]?.name
+    return name ? { yAxisLabel: name, ...trendsFilter } : trendsFilter
 }
 
 function seriesNames(result: TrendResult): string[] {
@@ -33,9 +40,7 @@ export function ExplainChartEvidenceChart({ item }: { item: StoryEvidence }): JS
         source: {
             kind: NodeKind.TrendsQuery,
             ...item.query,
-            ...(drawsSeveralLines(item.query)
-                ? { trendsFilter: { ...(item.query.trendsFilter as object | undefined), showLegend: true } }
-                : {}),
+            trendsFilter: evidenceTrendsFilter(item.query),
         } as unknown as InsightVizNode['source'],
         full: false,
         showHeader: false,
