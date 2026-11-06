@@ -17,6 +17,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
+import { tileCanvasLogic } from './hogflows/editor/tile-canvas/tileCanvasLogic'
+import { TileStepNode } from './hogflows/editor/tile-canvas/TileStepNode'
 import { HogFlowEventFilters } from './hogflows/filters/HogFlowFilters'
 import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
 import { HogFlowEditorPanelBuildDetail } from './hogflows/panel/HogFlowEditorPanelBuildDetail'
@@ -409,6 +411,21 @@ describe('view-only workflow', () => {
 
         expect(fireEvent.click(toggle!)).toBe(false)
         editorLogic.unmount()
+    })
+
+    it('gives a viewer no step menu and no dragging on a canvas tile', () => {
+        tileCanvasLogic({ id: WORKFLOW_ID }).mount()
+        const workflow = logic.values.workflow
+
+        renderForViewer(
+            <BindLogic logic={tileCanvasLogic} props={{ id: WORKFLOW_ID }}>
+                <TileStepNode action={workflow.actions[1]} workflow={workflow} count={undefined} />
+            </BindLogic>
+        )
+        const tile = document.querySelector<HTMLElement>('[data-attr="workflow-tile-step"]')!
+
+        expect(fireEvent.contextMenu(tile)).toBe(true)
+        expect(tile).toHaveAttribute('draggable', 'false')
     })
 
     it('lets a viewer copy the error details of a step that fails to render', () => {
