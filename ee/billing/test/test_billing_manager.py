@@ -133,6 +133,10 @@ class TestFundingStatusParsing(SimpleTestCase):
 
 _FREE_RETENTION = [{"key": "product_analytics_data_retention", "name": "Data retention", "limit": 1, "unit": "year"}]
 _SURVEYS = [{"key": "surveys", "name": "Surveys"}]
+_STANDARD_THREE_YEAR_RETENTION = [
+    {"key": "product_analytics_data_retention", "name": "Data retention", "limit": 3, "unit": "years"},
+    {"key": "product_analytics_standard_data_retention", "name": "Standard data retention"},
+]
 
 
 class TestBillingManager(BaseTest):
@@ -633,6 +637,16 @@ class TestBillingManager(BaseTest):
             ("teams_already_reconciled", False, _SURVEYS, _FREE_RETENTION, 12, 12, None, False),
             ("set_period_within_the_new_plan", False, _SURVEYS, _FREE_RETENTION, 84, 12, 6, False),
             ("set_period_past_the_new_plan", False, _SURVEYS, _FREE_RETENTION, 84, 12, 36, True),
+            (
+                "downgrade_that_adds_standard_retention",
+                False,
+                _SURVEYS,
+                _STANDARD_THREE_YEAR_RETENTION,
+                84,
+                36,
+                None,
+                True,
+            ),
         ]
     )
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
@@ -685,7 +699,7 @@ class TestBillingManager(BaseTest):
                     "properties": {
                         "organization_name": organization.name,
                         "previous_retention_months": 84,
-                        "retention_months": 12,
+                        "retention_months": expected_team_months,
                         "deletion_scheduled_on": next_pass_on(cleanup_date()).isoformat(),
                     },
                     "groups": {"organization": str(organization.id)},

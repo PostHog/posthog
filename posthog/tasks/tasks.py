@@ -1084,7 +1084,7 @@ def report_upcoming_events_deletions() -> None:
     report_upcoming_deletions()
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=30, retry_backoff_max=600, max_retries=5)
 def report_events_retention_shortened(organization_id: str, notice: dict[str, object]) -> None:
     from posthog.models.events_plan_deletion import report_retention_shortened
 

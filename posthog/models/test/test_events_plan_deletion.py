@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 
 from posthog.models.events_plan_deletion import (
@@ -15,6 +16,7 @@ from posthog.models.events_plan_deletion import (
     TeamEventsPlanDeletion,
     admitted,
     after_pass,
+    apply_events_retention_change,
     deletion_months,
     is_shorter_period,
     next_cleanup_on,
@@ -25,6 +27,7 @@ from posthog.models.events_retention_config import TeamEventsRetention
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.tasks.tasks import report_events_retention_shortened
 
 TODAY = date(2026, 11, 3)
 
@@ -184,11 +187,13 @@ def test_report_upcoming_events_deletions_tells_admins_once(
     assert TeamEventsPlanDeletion.objects.get(team=team).downgraded_from_months == marker_left
 
 
-def _clients_that_fail_after_the_first() -> Callable[[str, Callable[[Exception, object], None]], MagicMock]:
+def _clients_failing_on(
+    calls: set[int],
+) -> tuple[list[MagicMock], Callable[[str, Callable[[Exception, object], None]], MagicMock]]:
     clients: list[MagicMock] = []
 
     def get_client(_region: str, on_error: Callable[[Exception, object], None]) -> MagicMock:
-        failing = bool(clients)
+        failing = len(clients) in calls
         clients.append(
             MagicMock(
                 shutdown=MagicMock(
@@ -198,21 +203,53 @@ def _clients_that_fail_after_the_first() -> Callable[[str, Callable[[Exception, 
         )
         return clients[-1]
 
-    return get_client
+    return clients, get_client
 
 
 @pytest.mark.django_db
 @override_settings(CLOUD_DEPLOYMENT="US", EVENTS_DATA_RETENTION_ENFORCED=True)
 def test_report_upcoming_events_deletions_keeps_only_undelivered_markers():
     teams = [_downgraded_team(_TWO_YEAR_PLAN, name=name) for name in ("First", "Second")]
+    _clients, get_client = _clients_failing_on({1})
 
     with (
         time_machine.travel("2027-01-20T18:00:00Z", tick=False),
         patch("posthog.models.events_plan_deletion.is_cloud", return_value=True),
-        patch("posthog.ph_client.get_client", side_effect=_clients_that_fail_after_the_first()),
+        patch("posthog.ph_client.get_client", side_effect=get_client),
         pytest.raises(ConnectionError),
     ):
         report_upcoming_deletions()
 
     markers = TeamEventsPlanDeletion.objects.filter(team__in=teams).values_list("downgraded_from_months", flat=True)
     assert sorted(markers, key=str) == [84, None]
+
+
+@pytest.mark.django_db
+@override_settings(CLOUD_DEPLOYMENT="US")
+def test_report_events_retention_shortened_retries_a_failed_send():
+    team = _downgraded_team(_TWO_YEAR_PLAN)
+    _clients, get_client = _clients_failing_on({0})
+
+    with (
+        patch("posthog.models.events_plan_deletion.is_cloud", return_value=True),
+        patch("posthog.ph_client.get_client", side_effect=get_client),
+        pytest.raises(Retry),
+    ):
+        report_events_retention_shortened.delay(str(team.organization_id), {"retention_months": 24})
+
+
+@pytest.mark.django_db
+@override_settings(CLOUD_DEPLOYMENT="US", EVENTS_DATA_RETENTION_ENFORCED=True)
+def test_a_downgrade_right_after_an_upgrade_pushes_the_pass():
+    organization = Organization.objects.create(name="Cycled", available_product_features=_TWO_YEAR_PLAN)
+    team = Team.objects.create(organization=organization, name="Cycled", event_retention_months=24)
+    TeamEventsPlanDeletion.objects.create(team=team, months=24, next_deletion_on=date(2026, 12, 3))
+
+    with time_machine.travel("2026-11-20T18:00:00Z", tick=False):
+        for features, previous_months in (([], 24), (_TWO_YEAR_PLAN, 84)):
+            Organization.objects.filter(id=organization.id).update(available_product_features=features)
+            apply_events_retention_change(organization, previous_months, False)
+
+    assert TeamEventsPlanDeletion.objects.get(team=team).state == PlanDeletionState(
+        months=24, next_deletion_on=date(2027, 3, 3), downgraded_from_months=84
+    )

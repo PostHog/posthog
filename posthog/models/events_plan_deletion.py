@@ -170,9 +170,11 @@ def _row(team_id: int, state: PlanDeletionState) -> TeamEventsPlanDeletion:
     )
 
 
-def apply_events_retention_change(organization: Organization, previous_months: int | None) -> None:
-    """Align the organization's teams with its plan period. When a downgrade shortens the period of any team, push
-    those teams' passes and tell the admins.
+def apply_events_retention_change(
+    organization: Organization, previous_months: int | None, previous_standard_retention: bool
+) -> None:
+    """Align the organization's teams and their passes with its plan period. When a downgrade shortens the period of
+    any team, push those teams' passes and tell the admins.
 
     The first billing sync has no previous period. It moves teams off the 84-month fallback, which is no downgrade.
     """
@@ -180,11 +182,13 @@ def apply_events_retention_change(organization: Organization, previous_months: i
 
     with transaction.atomic():
         lock_organization_retention(organization.id)
-        if not reconcile_organization_events_retention(organization):
+        if not reconcile_organization_events_retention(organization) or previous_months is None:
             return
-        if previous_months is None or organization_events_retention_months(organization) >= previous_months:
+        teams = list(Team.objects.filter(organization_id=organization.id))
+        if organization_events_retention_months(organization) >= previous_months:
+            reschedule_plan_deletions(deleting_plans(teams), cleanup_date())
             return
-        shortened = _shortened_teams(list(Team.objects.filter(organization_id=organization.id)), previous_months)
+        shortened = _shortened_teams(organization.id, teams, previous_months, previous_standard_retention)
         if not shortened:
             return
         states = reschedule_plan_deletions(deleting_plans(shortened), cleanup_date(), previous_months)
@@ -195,9 +199,14 @@ def apply_events_retention_change(organization: Organization, previous_months: i
     report_events_retention_shortened.delay(str(organization.id), _notice(organization, previous_months, deletion_on))
 
 
-def _shortened_teams(teams: Sequence[Team], previous_months: int) -> list[Team]:
+def _shortened_teams(
+    organization_id: UUID, teams: Sequence[Team], previous_months: int, previous_standard_retention: bool
+) -> list[Team]:
     plans = [team_plan(team) for team in teams]
-    before = retention_periods([replace(plan, plan_months=previous_months) for plan in plans])
+    before = retention_periods(
+        [replace(plan, plan_months=previous_months) for plan in plans],
+        {organization_id} if previous_standard_retention else set(),
+    )
     after = retention_periods(plans)
     return [team for team in teams if after[team.id] < before[team.id]]
 
@@ -227,7 +236,7 @@ def report_upcoming_deletions() -> int:
         previous_months = max(markers[organization.id].values())
         if organization_events_retention_months(organization) < previous_months:
             notice = _notice(organization, previous_months, deletion_on)
-            _notify_admins(DELETION_UPCOMING_EVENT, {organization.id: notice}, raise_on_error=True)
+            _notify_admins(DELETION_UPCOMING_EVENT, {organization.id: notice})
             notified += 1
         marked.filter(team_id__in=markers[organization.id]).update(downgraded_from_months=None)
     return notified
@@ -242,13 +251,13 @@ def _notice(organization: Organization, previous_months: int, deletion_on: date 
     }
 
 
-def _notify_admins(event: str, notices: dict[UUID, dict[str, object]], raise_on_error: bool = False) -> None:
+def _notify_admins(event: str, notices: dict[UUID, dict[str, object]]) -> None:
     if not is_cloud() or not notices:
         return
     admins = OrganizationMembership.objects.filter(
         organization_id__in=notices, level__gte=OrganizationMembership.Level.ADMIN, user__is_active=True
     ).values_list("organization_id", "user__distinct_id")
-    with ph_scoped_capture(raise_on_error=raise_on_error, event_region=get_instance_region()) as capture:
+    with ph_scoped_capture(raise_on_error=True, event_region=get_instance_region()) as capture:
         for organization_id, distinct_id in admins:
             capture(
                 distinct_id=distinct_id,
