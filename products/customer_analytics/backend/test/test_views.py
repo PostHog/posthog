@@ -4295,6 +4295,17 @@ class TestAccountNoteScope(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
         self.assertEqual(response.json()["tags"], ["scout", "scout-billing-watch"])
 
+    def test_scout_cannot_retag_a_note_a_person_wrote(self) -> None:
+        notebook = self._link_note(tags=("context-core", "risk"))
+        with patch("posthog.auth.resolve_scout_client_tag", return_value="scout:billing-watch"):
+            self._authenticate_as_scout(sandbox_task_id=uuid4())
+            response = self.client.patch(
+                f"{self.endpoint_base}{notebook.short_id}/", {"tags": ["billing-shift"]}, format="json"
+            )
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code, response.content)
+        self.assertEqual(sorted(notebook.tagged_items.values_list("tag__name", flat=True)), ["context-core", "risk"])
+
     def test_a_person_can_remove_the_scout_tag(self) -> None:
         notebook = self._link_note(tags=("scout", "billing-shift"))
 

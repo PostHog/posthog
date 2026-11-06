@@ -76,7 +76,11 @@ from products.customer_analytics.backend.facade.constants import (
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
     CUSTOMER_ANALYTICS_TRACK_RULES_FLAG,
 )
-from products.customer_analytics.backend.presentation.scout_notes import refuse_scout_note_delete, with_scout_tags
+from products.customer_analytics.backend.presentation.scout_notes import (
+    refuse_scout_note_delete,
+    scout_retag,
+    with_scout_tags,
+)
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountByExternalIdQuerySerializer,
     AccountChannelSummarySerializer,
@@ -2481,13 +2485,22 @@ class AccountNotebookViewSet(
         serializer = AccountNotebookUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        tags = data.get("tags")
+        if tags is not None and is_scout_sandbox_request(request):
+            current = api.get_account_notebook(
+                self.team_id,
+                self.parents_query_dict["account_id"],
+                self.kwargs["short_id"],
+                user_access_control=self.user_access_control,
+            )
+            if current is None:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            tags = scout_retag(tags, current.tags)
         notebook = api.update_account_notebook(
             team_id=self.team_id,
             account_id=self.parents_query_dict["account_id"],
             short_id=self.kwargs["short_id"],
-            input=contracts.UpdateAccountNotebookInput(
-                tags=with_scout_tags(is_scout_sandbox_request(request), data.get("tags"))
-            ),
+            input=contracts.UpdateAccountNotebookInput(tags=tags),
             user=cast(User, request.user),
             user_access_control=self.user_access_control,
         )
