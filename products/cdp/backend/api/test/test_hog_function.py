@@ -1951,7 +1951,13 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
         assert (res.json()["attr"], res.json()["code"]) == (expected_attr, expected_code)
 
-    def test_connection_handed_to_a_worker_function(self) -> None:
+    @parameterized.expand(
+        [
+            ("push_channels", ["firebase", "apns"], status.HTTP_200_OK),
+            ("channel_of_a_kind_without_push", ["firebase", "slack"], status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_connection_handed_to_a_worker_function(self, _name: str, kinds: list[str], expected_status: int) -> None:
         HogFunctionTemplate.objects.create(
             template_id="template-push-test",
             sha="1.0.0",
@@ -1969,7 +1975,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             Integration.objects.create(
                 team=self.team, kind=kind, sensitive_config={"key": "k"}, created_by=self.user
             ).id
-            for kind in ["firebase", "apns"]
+            for kind in kinds
         ]
         function = HogFunction.objects.create(
             team=self.team,
@@ -1988,7 +1994,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 data={"hog": PUSH_SENDER_HOG.replace("'Hi'", "'Hello'")},
             )
 
-        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.status_code == expected_status, res.json()
 
     @parameterized.expand(
         [("disable", {"enabled": False}), ("delete", {"deleted": True}), ("rename", {"name": "Renamed"})]
