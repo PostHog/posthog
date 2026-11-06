@@ -1,11 +1,21 @@
-from collections.abc import Iterable, Sequence
-from datetime import date, datetime, time
+import math
+from collections.abc import Callable, Iterable, Sequence
+from contextlib import AbstractContextManager
+from datetime import UTC, date, datetime, time
 from functools import partial
+from time import monotonic
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import Workload
 from posthog.event_usage import EventSource, report_user_action, sanitize_header_value
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.events_plan_deletion import (
     TeamEventsPlanDeletion,
@@ -46,6 +56,10 @@ from products.product_analytics.backend.facade.contracts import (
 )
 
 RETENTION_MONTHS_CHOICES = (1, 3, 12, 24, 36, 60, 84)
+EVENTS_DELETED_QUERY_SECONDS = 10
+EVENTS_DELETED_CACHE_SECONDS = 24 * 60 * 60
+
+ConcurrencySlots = Callable[[Team], AbstractContextManager[None]]
 
 
 def _report_retention_set(
@@ -153,6 +167,62 @@ def project_events_retention(team: Team) -> ProjectEventsRetention:
         scheduled_pass_on=scheduled_pass_on,
         first_pass_on=next_pass_on(today),
         default_period_deletes=default_period_deletes,
+    )
+
+
+def _cutoff_on(deletes_on: date, months: int) -> datetime:
+    return whole_month_cutoff(datetime.combine(deletes_on, time()), months).replace(tzinfo=UTC)
+
+
+def _events_before(team: Team, cutoff: datetime, seconds: int, concurrency_slots: ConcurrencySlots) -> int:
+    key = f"events_retention_deleted:{team.id}:{cutoff:%Y-%m-%d}"
+    if (count := cache.get(key)) is not None:
+        return count
+    if seconds <= 0:
+        raise ClickHouseQueryTimeOut()
+    with concurrency_slots(team):
+        response = execute_hogql_query(
+            "SELECT count() FROM events WHERE timestamp < {cutoff}",
+            team,
+            query_type="events_retention_deletion_count",
+            placeholders={"cutoff": ast.Constant(value=cutoff)},
+            workload=Workload.ONLINE,
+            settings=HogQLGlobalSettings(max_execution_time=seconds, timeout_overflow_mode="throw"),
+        )
+    count = response.results[0][0]
+    cache.set(key, count, EVENTS_DELETED_CACHE_SECONDS)
+    return count
+
+
+def _teams_events_before(teams: Iterable[Team], cutoff: datetime, concurrency_slots: ConcurrencySlots) -> int:
+    deadline = monotonic() + EVENTS_DELETED_QUERY_SECONDS
+    return sum(_events_before(team, cutoff, math.ceil(deadline - monotonic()), concurrency_slots) for team in teams)
+
+
+def project_events_deleted(team: Team, months: int, *, concurrency_slots: ConcurrencySlots) -> int:
+    return _events_before(team, _cutoff_on(next_cleanup_on(), months), EVENTS_DELETED_QUERY_SECONDS, concurrency_slots)
+
+
+def organization_events_deleted(organization: Organization, months: int, *, concurrency_slots: ConcurrencySlots) -> int:
+    teams = Team.objects.filter(organization_id=organization.id).exclude(
+        id__in=TeamEventsRetentionConfig.objects.filter(events_retention_months__isnull=False).values("team_id")
+    )
+    return _teams_events_before(teams, _cutoff_on(next_cleanup_on(), months), concurrency_slots)
+
+
+def organization_downgrade_events_deleted(
+    organization: Organization, months: int, *, concurrency_slots: ConcurrencySlots
+) -> int:
+    teams = list(Team.objects.filter(organization_id=organization.id))
+    kept = {
+        setting.team_id
+        for setting in effective_events_retention(team_ids=[team.id for team in teams])
+        if setting.months <= months
+    }
+    return _teams_events_before(
+        [team for team in teams if team.id not in kept],
+        _cutoff_on(next_pass_on(cleanup_date()), months),
+        concurrency_slots,
     )
 
 

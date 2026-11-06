@@ -13,13 +13,12 @@ from products.tasks.backend.facade.profiles import (
     Read,
     TaskProfile,
     WarmPolicy,
-    WarmQuota,
     task_profiles,
 )
 from products.tasks.backend.facade.run_config import WARMABLE_ORIGIN_PRODUCTS
 from products.tasks.backend.logic.services.compute_quota import is_billable_compute
 from products.tasks.backend.logic.services.sandbox import parse_requested_sandbox_template
-from products.tasks.backend.logic.services.warm import SandboxWarmer
+from products.tasks.backend.logic.services.warm import _CHECKERS_BY_WARM_QUOTA, SandboxWarmer
 from products.tasks.backend.models import MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN, Task, TaskClientProvenance
 from products.tasks.backend.presentation.views.api import (
     WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT,
@@ -73,7 +72,7 @@ def _master_warm_policy(origin_product: str) -> WarmPolicy | None:
     caps = SandboxWarmer.ORIGIN_PRODUCT_CAPS.get(origin_product, SandboxWarmer._DEFAULT_CAPS)
     checker = SandboxWarmer.ORIGIN_PRODUCT_QUOTA[origin_product]
     return WarmPolicy(
-        quota=WarmQuota.NONE if checker is None else WarmQuota.AI_CREDITS,
+        quota=next(quota for quota, check in _CHECKERS_BY_WARM_QUOTA.items() if check is checker),
         per_user_cap=caps.per_user,
         per_org_cap=caps.per_org,
         feature_flag=None
@@ -171,6 +170,10 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
     @parameterized.expand(PROFILES)
     def test_default_pr_authorship_matches_master(self, _key: str, profile: TaskProfile) -> None:
         self.assertEqual(profile.default_pr_authorship, get_pr_authorship_mode(_task(profile), None))
+
+    @parameterized.expand(PROFILES)
+    def test_create_pr_matches_master(self, _key: str, profile: TaskProfile) -> None:
+        self.assertEqual(profile.create_pr, profile.origin_product not in PRODUCT_PRIVATE_ORIGIN_PRODUCTS)
 
     @parameterized.expand(PROFILES)
     def test_default_runtime_matches_master(self, _key: str, profile: TaskProfile) -> None:

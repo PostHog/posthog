@@ -5,7 +5,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import cached_property, partial
 from typing import Any, Literal, cast
 
@@ -19,6 +19,7 @@ from django.db.models import (
     Count,
     Exists,
     F,
+    FloatField,
     Func,
     IntegerField,
     OuterRef,
@@ -30,8 +31,8 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.expressions import OrderBy
-from django.db.models.functions import Coalesce
+from django.db.models.expressions import BaseExpression, OrderBy
+from django.db.models.functions import Cast, Coalesce
 from django.db.models.lookups import GreaterThanOrEqual
 from django.utils import timezone
 
@@ -167,6 +168,7 @@ from products.signals.backend.presentation.spend import ReportSpendSerializer
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.ranking.access import can_view_inbox_ranking, user_flag_enabled
+from products.signals.backend.ranking.cache import PUBLIC_LIFT_FIELDS, PUBLIC_SCORE_FIELDS
 from products.signals.backend.ranking.inbox_sort import (
     PRIORITY_ORDERING,
     RANKER_ORDERINGS,
@@ -199,6 +201,7 @@ from products.signals.backend.report_claims import (
 )
 from products.signals.backend.report_content_gates import (
     organization_inbox_cached_filters_enabled,
+    organization_inbox_sort_cache_enabled,
     organization_report_monitoring_enabled,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -266,6 +269,7 @@ from products.signals.backend.scout_harness.views import emit_report_from_valida
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    GitHubRepositoryInaccessibleErrorSerializer,
     PersonalRankingQuerySerializer,
     PersonalRankingSerializer,
     PullRequestChecksPermissionErrorSerializer,
@@ -374,6 +378,23 @@ _PULL_REQUEST_ID_PARAMETER = OpenApiParameter(
     required=False,
     description="Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).",
 )
+
+
+def github_repository_inaccessible_response(team_id: int, repository: str) -> Response:
+    return Response(
+        GitHubRepositoryInaccessibleErrorSerializer(
+            {
+                "code": "github_repository_inaccessible",
+                "error": (
+                    f"PostHog's GitHub connection can't access {repository}. A project admin must give the "
+                    "GitHub app access to this repository, or reconnect GitHub."
+                ),
+                "remediation_url": f"/project/{team_id}/settings/project-integrations",
+            }
+        ).data,
+        status=status.HTTP_404_NOT_FOUND,
+    )
+
 
 # Reports one batch CI-status request may ask about. A report list page is 50 rows, so a full page
 # of pull requests fits, with room for a flat list that merges several sections.
@@ -1678,6 +1699,16 @@ _REPORT_LIST_PARAMETERS = [
         description="ISO 8601 datetime. Keeps reports created at or after this time.",
     ),
     OpenApiParameter(
+        name="created_before",
+        type=OpenApiTypes.DATETIME,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "ISO 8601 datetime. Keeps reports created before this time. Use it for reports older than a "
+            "cutoff, instead of reading every page."
+        ),
+    ),
+    OpenApiParameter(
         name="task_id",
         type=OpenApiTypes.UUID,
         location=OpenApiParameter.QUERY,
@@ -1800,12 +1831,12 @@ class SignalReportViewSet(
         "is_suggested_reviewer": "is_suggested_reviewer",
         "signal_count": "signal_count",
         "total_weight": "total_weight",
-        "priority": "priority_sort_rank",
+        "priority": "inbox_priority_sort_rank",
         "created_at": "created_at",
         "updated_at": "updated_at",
         "id": "id",
-        **{field: f"{field}_score" for field in RANKING_ORDERING_HEADS},
-        "ranking_fixed": "ranking_fix_score",
+        **{field: f"inbox_{field}_score" for field in RANKING_ORDERING_HEADS},
+        "ranking_fixed": "inbox_ranking_fix_score",
     }
     _RANKING_ORDERING_HEADS: dict[str, str] = RANKING_ORDERING_HEADS
 
@@ -1992,7 +2023,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_listed_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
-        qs = self._apply_signal_report_created_after_filter(qs)
+        qs = self._apply_signal_report_created_at_filters(qs)
         unread = self.request.query_params.get("unread")
         if unread is not None:
             if unread not in {"true", "false"}:
@@ -2023,7 +2054,8 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_inbox_view_filter(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         if self._needs_priority_annotation():
-            qs = self._annotate_signal_report_priority(qs)
+            priority_rank = F("priority_sort_rank") if self._inbox_sort_cache else latest_priority_rank()
+            qs = qs.annotate(inbox_priority_sort_rank=priority_rank)
             qs = self._apply_signal_report_priority_filter(qs)
         if self.action == "list":
             qs = self._annotate_signal_report_ranking(qs)
@@ -2227,15 +2259,23 @@ class SignalReportViewSet(
             return queryset
         return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
 
-    def _apply_signal_report_created_after_filter(self, queryset):
-        raw = self.request.query_params.get("created_after")
+    def _datetime_query_param(self, name: str) -> datetime | None:
+        raw = self.request.query_params.get(name)
         if not raw:
-            return queryset
+            return None
         try:
-            created_after = serializers.DateTimeField().to_internal_value(raw)
+            return serializers.DateTimeField().to_internal_value(raw)
         except serializers.ValidationError:
-            raise serializers.ValidationError({"created_after": "Use an ISO 8601 datetime."})
-        return queryset.filter(created_at__gte=created_after)
+            raise serializers.ValidationError({name: "Use an ISO 8601 datetime."})
+
+    def _apply_signal_report_created_at_filters(self, queryset):
+        created_after = self._datetime_query_param("created_after")
+        if created_after is not None:
+            queryset = queryset.filter(created_at__gte=created_after)
+        created_before = self._datetime_query_param("created_before")
+        if created_before is not None:
+            queryset = queryset.filter(created_at__lt=created_before)
+        return queryset
 
     def _apply_signal_report_source_product_filter(self, queryset):
         source_product_filter = self.request.query_params.get("source_product")
@@ -2431,8 +2471,6 @@ class SignalReportViewSet(
         return queryset.filter(SignalReport.reports_for_task_filter(task_uuid))
 
     def _apply_signal_report_priority_filter(self, queryset):
-        # Filters on the `priority_sort_rank` annotation, which must be applied first.
-        # Reports without a priority artefact rank after every priority, so this filter excludes them.
         priority_filter = self.request.query_params.get("priority")
         if not priority_filter and self.request.query_params.get("use_priority_preference", "false").lower() == "true":
             user = cast(User, self.request.user)
@@ -2447,7 +2485,7 @@ class SignalReportViewSet(
             )
             threshold = personal_threshold or project_threshold
             values = AutonomyPriority.values[: AutonomyPriority.values.index(threshold) + 1]
-            return queryset.filter(priority_sort_rank__in=self._priority_ranks(values))
+            return queryset.filter(inbox_priority_sort_rank__in=self._priority_ranks(values))
         if not priority_filter:
             return queryset
 
@@ -2464,7 +2502,7 @@ class SignalReportViewSet(
                 }
             )
 
-        return queryset.filter(priority_sort_rank__in=self._priority_ranks(values))
+        return queryset.filter(inbox_priority_sort_rank__in=self._priority_ranks(values))
 
     @staticmethod
     def _priority_ranks(priorities: Iterable[str]) -> list[int]:
@@ -2584,29 +2622,35 @@ class SignalReportViewSet(
             )
         )
 
-    def _annotate_signal_report_priority(self, queryset):
-        # `ordering=priority` sorts by the priority value ("P0"–"P4") from the latest priority_judgment
-        # artefact, as its index in `AutonomyPriority.values`. Reports without a priority rank after "P4".
-        return queryset.annotate(priority_sort_rank=latest_priority_rank())
+    @cached_property
+    def _inbox_sort_cache(self) -> bool:
+        return organization_inbox_sort_cache_enabled(self.organization.id)
+
+    def _needs_priority_annotation(self) -> bool:
+        params = self.request.query_params
+        if params.get("priority") or params.get("use_priority_preference", "false").lower() == "true":
+            return True
+        return any(clause.lstrip("-") == "inbox_priority_sort_rank" for clause in self._parse_signal_report_ordering())
 
     def _annotate_signal_report_ranking(self, queryset):
-        # `ordering=ranking_<head>` sorts by the served model's probability for that head, read from
-        # the latest ranking_score artefact as `results -> <served_key> -> scores -> <head>`. Only
-        # the heads the ordering names are annotated, because each one is a correlated subquery.
         ordered_fields = {clause.lstrip("-") for clause in self._parse_signal_report_ordering()}
         annotated: set[str] = set()
         for field, head in self._RANKING_ORDERING_HEADS.items():
             annotation = self._SIGNAL_REPORT_ORDERING_FIELDS[field]
-            # An alias shares its annotation with the field it renames, so annotate each one once.
             if annotation not in ordered_fields or annotation in annotated:
                 continue
             annotated.add(annotation)
-            queryset = queryset.annotate(**{annotation: latest_ranking_value(head, "scores")})
+            value: BaseExpression | F
+            if not self._inbox_sort_cache:
+                value = latest_ranking_value(head, "scores")
+            elif head in PUBLIC_SCORE_FIELDS:
+                value = F(PUBLIC_SCORE_FIELDS[head])
+            else:
+                value = Cast(F(f"ranking_scores__{head}"), FloatField())
+            queryset = queryset.annotate(**{annotation: value})
         return queryset
 
     def _apply_signal_report_ranking_filters(self, queryset):
-        # Each named head is one correlated subquery, compared with `>=`. NULL never matches, so
-        # unscored and stale reports drop out of every ranking filter.
         filters: tuple[tuple[str, Literal["scores", "lifts"]], ...] = (
             ("ranking_min_lift", "lifts"),
             ("ranking_min_probability", "scores"),
@@ -2617,7 +2661,9 @@ class SignalReportViewSet(
                 continue
             for outcome, minimum in minimums.items():
                 head = MODEL_HEAD_BY_OUTCOME[outcome]
-                queryset = queryset.filter(GreaterThanOrEqual(latest_ranking_value(head, key), minimum))
+                fields = PUBLIC_SCORE_FIELDS if key == "scores" else PUBLIC_LIFT_FIELDS
+                value = F(fields[head]) if self._inbox_sort_cache else latest_ranking_value(head, key)
+                queryset = queryset.filter(GreaterThanOrEqual(value, minimum))
         return queryset
 
     def _parse_ranking_minimums(self, param: str) -> dict[str, float]:
@@ -2647,15 +2693,6 @@ class SignalReportViewSet(
             # A report must meet every pair, so a repeated outcome keeps its strictest minimum.
             minimums[outcome] = max(minimum, minimums.get(outcome, minimum))
         return minimums
-
-    def _needs_priority_annotation(self) -> bool:
-        # The priority value is a correlated subquery too, and the serializer renders priority from
-        # the prefetched artefacts instead, so only a priority filter or a priority sort needs it.
-        params = self.request.query_params
-        if params.get("priority") or params.get("use_priority_preference", "false").lower() == "true":
-            return True
-        priority_clause = self._SIGNAL_REPORT_ORDERING_FIELDS["priority"]
-        return any(clause.lstrip("-") == priority_clause for clause in self._parse_signal_report_ordering())
 
     def _prefetch_signal_report_priority_artefacts(self, queryset):
         return queryset.prefetch_related(
@@ -3040,7 +3077,12 @@ class SignalReportViewSet(
         responses={
             200: OpenApiResponse(response=SignalReportSerializer, description="Current report and assignment."),
             400: OpenApiResponse(description="The pull request URL or request shape is invalid."),
-            409: OpenApiResponse(description="The report cannot be claimed or released in its current state."),
+            409: OpenApiResponse(
+                description=(
+                    "The report cannot be claimed or released in its current state, or another person holds the "
+                    "claim and the takeover has no takeover_claim_id."
+                )
+            ),
         },
         summary="Claim or release a signal report",
         description=(
@@ -4799,7 +4841,9 @@ class SignalReportViewSet(
                     "the current billing period, or the report is system-marked never-billable."
                 )
             ),
+            403: OpenApiResponse(description="PR refunds are not available with usage-based pricing."),
             404: OpenApiResponse(description="Report not found, or refunds are not enabled for this organization."),
+            503: OpenApiResponse(description="Pricing could not be determined. Retry the request."),
         },
         summary="Refund a report's implementation PR",
         description=(
@@ -4817,6 +4861,20 @@ class SignalReportViewSet(
     def refund(self, request: ValidatedRequest, pk=None, **kwargs):
         if not self._signals_pr_refunds_enabled():
             raise NotFound("PR refunds are not enabled for this organization.")
+
+        org_id = str(self.organization.id)
+        usage_based_pricing = posthoganalytics.feature_enabled(
+            "self-driving-ubp",
+            org_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+        )
+        if usage_based_pricing is True:
+            raise exceptions.PermissionDenied("PR refunds are not available with usage-based pricing.")
+        if usage_based_pricing is not False:
+            return Response(
+                {"detail": "Unable to determine pricing. Please try again."}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
 
         report = cast(SignalReport, self.get_object())
         data = request.validated_data
@@ -5074,7 +5132,10 @@ class SignalReportViewSet(
                 description="The CI checks on the report's implementation pull request.",
             ),
             404: OpenApiResponse(
-                description="Report has no implementation PR, or no GitHub integration can access it."
+                description=(
+                    "Report has no implementation PR, or no GitHub integration can access it "
+                    "(code `github_repository_inaccessible`, with a `remediation_url`)."
+                )
             ),
             403: OpenApiResponse(
                 response=PullRequestChecksPermissionErrorSerializer,
@@ -5181,7 +5242,10 @@ class SignalReportViewSet(
                 description="Conversation and review comments on the report's implementation pull request.",
             ),
             404: OpenApiResponse(
-                description="Report has no implementation PR, or no GitHub integration can access it."
+                description=(
+                    "Report has no implementation PR, or no GitHub integration can access it "
+                    "(code `github_repository_inaccessible`, with a `remediation_url`)."
+                )
             ),
             502: OpenApiResponse(description="GitHub could not return the comments."),
             503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
@@ -5662,15 +5726,7 @@ class SignalReportViewSet(
                 ),
             )
         if github is None:
-            return (
-                None,
-                repository,
-                pr_number,
-                Response(
-                    {"error": f"No GitHub integration can access '{repository}'."},
-                    status=status.HTTP_404_NOT_FOUND,
-                ),
-            )
+            return None, repository, pr_number, github_repository_inaccessible_response(self.team.id, repository)
         return github, repository, pr_number, None
 
 
@@ -6498,6 +6554,8 @@ class SignalReportCheckViewSet(
     )
     @action(detail=True, methods=["post"], url_path="replace", required_scopes=["inbox:write", "query:read"])
     def replace(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        if not organization_report_monitoring_enabled(self.organization.id):
+            raise NotFound()
         check = cast(SignalReportCheck, self.get_object())
         data = request.validated_data
         try:
@@ -6508,6 +6566,9 @@ class SignalReportCheckViewSet(
                 config=data["config"],
                 attribution=resolve_request_attribution(request, self.team.id),
                 access_policy=ReportMetricAccessPolicy(request=request, team=self.team),
+                soak_minutes=data.get("soak_minutes"),
+                run_interval_minutes=data.get("run_interval_minutes"),
+                runs_remaining=data.get("runs_remaining"),
             )
         except CheckQueryAccessError as error:
             return Response({"error": str(error)}, status=status.HTTP_403_FORBIDDEN)
@@ -7061,7 +7122,12 @@ class SignalReportArtefactViewSet(
                 description="The pull request diff, or the branch diff when no pull request is linked.",
             ),
             400: OpenApiResponse(description="Artefact is not a commit, or is missing repository/branch."),
-            404: OpenApiResponse(description="Artefact not found, or no GitHub integration can access the repository."),
+            404: OpenApiResponse(
+                description=(
+                    "Artefact not found, or no GitHub integration can access the repository "
+                    "(code `github_repository_inaccessible`, with a `remediation_url`)."
+                )
+            ),
             502: OpenApiResponse(description="GitHub could not produce the diff (branch not found, fetch failed)."),
         },
         summary="Fetch the diff for a commit artefact",
@@ -7108,10 +7174,7 @@ class SignalReportArtefactViewSet(
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
         if github is None:
-            return Response(
-                {"error": f"No GitHub integration can access '{repository}'."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return github_repository_inaccessible_response(self.team.id, str(repository))
         try:
             pull_request = _pull_request_ref_for_commit(artefact, str(repository), str(branch), github)
         except GitHubRateLimitError as e:

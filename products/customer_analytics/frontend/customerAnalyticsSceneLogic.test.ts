@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { emptySceneParams } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -50,6 +52,20 @@ describe('customerAnalyticsSceneLogic', () => {
             }).toMatchValues({
                 filterTestAccounts: true,
             })
+        })
+    })
+
+    describe('page name', () => {
+        it.each([
+            ['customerAnalyticsDashboard', false, 'Customer analytics'],
+            ['customerAnalyticsFeed', false, 'Customer analytics'],
+            ['customerAnalyticsDashboard', true, 'Overview'],
+            ['customerAnalyticsFeed', true, 'Feed'],
+        ])('names the %s breadcrumb when today-rail-nav is %s', (sceneKey, todayRailNav, name) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayRailNav })
+            sceneLogic.actions.setScene(Scene.CustomerAnalytics, sceneKey, emptySceneParams)
+
+            expect(logic.values.breadcrumbs[0].name).toEqual(name)
         })
     })
 
