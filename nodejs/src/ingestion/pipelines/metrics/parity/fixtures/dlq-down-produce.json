@@ -1,0 +1,344 @@
+{
+ "scenario": {
+  "name": "dlq-down-produce",
+  "description": "A produce that fails and whose DLQ write fails rejects the background task.",
+  "batch_now_ms": [
+   1736944633250,
+   1736944634250
+  ],
+  "config": {
+   "METRICS_LIMITER_ENABLED_TEAMS": "",
+   "METRICS_LIMITER_DISABLED_FOR_TEAMS": "",
+   "METRICS_LIMITER_BUCKET_SIZE_KB": 10000,
+   "METRICS_LIMITER_REFILL_RATE_KB_PER_SECOND": 1000,
+   "METRICS_LIMITER_TTL_SECONDS": 86400,
+   "METRICS_LIMITER_TEAM_BUCKET_SIZE_KB": "",
+   "METRICS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND": ""
+  },
+  "teams": [
+   {
+    "id": 601,
+    "api_token": "token-dlq-a"
+   },
+   {
+    "id": 602,
+    "api_token": "token-dlq-b"
+   }
+  ],
+  "quota_limited_tokens": [],
+  "team_lookup_faults": {},
+  "produce_faults": [
+   {
+    "output": "metrics",
+    "team_id": "601",
+    "times": 1,
+    "error": {
+     "kind": "message_size_too_large",
+     "message": "too large"
+    }
+   },
+   {
+    "output": "dlq",
+    "times": 1,
+    "error": {
+     "kind": "error",
+     "message": "dlq broker down"
+    }
+   }
+  ],
+  "batches": [
+   [
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 0,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-dlq-b"
+      ],
+      [
+       "bytes_uncompressed",
+       "100"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "200"
+      ],
+      [
+       "bytes_compressed",
+       "34"
+      ],
+      [
+       "record_count",
+       "1"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgNDMgMDow"
+    }
+   ],
+   [
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 1,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-dlq-a"
+      ],
+      [
+       "bytes_uncompressed",
+       "200"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "400"
+      ],
+      [
+       "bytes_compressed",
+       "67"
+      ],
+      [
+       "record_count",
+       "2"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgNDQgMDox"
+    },
+    {
+     "topic": "metrics_ingestion_test",
+     "partition": 0,
+     "offset": 2,
+     "timestamp": 1736944631250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "token-dlq-b"
+      ],
+      [
+       "bytes_uncompressed",
+       "300"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "600"
+      ],
+      [
+       "bytes_compressed",
+       "100"
+      ],
+      [
+       "record_count",
+       "3"
+      ]
+     ],
+     "value_b64": "b3BhcXVlIG90bHAgbWV0cmljcyBwYWNrZXQgNDUgMDoy"
+    }
+   ]
+  ]
+ },
+ "expected": {
+  "batches": [
+   {
+    "error": null
+   },
+   {
+    "error": "Error"
+   }
+  ],
+  "outputs": [
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":602,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested\",\"count\":100}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 100,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested",
+      "team_id": 602,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":602,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_records\",\"count\":200}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 200,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_records",
+      "team_id": 602,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":602,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_received\",\"count\":100}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 100,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 602,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":602,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_ingested\",\"count\":1}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 1,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_ingested",
+      "team_id": 602,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":602,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"metrics\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_received\",\"count\":1}",
+     "json": {
+      "app_source": "metrics",
+      "app_source_id": "",
+      "count": 1,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 602,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "metrics",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "34",
+     "bytes_uncompressed": "100",
+     "bytes_uncompressed_records": "200",
+     "record_count": "1",
+     "retention-days": "30",
+     "source_partition": "0",
+     "source_topic": "metrics_ingestion_test",
+     "team_id": "602",
+     "token": "token-dlq-b"
+    },
+    "value": {
+     "kind": "passthrough",
+     "batch": 0,
+     "index": 0
+    }
+   },
+   {
+    "batch": 1,
+    "output": "metrics",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "100",
+     "bytes_uncompressed": "300",
+     "bytes_uncompressed_records": "600",
+     "record_count": "3",
+     "retention-days": "30",
+     "source_partition": "0",
+     "source_topic": "metrics_ingestion_test",
+     "team_id": "602",
+     "token": "token-dlq-b"
+    },
+    "value": {
+     "kind": "passthrough",
+     "batch": 1,
+     "index": 1
+    }
+   }
+  ],
+  "usage_records": [
+   {
+    "batch": 0,
+    "team_id": 602,
+    "usage_key": "metrics_bytes",
+    "record_id": "metrics_ingestion_test:0:0",
+    "quantity": 100,
+    "unit": "bytes",
+    "timestamp_ms": 1736944631250
+   },
+   {
+    "batch": 0,
+    "team_id": 602,
+    "usage_key": "metrics_bytes_records",
+    "record_id": "metrics_ingestion_test:0:0",
+    "quantity": 200,
+    "unit": "bytes",
+    "timestamp_ms": 1736944631250
+   },
+   {
+    "batch": 0,
+    "team_id": 602,
+    "usage_key": "metrics_records",
+    "record_id": "metrics_ingestion_test:0:0",
+    "quantity": 1,
+    "unit": "records",
+    "timestamp_ms": 1736944631250
+   }
+  ],
+  "teams_ingested": [
+   [
+    602
+   ]
+  ],
+  "quota_checks": [
+   [
+    "token-dlq-a",
+    "metrics_mb_ingested"
+   ],
+   [
+    "token-dlq-b",
+    "metrics_mb_ingested"
+   ]
+  ]
+ }
+}
