@@ -39,7 +39,7 @@ from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, f
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import ConditionsChange
 
-# pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
+# pinned: the subcodes are sent as `finding_subcode` on the health finding events, so insights group on them.
 # Every condition that includes users pins a variant, so no user is randomly assigned. One variant gets
 # everyone, or each variant gets a different group of users, so the results compare nothing valid.
 ALL_CONDITIONS_PINNED = "all_conditions_pinned"
@@ -58,6 +58,13 @@ class _Pins:
     # The pinned conditions whose variant the analysis includes, in evaluation order.
     analyzed: tuple[ReachableCondition, ...]
     graded: PinnedConditions
+
+
+def assigns_nobody_by_split(flag: FlagState) -> bool:
+    """Whether every release condition that includes users sets a variant override, so the split assigns nobody."""
+    return bool(flag.reachable_conditions) and all(
+        condition.pinned_variant is not None for condition in flag.reachable_conditions
+    )
 
 
 def overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
@@ -121,7 +128,7 @@ def _pins(ctx: HealthContext, flag: FlagState) -> _Pins | None:
     analyzed = tuple(condition for condition in pinned if condition.pinned_variant not in ctx.excluded_variant_keys)
     return _Pins(
         pinned=pinned,
-        all_pinned=len(pinned) == len(flag.reachable_conditions),
+        all_pinned=assigns_nobody_by_split(flag),
         analyzed=analyzed,
         graded=pinned_conditions(analyzed, flag.variants),
     )
@@ -152,6 +159,7 @@ def _some_conditions_pinned(pins: _Pins, ctx: HealthContext, is_draft: bool) -> 
         pinned_keys=pinned_keys,
         diagnostic_ref="A7",
         grade_evidence={**(grade.evidence() if grade is not None else {}), **set_after_launch.evidence},
+        reason=grade.finding_reason if grade is not None else None,
     )
 
 
@@ -190,7 +198,7 @@ def _set_after_launch(ctx: HealthContext, numbers: Sequence[int]) -> _SetAfterLa
             "who were exposed before may have switched variants."
         )
     else:
-        names = _set_names(sorted(override.condition_number for override in added))
+        names = set_names(sorted(override.condition_number for override in added))
         sentence = (
             f" The overrides of {names} were set after launch, last on {at}, so users they match who were exposed "
             "before may have switched variants."
@@ -211,7 +219,7 @@ def _quoted(keys: Sequence[str]) -> str:
     return ", ".join(f'"{key}"' for key in keys)
 
 
-def _set_names(numbers: Sequence[int]) -> str:
+def set_names(numbers: Sequence[int]) -> str:
     if len(numbers) == 1:
         return f"Set {numbers[0]}"
     return "Sets " + ", ".join(str(number) for number in numbers[:-1]) + f" and {numbers[-1]}"
@@ -274,13 +282,13 @@ def _some_pinned_detail(
         key = pinned_keys[0]
         overrides, them = "the override", "it"
         fact = (
-            f'{_set_names(numbers)} sets the variant override "{key}", so users who match it always get "{key}" '
+            f'{set_names(numbers)} sets the variant override "{key}", so users who match it always get "{key}" '
             "instead of a random variant."
         )
     else:
         overrides, them = "the overrides", "them"
         fact = (
-            f"{_set_names(numbers)} set variant overrides ({_quoted(pinned_keys)}), so users who match them "
+            f"{set_names(numbers)} set variant overrides ({_quoted(pinned_keys)}), so users who match them "
             "always get the variant of their condition instead of a random one."
         )
     why = (
@@ -321,10 +329,12 @@ def _finding(
     pinned_keys: Sequence[str],
     diagnostic_ref: str,
     grade_evidence: Mapping[str, str | int | float | None] | None = None,
+    reason: str | None = None,
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.FORCED_VARIANT_RELEASE_CONDITION,
         subcode=subcode,
+        reason=reason,
         severity=severity,
         title=title,
         detail=detail,

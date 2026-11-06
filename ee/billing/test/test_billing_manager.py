@@ -1,3 +1,4 @@
+import copy
 import hmac
 import json
 import math
@@ -32,15 +33,20 @@ from ee.billing.billing_manager import (
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
     BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER,
     BillingManager,
+    BillingServiceRateLimited,
+    BillingServiceResponseError,
     FundingStatusUnavailable,
     OrganizationFundingStatus,
+    OrganizationHasNoOwnerError,
     PrepaidCreditState,
     _get_user_organization_role,
     _parse_funding_status,
     build_billing_token,
+    handle_billing_service_error,
     http_session,
 )
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 from ee.models.license import License, LicenseManager
 
 
@@ -401,6 +407,7 @@ class TestBillingManager(BaseTest):
                     "feature_flag_requests": {"usage": 25, "limit": 300},
                     "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
                     "llm_events": {"usage": 50, "limit": 1000},
+                    "mcp_events": {"usage": 30, "limit": 500},
                     "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
                     "survey_responses": {"usage": 10, "limit": 100},
                     "cdp_trigger_events": {"usage": 10, "limit": 100},
@@ -438,8 +445,10 @@ class TestBillingManager(BaseTest):
             "rows_exported": {"usage": 10, "limit": 1000, "todays_usage": 5},
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
+            "mcp_events": {"usage": 30, "limit": 500, "todays_usage": 0},
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
             "signals_credits": {},
+            "signals_spend_credits": {},
             "replay_vision_credits": {},
             "posthog_code_credits": {},
             "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
@@ -963,6 +972,159 @@ class TestBillingManager(BaseTest):
         organization.refresh_from_db()
         assert organization.has_active_subscription is expected
 
+    def _billing_status(
+        self,
+        computed_at: str | None,
+        events_usage: int,
+        *,
+        events_limit: int | None = None,
+        latest_usage_report_date: str = "2026-08-02",
+    ) -> BillingStatus:
+        billing_status: dict[str, Any] = {
+            "customer": {
+                "usage_summary": {
+                    "events": {"usage": events_usage, "limit": events_limit},
+                    "recordings": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2026-08-01T00:00:00Z",
+                    "current_period_end": "2026-09-01T00:00:00Z",
+                },
+            }
+        }
+        if computed_at:
+            billing_status["computed_at"] = computed_at
+            billing_status["latest_usage_report_date"] = latest_usage_report_date
+        return cast(BillingStatus, billing_status)
+
+    @time_machine.travel("2026-08-03T04:00:00Z", tick=False)
+    def test_status_after_a_report_keeps_todays_count_in_the_quota_check(self):
+        self.organization.usage = {
+            "events": {
+                "usage": 500,
+                "limit": 1000,
+                "todays_usage": 400,
+                "daily_usage": {"2026-08-02": 200, "2026-08-03": 400},
+            },
+            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
+            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+            "billing_status_computed_at": "2026-08-02T04:00:00+00:00",
+            "billing_latest_usage_report_date": "2026-08-01",
+        }
+        self.organization.save()
+
+        # Billing's total now includes 2026-08-02, but not today.
+        BillingManager(license=None).update_org_details(
+            self.organization,
+            self._billing_status("2026-08-03T04:00:00Z", events_usage=700, events_limit=1000),
+        )
+
+        assert self.team.api_token in list_limited_team_attributes(
+            QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+    @parameterized.expand(
+        [
+            ("newer_status_applies", "2026-08-03T00:00:00Z", 1000, "2026-08-03T00:00:00+00:00", "2026-08-02"),
+            ("redelivered_status_applies", "2026-08-02T00:00:00Z", 1000, "2026-08-02T00:00:00+00:00", "2026-08-02"),
+            ("older_status_is_skipped", "2026-08-01T00:00:00Z", 500, "2026-08-02T00:00:00+00:00", None),
+            ("status_without_stamp_applies_and_drops_the_stamps", None, 1000, None, None),
+        ]
+    )
+    def test_update_org_details_skips_a_status_older_than_the_last_applied(
+        self, _name, status_computed_at, expected_events_usage, expected_computed_at, expected_report_date
+    ):
+        organization = self.organization
+        organization.usage = {
+            "events": {"usage": 500, "limit": None, "todays_usage": 0},
+            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
+            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+            "billing_status_computed_at": "2026-08-02T00:00:00+00:00",
+        }
+        organization.save()
+
+        BillingManager(license=None).update_org_details(
+            organization, self._billing_status(status_computed_at, events_usage=1000)
+        )
+
+        organization.refresh_from_db()
+        assert organization.usage is not None
+        assert organization.usage["events"]["usage"] == expected_events_usage
+        assert organization.usage.get("billing_status_computed_at") == expected_computed_at
+        assert organization.usage.get("billing_latest_usage_report_date") == expected_report_date
+
+    def test_update_org_details_writes_nothing_for_a_status_that_changes_only_the_stamp(self):
+        manager = BillingManager(license=None)
+        manager.update_org_details(self.organization, self._billing_status("2026-08-02T00:00:00Z", events_usage=1000))
+        assert self.organization.usage is not None
+        usage_written_by_quota_run = copy.deepcopy(self.organization.usage)
+        usage_written_by_quota_run["events"]["todays_usage"] = 25
+        Organization.objects.filter(id=self.organization.id).update(usage=usage_written_by_quota_run)
+
+        with patch("ee.billing.billing_manager.update_org_billing_quotas") as update_org_billing_quotas:
+            manager.update_org_details(
+                self.organization, self._billing_status("2026-08-03T00:00:00Z", events_usage=1000)
+            )
+
+        update_org_billing_quotas.assert_not_called()
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["events"]["todays_usage"] == 25
+
+    @parameterized.expand(
+        [
+            ("activate_trial", {"type": "autosubscribe", "target": "boost"}, 6, None),
+            ("cancel_trial", {}, None, 6),
+            ("switch_plan", {"from_product_key": "boost", "to_product_key": "scale"}, 6, None),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    @patch("ee.billing.billing_manager.http_session.post")
+    def test_plan_change_skips_a_status_queued_before_it(
+        self,
+        manager_method: str,
+        data: dict[str, Any],
+        limit_before: int | None,
+        limit_after: int | None,
+        mock_post: MagicMock,
+        mock_get: MagicMock,
+    ):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        def features(projects_limit: int | None) -> list[dict[str, Any]]:
+            return [{"key": "organizations_projects", "name": "Projects", "limit": projects_limit}]
+
+        def status(computed_at: str, projects_limit: int | None) -> BillingStatus:
+            billing_status = cast(dict[str, Any], self._billing_status(computed_at, events_usage=500))
+            billing_status["customer"]["available_product_features"] = features(projects_limit)
+            return cast(BillingStatus, billing_status)
+
+        organization = self.organization
+        organization.usage = {
+            "events": {"usage": 500, "limit": None, "todays_usage": 0},
+            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
+            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+        }
+        organization.available_product_features = features(limit_before)
+        organization.save()
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {}
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = status("2026-08-03T00:00:00Z", projects_limit=limit_after)
+
+        manager = BillingManager(license)
+        getattr(manager, manager_method)(organization, data)
+        manager.update_org_details(organization, status("2026-08-02T00:00:00Z", projects_limit=limit_before))
+
+        organization.refresh_from_db()
+        assert organization.available_product_features == features(limit_after)
+        assert organization.usage is not None
+        assert organization.usage["billing_status_computed_at"] == "2026-08-03T00:00:00+00:00"
+
 
 class TestBillingSession(SimpleTestCase):
     def test_the_session_keeps_no_cookies(self):
@@ -978,6 +1140,58 @@ class TestBillingSession(SimpleTestCase):
         )
 
         self.assertEqual(len(http_session.cookies), 0)
+
+
+def _response(status_code: int, headers: dict[str, str] | None = None, body: Any = None) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response.headers.update(headers or {})
+    response._content = b"" if body is None else json.dumps(body).encode()
+    response.raw = MagicMock()
+    return response
+
+
+class TestHandleBillingServiceError(SimpleTestCase):
+    def test_handle_billing_service_error_raises_rate_limited_on_429(self):
+        res = _response(429, headers={"Retry-After": "30"}, body={"detail": "x"})
+
+        with self.assertRaises(BillingServiceRateLimited) as context:
+            handle_billing_service_error(res)
+
+        assert context.exception.status_code == 429
+        assert context.exception.wait == 30
+        assert context.exception.args == ()
+
+    def test_rate_limited_response_is_closed(self):
+        res = _response(429, headers={"Retry-After": "30"})
+
+        with patch.object(res, "close", wraps=res.close) as close, self.assertRaises(BillingServiceRateLimited):
+            handle_billing_service_error(res)
+
+        close.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("missing", {}),
+            ("not_a_number", {"Retry-After": "soon"}),
+            ("nan", {"Retry-After": "nan"}),
+            ("negative", {"Retry-After": "-5"}),
+        ]
+    )
+    def test_rate_limited_without_retry_after_has_no_wait(self, _name, headers):
+        with self.assertRaises(BillingServiceRateLimited) as context:
+            handle_billing_service_error(_response(429, headers=headers))
+
+        assert context.exception.wait is None
+
+    def test_other_bad_statuses_still_raise_response_error(self):
+        res = _response(500, body={"detail": "boom"})
+
+        with self.assertRaises(BillingServiceResponseError) as context:
+            handle_billing_service_error(res)
+
+        assert context.exception.status_code == 500
+        assert context.exception.body == {"detail": "boom"}
 
 
 class TestBillingProviderWebhookSigning(SimpleTestCase):
@@ -1562,8 +1776,116 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
 
         # Should capture exception about no owner
         mock_capture_exception.assert_called_once()
-        exception_call = mock_capture_exception.call_args
-        assert "No owner membership found" in str(exception_call[0][0])
+        exception, properties = mock_capture_exception.call_args[0]
+        assert str(exception) == "No owner membership found for organization"
+        assert properties == {"organization_id": self.organization.id}
+
+    @parameterized.expand(
+        [
+            ("unauthorized", 401, None, False),
+            ("not_found", 404, None, False),
+            ("server_error", 500, None, True),
+            ("connection_error", None, requests.ConnectionError("boom"), True),
+        ]
+    )
+    @patch("ee.billing.billing_manager.capture_exception")
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_update_billing_org_users_never_raises_and_captures_only_errors(
+        self, _name, status_code, side_effect, expect_capture, mock_patch, mock_capture_exception
+    ):
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="owner@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        mock_patch.return_value = MagicMock(status_code=status_code, json=MagicMock(return_value={}))
+        mock_patch.side_effect = side_effect
+
+        BillingManager(self.license, user=self.user).update_billing_organization_users(self.organization)
+
+        mock_patch.assert_called_once()
+        if expect_capture:
+            mock_capture_exception.assert_called_once()
+            assert mock_capture_exception.call_args[0][1] == {"organization_id": self.organization.id}
+        else:
+            mock_capture_exception.assert_not_called()
+
+    @parameterized.expand([("ok", 200), ("unauthorized", 401), ("not_found", 404)])
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_sync_organization_users_returns_billing_response(self, _name, status_code, mock_patch):
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="owner@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        mock_patch.return_value = MagicMock(status_code=status_code, json=MagicMock(return_value={}))
+
+        response = BillingManager(self.license, user=self.user).sync_organization_users(self.organization)
+
+        assert response.status_code == status_code
+
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_sync_organization_users_raises_on_billing_error(self, mock_patch):
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="owner@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        mock_patch.return_value = MagicMock(status_code=500, json=MagicMock(return_value={}))
+
+        with self.assertRaises(BillingServiceResponseError) as ctx:
+            BillingManager(self.license, user=self.user).sync_organization_users(self.organization)
+
+        assert ctx.exception.status_code == 500
+
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_sync_organization_users_raises_without_owner(self, mock_patch):
+        with self.assertRaises(OrganizationHasNoOwnerError):
+            BillingManager(self.license, user=self.user).sync_organization_users(self.organization)
+
+        mock_patch.assert_not_called()
+
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_sync_organization_users_leaves_out_values_billing_rejects(self, mock_patch):
+        mock_patch.return_value = MagicMock(status_code=200, json=MagicMock(return_value={}))
+        owner = User.objects.create_and_join(
+            organization=self.organization,
+            email="owner@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        admin_without_distinct_id = User.objects.create_and_join(
+            organization=self.organization,
+            email="admin@example.com",
+            password=None,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+        User.objects.filter(id=admin_without_distinct_id.id).update(distinct_id=None)
+        admin_with_invalid_email = User.objects.create_and_join(
+            organization=self.organization,
+            email="not-an-email",
+            password=None,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+
+        BillingManager(self.license, user=owner).sync_organization_users(self.organization)
+
+        payload = mock_patch.call_args.kwargs["json"]
+        assert len(payload["distinct_ids"]) == 3
+        assert set(payload["distinct_ids"]) == {
+            self.user.distinct_id,
+            owner.distinct_id,
+            admin_with_invalid_email.distinct_id,
+        }
+        assert payload["org_customer_email"] == "owner@example.com"
+        assert sorted(payload["org_admin_emails"]) == ["admin@example.com", "owner@example.com"]
+        assert payload["org_users"] == [
+            {"email": "not-an-email", "distinct_id": admin_with_invalid_email.distinct_id, "role": 8},
+            {"email": "owner@example.com", "distinct_id": owner.distinct_id, "role": 15},
+        ]
 
     @patch("ee.billing.billing_manager.http_session.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")

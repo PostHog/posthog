@@ -1,0 +1,90 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/error_tracking/releases/hash/2fe445ce7d3dbca51f8170eff7d191a77579d1d0e6702eaf0485b1ffb4377bf11ed333df66d045aafd8c38d6aec52123fe7757f0a73d46fdf09d3f2966de5f45",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 404
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/releases",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"hash_id\":\"2fe445ce7d3dbca51f8170eff7d191a77579d1d0e6702eaf0485b1ffb4377bf11ed333df66d045aafd8c38d6aec52123fe7757f0a73d46fdf09d3f2966de5f45\",\"version\":\"3.2.0\",\"project\":\"shop\"}",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"323D87C5-2905-3FEF-9169-2E28016F6EA3\",\"release_id\":\"a3614f5f-44e8-5368-b5a4-7de9e0b00620\",\"content_hash\":\"d16444357eda24eda52d3776366a99943cc52ba6e5dcf05404a802c3328ea3bef59f24ebc80c026b39977b9ed79e00efe4623b66275cca9519d0648ed9bcb0d5\",\"content_length\":1280},{\"chunk_id\":\"8FCB60C2-B0D7-3006-B807-B2CFF36F7CA3\",\"release_id\":\"a3614f5f-44e8-5368-b5a4-7de9e0b00620\",\"content_hash\":\"331a37c769b33bf525e7460468e2991eff36aba81e2a366e63b4da5ebc1dcd96f3862361764d5e5d017dbce705463cb0a698f4a24df938e8d9213646ab27ce82\",\"content_length\":1325},{\"chunk_id\":\"98EFEF90-68BF-3A75-A89C-A388EDB05326\",\"release_id\":\"a3614f5f-44e8-5368-b5a4-7de9e0b00620\",\"content_hash\":\"44daa7703efe3d2ce4185c6bd2de41b11ce0f45e43f7c24c5cf38ecad8db1f07a842d69dc51d3ad3bc4545743f72479337b41072f51c408a57211db01b31dac6\",\"content_length\":2026}],\"force\":true,\"skip_on_conflict\":false}",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"323D87C5-2905-3FEF-9169-2E28016F6EA3\",\"release_id\":\"a3614f5f-44e8-5368-b5a4-7de9e0b00620\",\"content_hash\":\"d16444357eda24eda52d3776366a99943cc52ba6e5dcf05404a802c3328ea3bef59f24ebc80c026b39977b9ed79e00efe4623b66275cca9519d0648ed9bcb0d5\",\"content_length\":1280},{\"chunk_id\":\"8FCB60C2-B0D7-3006-B807-B2CFF36F7CA3\",\"release_id\":\"a3614f5f-44e8-5368-b5a4-7de9e0b00620\",\"content_hash\":\"331a37c769b33bf525e7460468e2991eff36aba81e2a366e63b4da5ebc1dcd96f3862361764d5e5d017dbce705463cb0a698f4a24df938e8d9213646ab27ce82\",\"content_length\":1325},{\"chunk_id\":\"98EFEF90-68BF-3A75-A89C-A388EDB05326\",\"release_id\":\"a3614f5f-44e8-5368-b5a4-7de9e0b00620\",\"content_hash\":\"44daa7703efe3d2ce4185c6bd2de41b11ce0f45e43f7c24c5cf38ecad8db1f07a842d69dc51d3ad3bc4545743f72479337b41072f51c408a57211db01b31dac6\",\"content_length\":2026}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":true,\"skip_on_conflict\":false}",
+      "status": 201
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/03b8a617-624e-57ff-a78a-fdee042e40a2?length=2026",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "44daa7703efe3d2ce4185c6bd2de41b11ce0f45e43f7c24c5cf38ecad8db1f07a842d69dc51d3ad3bc4545743f72479337b41072f51c408a57211db01b31dac6",
+        "length": 2026
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/cb16c86e-05e6-5f21-af34-941756fc1ad7?length=1280",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "d16444357eda24eda52d3776366a99943cc52ba6e5dcf05404a802c3328ea3bef59f24ebc80c026b39977b9ed79e00efe4623b66275cca9519d0648ed9bcb0d5",
+        "length": 1280
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/f7fc99bc-8eab-5b64-b76f-5c19ac73fbcb?length=1325",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "331a37c769b33bf525e7460468e2991eff36aba81e2a366e63b4da5ebc1dcd96f3862361764d5e5d017dbce705463cb0a698f4a24df938e8d9213646ab27ce82",
+        "length": 1325
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_finish_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"content_hashes\":{\"03b8a617-624e-57ff-a78a-fdee042e40a2\":\"44daa7703efe3d2ce4185c6bd2de41b11ce0f45e43f7c24c5cf38ecad8db1f07a842d69dc51d3ad3bc4545743f72479337b41072f51c408a57211db01b31dac6\",\"cb16c86e-05e6-5f21-af34-941756fc1ad7\":\"d16444357eda24eda52d3776366a99943cc52ba6e5dcf05404a802c3328ea3bef59f24ebc80c026b39977b9ed79e00efe4623b66275cca9519d0648ed9bcb0d5\",\"f7fc99bc-8eab-5b64-b76f-5c19ac73fbcb\":\"331a37c769b33bf525e7460468e2991eff36aba81e2a366e63b4da5ebc1dcd96f3862361764d5e5d017dbce705463cb0a698f4a24df938e8d9213646ab27ce82\"},\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\"}",
+      "status": 201
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import { Releases } from '@posthog/products-error-tracking/frontend/scenes/Error
 import { SeverityRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/severity_rules/SeverityRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
+import { McpCustomHarnessesSettings } from '@posthog/products-mcp-analytics/frontend/settings/McpCustomHarnessesSettings'
 import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreSettings'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
@@ -58,6 +59,7 @@ import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
+import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsNotifications } from 'products/customer_analytics/frontend/components/TaskDigest/CustomerAnalyticsNotifications'
@@ -188,12 +190,14 @@ import { OrganizationDesktopBetaTerms } from './organization/OrgDesktopBetaTerms
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationVariables } from './organization/OrgVariables'
+import { SSFSetting } from './organization/SSFSetting'
 import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectDetails } from './project/ProjectDetails'
 import { ProjectMove } from './project/ProjectMove'
 import { ProjectSecretAPIKeys } from './project/ProjectSecretAPIKeys'
+import { WorkloadTrustPolicies } from './project/WorkloadTrustPolicies'
 import { SettingSection } from './types'
 import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
@@ -672,6 +676,22 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'mcp-analytics',
+        title: 'MCP analytics',
+        group: 'Products',
+        settings: [
+            {
+                id: 'mcp-analytics-custom-harnesses',
+                title: 'Custom harnesses',
+                description:
+                    'Name your own MCP clients. Calls from a client whose name or User-Agent contains the text you enter show under your name instead of Other harnesses. Harness names are cached, so a change can take a few minutes to show.',
+                component: <McpCustomHarnessesSettings />,
+                keywords: ['mcp', 'harness', 'client', 'user agent', 'other harnesses'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'mcp-servers',
         title: 'MCP servers',
         group: 'AI',
@@ -902,6 +922,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'bug',
                     'exception',
                     'stack trace',
+                    'adaptive',
+                    'sampling',
                 ],
             },
             {
@@ -1656,9 +1678,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ),
                 description: 'Import historical support data from external tools into Support.',
                 component: <ZendeskImportSection />,
-                flag: 'PRODUCT_SUPPORT_IMPORT_TICKETS',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['import', 'zendesk', 'migrate', 'ticket', 'support', 'conversation'],
+            },
+            {
+                id: 'conversations-macros',
+                title: 'Macros',
+                description: 'Save replies you send often and insert them from a ticket.',
+                component: <MacrosSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['macro', 'canned', 'reply', 'shortcut', 'template', 'support', 'conversation'],
             },
             {
                 id: 'conversations-ai',
@@ -1673,7 +1702,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
                 component: <AISection />,
-                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION',
+                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION_ORGS',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['ai', 'agent', 'suggestion', 'auto', 'reply', 'support', 'conversation', 'beta'],
             },
@@ -1693,7 +1722,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'When on, PostHog learns reusable answers from public human replies on resolved support tickets.',
                 component: <LearnFromSupportSetting />,
                 docsUrl: 'https://posthog.com/docs/business-knowledge/learn-from-support',
-                keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved'],
+                keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved', 'past', 'backfill'],
             },
             {
                 id: 'business-knowledge-github-repos',
@@ -1925,7 +1954,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'workflows-frequency-cap',
                 title: 'Frequency cap',
                 description:
-                    'The most marketing messages one person can get in a rolling number of days, across all workflows and broadcasts. Sends past the cap are skipped and the workflow moves on to the next step. Transactional messages are never capped and do not count. A workflow run without a person, for example one triggered by an event without a person profile, is not capped. Leave both fields empty to turn the cap off.',
+                    'The most marketing messages one person can get in a rolling number of days, across all workflows and broadcasts. Sends past the cap are skipped and the workflow moves on to the next step, unless you set a hold time. Then a send waits for the next free slot for that person. Transactional messages are never capped and do not count. A workflow run without a person, for example one triggered by an event without a person profile, is not capped. Leave both fields empty to turn the cap off.',
                 component: <WorkflowsFrequencyCapSettings />,
                 keywords: ['workflows', 'frequency', 'cap', 'limit', 'fatigue', 'marketing', 'broadcast', 'email'],
             },
@@ -1944,7 +1973,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                         attrPrefix="workflows-task"
                     />
                 ),
-                flag: 'WORKFLOW_AI_TASK_ACTION',
                 keywords: ['workflows', 'ai', 'task', 'agent', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
             },
             {
@@ -2119,7 +2147,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Integrate with Slack to subscribe to insights or dashboards for regular reports to channels of your choice.',
                 docsUrl: Slack.docsUrl,
-                component: <Slack.SettingsSection />,
+                component: <Slack.SettingsSection connectSurface="settings" />,
                 keywords: ['slack', 'channel', 'notification', 'subscribe', 'report'],
             },
             {
@@ -2210,6 +2238,33 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/api',
                 component: <ProjectSecretAPIKeys />,
                 keywords: ['token', 'api key', 'authentication', 'secret'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-trusted-workloads',
+        title: 'Trusted workloads',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        settings: [
+            {
+                id: 'environment-trusted-workloads',
+                title: 'Trusted workloads',
+                description:
+                    'Let workloads you trust, such as CI jobs, get short-lived tokens for this project without storing a secret.',
+                component: <WorkloadTrustPolicies />,
+                keywords: [
+                    'workload',
+                    'workload identity',
+                    'federation',
+                    'ci',
+                    'oidc',
+                    'github actions',
+                    'gitlab',
+                    'token',
+                    'trust policy',
+                    'deploy',
+                ],
             },
         ],
     },
@@ -2599,6 +2654,20 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "See which members' personal API keys can reach this organization or its projects, who owns them, and the scopes they grant.",
                 component: <OrganizationPersonalAPIKeys />,
                 keywords: ['api key', 'personal', 'token', 'access', 'audit'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-ssf',
+        hideSelfHost: true,
+        title: 'SSF',
+        settings: [
+            {
+                id: 'organization-ssf',
+                title: 'Shared Signals Framework (SSF)',
+                component: <SSFSetting />,
+                keywords: ['ssf', 'shared signals framework', 'security', 'signals', 'closed beta'],
             },
         ],
     },

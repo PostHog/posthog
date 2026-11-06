@@ -7,6 +7,8 @@ import { useId } from 'react'
 import { IconPlusSmall, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 
+import { LazyFeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/LazyFeatureFlagPopoverInfo'
+import { featureFlagKeyFromProperty } from 'lib/components/DefinitionPopover/utils'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
@@ -129,6 +131,7 @@ export function TaxonomicPropertyFilter({
     // A group row has no key, operator or value, so everything below it reads the leaf filter only.
     const nestedGroup = isPropertyGroupFilterLike(row) ? row : undefined
     const filter = isPropertyGroupFilterLike(row) ? null : row
+    const flagKey = featureFlagKeyFromProperty(filter?.key)
     const valuePresent = !!nestedGroup || filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
         !disablePopover &&
@@ -321,6 +324,11 @@ export function TaxonomicPropertyFilter({
                 tooltip={
                     <>
                         {cohortLabel ?? nestedGroupLabel ?? filterContent ?? (addText || 'Add filter')}
+                        {flagKey && (
+                            <div className="mt-2">
+                                <LazyFeatureFlagPopoverInfo flagKey={flagKey} />
+                            </div>
+                        )}
                         {addFilterDocLink && (
                             <>
                                 <br />

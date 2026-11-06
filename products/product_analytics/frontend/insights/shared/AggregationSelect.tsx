@@ -8,14 +8,9 @@ import { UNIQUE_USERS, getHogQLValue, hogQLToFilterValue } from 'scenes/insights
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { isFunnelsQuery, isInsightQueryNode, isLifecycleQuery, isRetentionQuery } from '~/queries/schema/node-guards'
 import { FunnelsQuery, LifecycleQuery, RetentionQuery } from '~/queries/schema/schema-general'
-import {
-    getAggregationGroupTypeIndex,
-    isFunnelsQuery,
-    isInsightQueryNode,
-    isLifecycleQuery,
-    isRetentionQuery,
-} from '~/queries/utils'
+import { getAggregationGroupTypeIndex } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import { GroupIntroductionFooter } from 'products/groups/frontend/components/GroupsIntroduction'

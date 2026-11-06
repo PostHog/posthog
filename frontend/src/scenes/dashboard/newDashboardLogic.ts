@@ -27,8 +27,8 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { isInsightVizNode } from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
 import {
     DashboardTemplateStoredTile,
     DashboardTemplateType,
@@ -39,6 +39,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { legacyEntityToNode, sanitizeRetentionEntity } from 'products/dashboards/frontend/dashboardTemplateEntities'
 import { WEBSITE_METRICS_METRIC_CARD_TILES } from 'products/dashboards/frontend/websiteMetricsMetricCardTemplate'
 import {
     titleMentionsMCP,
@@ -46,7 +47,6 @@ import {
 } from 'products/mcp_analytics/frontend/nudge/mcpAnalyticsNudgeLogic'
 
 import { UNFILED_DASHBOARDS_FOLDER } from './dashboardConstants'
-import { legacyEntityToNode, sanitizeRetentionEntity } from './dashboardTemplateEntities'
 
 export interface NewDashboardForm {
     name: string

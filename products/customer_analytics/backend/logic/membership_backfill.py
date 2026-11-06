@@ -43,11 +43,9 @@ WINDOW_SIZE = timedelta(days=1)
 HISTORICAL_WINDOW_SIZE = timedelta(days=90)
 QUERY_SETTINGS = {
     "max_execution_time": 120,
-    "max_memory_usage": 1_000_000_000,
     "max_bytes_to_read": 50 * 1024**4,
     "max_result_bytes": 8_000_000,
     "result_overflow_mode": "throw",
-    "max_threads": 30,
     "distributed_foreground_insert": 1,
 }
 
@@ -790,7 +788,7 @@ class MembershipBackfillService:
 
         results = (
             get_cluster(cluster=settings.CLICKHOUSE_MIGRATIONS_CLUSTER, data_cluster=settings.CLICKHOUSE_CLUSTER)
-            .map_hosts_by_roles(check, [NodeRole.INGESTION_SMALL], concurrency=2, require_hosts=True)
+            .map_hosts_by_roles(check, [NodeRole.INGESTION_EVENTS], concurrency=2, require_hosts=True)
             .result()
         )
         self.check_attempt()

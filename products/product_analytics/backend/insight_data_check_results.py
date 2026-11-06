@@ -19,6 +19,8 @@ MIN_DUPLICATE_EVENTS = 100
 # Higher than the other share floors, because events that differ only in custom properties count as repeats.
 MIN_DUPLICATE_SHARE = 0.05
 PROBLEM_SHARE = 0.2
+# Kept in sync with LOCAL_APP_SHARE in dataCheckText.ts.
+LOCAL_APP_SHARE = 0.9
 
 # An event with no user agent has the type "Automation", and server-side SDKs send those, so it is not a crawler.
 CRAWLER_TRAFFIC_TYPES = ("Bot", "AI Agent")
@@ -173,7 +175,11 @@ def _local_development_check(checked: CheckedEvents) -> InsightDataCheck:
     events = events_on_checked_days(checked)
     share = _share(local.count, events) if events is not None else None
     # No minimum share: a local session also creates test persons and flag exposures, whatever its share.
-    is_finding = local.count >= MIN_FINDING_EVENTS
+    # When nearly every event is local, the events come from the app itself, such as a desktop app, and a filter
+    # that removes them would empty the chart.
+    # ponytail: a share heuristic. A project with only local development events also passes. Upgrade to a dismiss
+    # per project if people need it.
+    is_finding = local.count >= MIN_FINDING_EVENTS and (share is None or share < LOCAL_APP_SHARE)
     return InsightDataCheck(
         key=key,
         # Never a problem: a project can serve real users from a local host, such as an app in a native wrapper,

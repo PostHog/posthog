@@ -7,10 +7,10 @@ import { expectLogic } from 'kea-test-utils'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { mockTask } from '../../__mocks__/inboxMocks'
@@ -81,7 +81,34 @@ describe('ImplementButton', () => {
         await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
 
         expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
-        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: false })
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            has_feedback: false,
+            opened_from_link: false,
+        })
+    })
+
+    it('opens the implementation choices when a link asks for them', async () => {
+        const user = userEvent.setup()
+        const onChoicesOpenedFromLink = jest.fn()
+        render(
+            <ImplementButton
+                report={makeReport()}
+                openChoicesFromLink
+                onChoicesOpenedFromLink={onChoicesOpenedFromLink}
+            />
+        )
+
+        await waitFor(() => expect(screen.getByText('Implement with PostHog')).toBeInTheDocument())
+        expect(onChoicesOpenedFromLink).toHaveBeenCalled()
+        expect(createPrFromReport).not.toHaveBeenCalled()
+
+        await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
+
+        expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            has_feedback: false,
+            opened_from_link: true,
+        })
     })
 
     it.each([TaskRunStatus.QUEUED, TaskRunStatus.IN_PROGRESS])(
@@ -179,7 +206,10 @@ describe('ImplementButton', () => {
             expect.objectContaining({ id: 'report-1' }),
             'Keep the existing API'
         )
-        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: true })
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            has_feedback: true,
+            opened_from_link: false,
+        })
     })
 
     it('copies a prompt that claims the report and attaches the finished pull request', async () => {

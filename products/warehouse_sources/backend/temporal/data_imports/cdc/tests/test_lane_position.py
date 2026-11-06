@@ -6,7 +6,12 @@ import deltalake
 import pyarrow.dataset as pa_ds
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc import lane_position
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_OP_COLUMN, CDC_SEQ_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
+    HISTORY_NAMING,
+    LEGACY_HISTORY_NAMING,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
     STATS_COLUMNS_PROPERTY,
     ensure_position_stats,
@@ -94,6 +99,27 @@ class TestReadLanePosition:
         assert position.applied == {(1, "I"): [_content(1), _content(1)]}
         assert position.content_schema is not None
         assert position.content_schema.names == ["id", *(f"c{i}" for i in range(_WIDE))]
+
+    @pytest.mark.parametrize(
+        ("history", "compared"),
+        [(HISTORY_NAMING, ["id", "valid_from"]), (LEGACY_HISTORY_NAMING, ["id"])],
+        ids=["new_table", "legacy_table"],
+    )
+    async def test_only_the_stamped_validity_columns_stay_out_of_the_comparison(self, tmp_path, history, compared):
+        # A new table frees `valid_from` for the source. Left out, two changes to one key that differ
+        # only there would compare equal, and the second would be dropped as already written.
+        rows = _rows([30], wide=False, ids=[1])
+        if history == HISTORY_NAMING:
+            rows = rows.append_column("valid_from", pa.array(["2020-01-01"]))
+        stamp = pa.array([None], pa.timestamp("us"))
+        rows = rows.append_column(history.valid_from, stamp).append_column(history.valid_to, stamp)
+        path = str(tmp_path / "t")
+        deltalake.write_deltalake(path, rows, configuration={STATS_COLUMNS_PROPERTY: CDC_SEQ_COLUMN})
+
+        position = await _resolved(deltalake.DeltaTable(path))
+
+        assert position.content_schema is not None
+        assert position.content_schema.names == compared
 
     async def test_rows_at_the_position_are_gathered_across_the_files_holding_them(self, tmp_path):
         path = tmp_path / "t"

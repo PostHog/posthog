@@ -144,7 +144,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        reads_ingested_data: events
     query-mcp-tool-stats:
         schema_ref: MCPToolStatsQuery
         enabled: true
@@ -167,7 +166,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        reads_ingested_data: events
     query-mcp-tool-daily-stats:
         schema_ref: MCPToolDailyStatsQuery
         enabled: true
@@ -190,7 +188,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        reads_ingested_data: events
     query-mcp-tool-failures:
         schema_ref: MCPToolFailuresQuery
         enabled: true
@@ -216,7 +213,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        reads_ingested_data: events
     query-mcp-tool-failure-occurrences:
         schema_ref: MCPToolFailureOccurrencesQuery
         enabled: true
@@ -242,7 +238,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        reads_ingested_data: events
     query-mcp-tool-top-users:
         schema_ref: MCPToolTopUsersQuery
         enabled: true
@@ -264,7 +259,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        reads_ingested_data: events
     query-mcp-tool-neighbors:
         schema_ref: MCPToolNeighborsQuery
         enabled: true
@@ -287,7 +281,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        reads_ingested_data: events
     query-mcp-tool-sample-intents:
         schema_ref: MCPToolSampleIntentsQuery
         enabled: true
@@ -309,7 +302,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        reads_ingested_data: events
     query-mcp-tool-descriptions:
         schema_ref: MCPToolDescriptionsQuery
         enabled: true
@@ -331,7 +323,6 @@ wrappers:
             - modifiers
             - version
             - tags
-        reads_ingested_data: events
     query-mcp-missing-capabilities:
         schema_ref: MCPMissingCapabilitiesQuery
         enabled: true
@@ -348,12 +339,12 @@ wrappers:
             $mcp_missing_capability report from the SDK's get_more_tools tool, including the report text, timestamp,
             client label, conversation id, and person. Results are chronological because exact-text grouping would split
             similar free-form requests. The query accepts a dateRange, case-insensitive text search, limit, and offset.
-            The response's has_next field indicates whether more results remain. Use this tool to identify capabilities
-            that agents need or to prioritize new MCP tools.
+            Set filterTestAccounts to true to exclude the project's internal and test users. The response's has_next
+            field indicates whether more results remain. Use this tool to identify capabilities that agents need or to
+            prioritize new MCP tools.
         system_prompt_hint: MCP missing capabilities that agents reported, newest first
         exclude_properties:
             - response
             - modifiers
             - version
             - tags
-        reads_ingested_data: events

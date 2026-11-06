@@ -6,13 +6,13 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { getApprovalActionLabel, getApprovalResourceUrl } from 'scenes/approvals/utils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { AvailableFeature, Breadcrumb, ChangeRequest, ChangeRequestState } from '~/types'
 
 export interface ApprovalLogicProps {

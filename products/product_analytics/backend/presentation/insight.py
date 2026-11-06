@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
@@ -28,7 +29,7 @@ from pydantic import (
     ValidationError as PydanticValidationError,
 )
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import APIException, ParseError, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
@@ -47,6 +48,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
+from posthog.api.query import add_query_response_identity_headers, get_query_request_analytics_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import insight_query_access_error
@@ -64,7 +66,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries, tags_context
 from posthog.constants import INSIGHT
 from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, QueryErrorCategory, classify_query_error
-from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
+from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -107,7 +109,6 @@ from posthog.models.file_system.file_system import delete_files
 from posthog.models.organization import Organization
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDT
 from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     get_authenticator_scoped_team_ids,
@@ -123,7 +124,6 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.renderers import SafeJSONRenderer
-from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.scopes import scopes_not_covered
@@ -140,7 +140,10 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
-from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -158,7 +161,7 @@ from products.dashboards.backend.facade.api import (
     DashboardNotFound,
     DashboardTileBasicSerializer,
     InsightTilePlacement,
-    active_tile_count,
+    check_insight_tile_limit,
     dashboard_refs,
     hide_tiles_for_insights,
     insight_has_listed_tile,
@@ -232,7 +235,7 @@ def log_and_report_insight_activity(
     insight: Insight,
     insight_id: int,
     insight_short_id: str,
-    organization_id: UUIDT,
+    organization_id: UUID,
     team_id: int,
     user: User,
     was_impersonated: bool,
@@ -271,6 +274,22 @@ def log_and_report_insight_activity(
                 organization=organization,
                 request=request,
             )
+
+
+def viewable_insight_or_404(*, team_id: int, insight_id: int, user_access_control: UserAccessControl) -> Insight:
+    """The live insight of this team with this ID, for an endpoint of another product that acts on it.
+
+    Raises NotFound when the team has no such insight, and PermissionDenied when access rules hide it.
+    """
+    insight = Insight.objects.filter(team_id=team_id, pk=insight_id).first()
+    if insight is None:
+        raise NotFound()
+    # The request's access control answers only for the team in the URL, and the insight can belong to a
+    # sibling environment of the project, whose own rules decide.
+    insight_access = user_access_control.for_team_ids([insight.team_id])[insight.team_id]
+    if not insight_access.check_access_level_for_object(insight, "viewer"):
+        raise PermissionDenied("You don't have permission to view this insight.")
+    return insight
 
 
 class QuerySchemaParser(JSONParser):
@@ -502,6 +521,18 @@ class _InsightQuerySchema(RootModel):
     ) = PydanticField(discriminator="kind")
 
 
+_METRICS_QUERY_KINDS = frozenset({"MetricsQuery", "MetricsHistogramQuery"})
+METRICS_VARIABLE_VALUES_MESSAGE = (
+    "A saved metrics insight can't store variable values. Keep the $name references in the query, "
+    "and set the values with a dashboard variable or on the alert."
+)
+
+
+def _reject_metrics_variable_values(query: Any) -> None:
+    if isinstance(query, dict) and query.get("kind") in _METRICS_QUERY_KINDS and query.get("variables"):
+        raise ValidationError({"query": [METRICS_VARIABLE_VALUES_MESSAGE]})
+
+
 @extend_schema_field(_InsightQuerySchema)  # type: ignore[arg-type]
 class QueryFieldSerializer(serializers.Serializer):
     def to_representation(self, value):
@@ -704,6 +735,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         query = attrs.get("query") if "query" in attrs else None
+        _reject_metrics_variable_values(query)
         # `filters` is read-only, so DRF drops it before validation. The raw payload is the only
         # place a legacy write still shows up, and it has to be answered rather than ignored.
         sent_filters = self.initial_data.get("filters")
@@ -751,15 +783,11 @@ class InsightSerializer(InsightBasicSerializer):
             for dashboard_id in new_dashboard_ids:
                 if dashboard_id in existing_dashboard_ids:
                     continue
-                check_count_limit(
+                check_insight_tile_limit(
                     team=team,
-                    key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
-                    current_count=active_tile_count(dashboard_id),
+                    dashboard_id=dashboard_id,
+                    dashboard_name=dashboard_names.get(dashboard_id),
                     user=self.context["request"].user,
-                    resource_properties={
-                        "dashboard_id": dashboard_id,
-                        "dashboard_name": dashboard_names.get(dashboard_id) or "",
-                    },
                 )
 
         return super().validate(attrs)
@@ -1418,7 +1446,7 @@ class InsightSerializer(InsightBasicSerializer):
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,
                         cache_age_seconds=shared_cache_age_seconds,
-                        analytics_props=get_request_analytics_properties(self.context["request"]),
+                        analytics_props=get_query_request_analytics_properties(self.context["request"]),
                         allow_raw_results=allow_raw_results,
                     )
                     access_method: DashboardAccessMethod | None = self.context.get("dashboard_access_method")
@@ -1531,6 +1559,10 @@ class InsightSerializer(InsightBasicSerializer):
         return dashboard_tile
 
 
+def _pydantic_error_details(exc: PydanticValidationError) -> str:
+    return "; ".join(f"{'.'.join(str(part) for part in e['loc'])}: {e['msg']}" for e in exc.errors())
+
+
 class MCPInsightSerializer(InsightSerializer):
     """Serializer for MCP insight create/update requests.
 
@@ -1595,11 +1627,20 @@ class MCPInsightSerializer(InsightSerializer):
                 pass
 
         # A metrics insight saves its query bare, as the metrics editor and the metrics dashboard builders do
-        for metrics_cls in (schema.MetricsQuery, schema.MetricsHistogramQuery):
+        metrics_classes: dict[str, type[schema.MetricsQuery] | type[schema.MetricsHistogramQuery]] = {
+            "MetricsQuery": schema.MetricsQuery,
+            "MetricsHistogramQuery": schema.MetricsHistogramQuery,
+        }
+        kind = value.get("kind") if value is not None else None
+        metrics_cls = metrics_classes.get(kind) if isinstance(kind, str) else None
+        if value is not None and metrics_cls is not None:
+            if value.get("language") in ("promql", "sql"):
+                # A PromQL or SQL metrics query has no builder clauses, but the schema still requires the field.
+                value = {**value, "clauses": value.get("clauses") or []}
             try:
                 return metrics_cls.model_validate(value).model_dump(exclude_none=True, mode="json", by_alias=True)
-            except PydanticValidationError:
-                pass
+            except PydanticValidationError as exc:
+                raise serializers.ValidationError(f"This query can't be saved: {_pydantic_error_details(exc)}")
 
         # Raw product analytics query → InsightVizNode
         try:
@@ -1607,8 +1648,7 @@ class MCPInsightSerializer(InsightSerializer):
                 exclude_none=True, mode="json", by_alias=True
             )
         except PydanticValidationError as exc:
-            details = "; ".join(f"{'.'.join(str(part) for part in e['loc'])}: {e['msg']}" for e in exc.errors())
-            raise serializers.ValidationError(f"This query can't be saved: {details}")
+            raise serializers.ValidationError(f"This query can't be saved: {_pydantic_error_details(exc)}")
 
 
 # Insights can be looked up by either the numeric primary key or the 8-character `short_id`
@@ -2109,6 +2149,9 @@ class InsightViewSet(
     queryset = Insight.objects_including_soft_deleted.all()
 
     parser_classes = (QuerySchemaParser,)
+
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        return add_query_response_identity_headers(super().finalize_response(request, response, *args, **kwargs))
 
     def get_throttles(self):
         """Apply LLM-specific throttles to the AI metadata endpoint."""

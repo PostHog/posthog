@@ -8,6 +8,7 @@ from products.web_analytics.dags import (
     cache_warming,
     clear_oom_pins,
     eager_web_analytics_precompute,
+    health_rollups,
     migrate_custom_bot_rules,
     web_analytics_watchdog,
     web_dimensional_precompute,
@@ -31,6 +32,8 @@ schedules = [
     marketing_sessions_precompute.marketing_sessions_precompute_schedule,
     cache_favicons.cache_authorized_domain_favicons_schedule,
     web_analytics_watchdog.web_analytics_watchdog_schedule,
+    health_rollups.events_health_daily_rollup.schedule,
+    health_rollups.host_proxy_daily_rollup.schedule,
 ]
 
 # Only include the backfill schedule when not in TEST mode
@@ -66,6 +69,8 @@ defs = dagster.Definitions(
         cache_favicons.cache_authorized_domain_favicons_job,
         clear_oom_pins.web_analytics_clear_precompute_oom_pins_job,
         migrate_custom_bot_rules.web_analytics_migrate_custom_bot_rules_job,
+        health_rollups.events_health_daily_rollup.job,
+        health_rollups.host_proxy_daily_rollup.job,
     ],
     schedules=schedules,
     loggers=loggers,

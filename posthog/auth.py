@@ -1,6 +1,7 @@
 import re
 import hmac
 import time
+import string
 import logging
 import functools
 from abc import abstractmethod
@@ -24,7 +25,7 @@ from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.request import Request
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
@@ -32,13 +33,17 @@ from zxcvbn import zxcvbn
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
+from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
+from posthog.models.activity_logging.activity_log import WORKLOAD_TRIGGER_JOB_TYPE, Trigger
 from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
+    WORKLOAD_CLIENT_PREFIX,
     ActivityCredentialMixin,
     DeclaredCredentialType,
     activity_storage,
@@ -63,11 +68,19 @@ from posthog.models.utils import (
     hash_key_value,
 )
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.models.workload_trust_policy import (
+    WorkloadTrustPolicy,
+    workload_trust_policies_settings_url,
+    workload_trust_policy_active_cache_key,
+    workload_trust_policy_grantable_scopes,
+    workload_trust_policy_version,
+)
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
+from posthog.scopes import LEGACY_SCOPE_FALLBACKS
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
-from posthog.utils import get_trusted_client_ip
+from posthog.utils import get_safe_cache, get_trusted_client_ip, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
@@ -515,7 +528,9 @@ class ProjectSecretAPIKeyUser(SyntheticUser):
         self.project_secret_api_key = project_secret_api_key
 
     def readable_system_table_access_scopes(self) -> set[str]:
-        return {scope.split(":", 1)[0] for scope in self.project_secret_api_key.scopes or [] if ":" in scope}
+        scope_objects = {scope.split(":", 1)[0] for scope in self.project_secret_api_key.scopes or [] if ":" in scope}
+        # Same fallback as APIScopePermission, so a key that reads a split-off object's REST API also reads its tables.
+        return scope_objects | {new for new, legacy in LEGACY_SCOPE_FALLBACKS.items() if legacy in scope_objects}
 
 
 class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
@@ -613,6 +628,28 @@ class JwtAuthentication(ActivityCredentialMixin, authentication.BaseAuthenticati
         return cls.keyword
 
 
+def _bearer_token(request: Union[HttpRequest, Request]) -> Optional[str]:
+    auth_header = request.headers.get("authorization")
+    if not auth_header:
+        return None
+    match = re.match(r"^Bearer\s+(\S.+)$", auth_header)
+    return match.group(1).strip() if match else None
+
+
+def _is_signed_jwt_of_type(token: str, token_type: str) -> bool:
+    """Whether a bearer token is a JWT whose `typ` header names one of PostHog's own stateless token
+    types. Personal API key, OAuth and secret token prefixes are reserved for their own backends."""
+    if token.startswith((PERSONAL_API_KEY_PREFIX, OAUTH_ACCESS_TOKEN_PREFIX, SECRET_API_TOKEN_PREFIX)):
+        return False
+    if token.count(".") != 2:
+        return False
+    try:
+        header = jwt.get_unverified_header(token)
+    except jwt.PyJWTError:
+        return False
+    return header.get("typ") == token_type
+
+
 @frozen
 class VerifiedIdJagAccessToken:
     user: User
@@ -645,30 +682,8 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
     organization_id: str
 
     @classmethod
-    def _extract_token(cls, request: Union[HttpRequest, Request]) -> Optional[str]:
-        auth_header = request.headers.get("authorization")
-        if not auth_header:
-            return None
-        match = re.match(rf"^{cls.keyword}\s+(\S.+)$", auth_header)
-        if not match:
-            return None
-        token = match.group(1).strip()
-
-        return token
-
-    @classmethod
     def is_id_jag_token(cls, token: str) -> bool:
-        # Personal/OAuth API key prefixes are reserved for those auth backends.
-        if token.startswith((PERSONAL_API_KEY_PREFIX, OAUTH_ACCESS_TOKEN_PREFIX, SECRET_API_TOKEN_PREFIX)):
-            return False
-
-        if token.count(".") != 2:
-            return False
-        try:
-            header = jwt.get_unverified_header(token)
-        except jwt.PyJWTError:
-            return False
-        return header.get("typ") == cls._ID_JAG_ACCESS_TOKEN_TYPE
+        return _is_signed_jwt_of_type(token, cls._ID_JAG_ACCESS_TOKEN_TYPE)
 
     @classmethod
     def verify_access_token(cls, token: str) -> VerifiedIdJagAccessToken:
@@ -764,7 +779,7 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.id_jag"):
-            token = self._extract_token(request)
+            token = _bearer_token(request)
             if not token:
                 return None
             if not self.is_id_jag_token(token):
@@ -786,6 +801,240 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
             record_agent_intent(request)
 
             return verified.user, None
+
+    def authenticate_header(self, request) -> str:
+        return self.keyword
+
+
+# The `typ` header of a workload access token. A distinct value keeps the ID-JAG authenticator, which
+# only takes `at+jwt`, from ever accepting one, and lets this class skip every other JWT.
+WORKLOAD_ACCESS_TOKEN_TYPE = "posthog-workload+jwt"
+WORKLOAD_TRUST_POLICY_ACTIVE_CACHE_SECONDS = 10
+
+
+@frozen
+class VerifiedWorkloadAccessToken:
+    user: User
+    organization_id: str
+    team_id: int
+    policy_id: str
+    policy_name: str
+    scopes: list[str]
+    workload_provider: str
+    workload_subject_name: str
+    # The claims the provider's registry entry records, as the exchange read them from the OIDC token.
+    workload_claims: dict[str, str]
+
+
+def _template_fields(template: str) -> set[str]:
+    return {name for _, name, _, _ in string.Formatter().parse(template) if name}
+
+
+def _format_with_claims(template: str, claims: dict[str, str]) -> str:
+    """Fill a provider template's `{claim}` fields with the recorded claims. A missing claim formats as an
+    empty string. The registry refuses templates whose fields aren't recorded claims."""
+    return template.format_map({name: claims.get(name, "") for name in _template_fields(template)})
+
+
+class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
+    """
+    Authenticates API requests made with the short-lived token a workload gets by exchanging its
+    provider's OIDC token under a workload trust policy (`posthog.workload_identity.token_exchange`).
+
+    The token is a stateless JWT signed with the OIDC key. It acts as the organization owner the
+    exchange resolved, pinned to one project and to the policy's scope ceiling. Every request checks
+    that the owner is still an owner and that the policy is still enabled and unchanged since the token
+    was minted, so disabling or editing a policy cuts its tokens off within
+    `WORKLOAD_TRUST_POLICY_ACTIVE_CACHE_SECONDS`.
+    """
+
+    keyword = "Bearer"
+    activity_credential_type = "oidc_workload"
+
+    scopes: list[str]
+    organization_id: str
+    team_id: int
+    policy_id: str
+
+    @classmethod
+    def is_workload_token(cls, token: str) -> bool:
+        return _is_signed_jwt_of_type(token, WORKLOAD_ACCESS_TOKEN_TYPE)
+
+    def insufficient_scope_error(self, view: Any, required_scopes: list[str], missing_scopes: list[str]) -> Exception:
+        """What `APIScopePermission` raises when this token lacks a scope. A workload token always gets the
+        standard challenge, because hog reads the scopes from it to tell the user what to add to the
+        trust policy. A scope no policy may grant gets a plain 403 instead, so the user is never told to
+        add something an admin cannot add."""
+        not_grantable = set(missing_scopes) - workload_trust_policy_grantable_scopes()
+        if not_grantable:
+            return PermissionDenied(
+                f"Workload tokens can't use this endpoint: it needs {', '.join(sorted(not_grantable))}, "
+                "which a workload trust policy can't grant."
+            )
+        return InsufficientScope(
+            required_scopes,
+            detail=f"This workload token's trust policy doesn't grant {', '.join(missing_scopes)}. "
+            "Ask an organization admin to add the missing scopes to the policy.",
+            extra={"missing_scopes": missing_scopes, "policy_url": workload_trust_policies_settings_url(self.team_id)},
+        )
+
+    @staticmethod
+    def _active_policy_version(team_id: int, policy_id: str) -> str:
+        """The enabled policy's version, or an empty string when it is disabled or gone."""
+        cache_key = workload_trust_policy_active_cache_key(policy_id)
+        # The cache only spares a query, so a cache outage falls back to the database.
+        cached = get_safe_cache(cache_key)
+        if cached is not None:
+            return cached
+        # The exchange only mints tokens for a project's own team, so the id is already canonical.
+        policy = (
+            WorkloadTrustPolicy.objects.for_team(team_id, canonical=True).filter(pk=policy_id, enabled=True).first()
+        )
+        version = workload_trust_policy_version(policy) if policy else ""
+        safe_cache_set(cache_key, version, WORKLOAD_TRUST_POLICY_ACTIVE_CACHE_SECONDS)
+        return version
+
+    @classmethod
+    def verify_access_token(cls, token: str) -> VerifiedWorkloadAccessToken:
+        verification_keys = get_oidc_verification_keys()
+        site_url = (settings.SITE_URL or "").rstrip("/")
+        if not verification_keys or not site_url:
+            raise AuthenticationFailed(detail="Workload access tokens are not configured on this server.")
+
+        claims = None
+        for verification_key in verification_keys:
+            try:
+                claims = jwt.decode(
+                    token,
+                    verification_key,
+                    algorithms=["RS256"],
+                    audience=site_url,
+                    issuer=site_url,
+                    # The exchange and the API can run on servers whose clocks differ a little.
+                    leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
+                    options={
+                        "require": ["iss", "aud", "exp", "iat", "user_uuid", "org_id", "team_id", "policy_id", "scope"],
+                    },
+                )
+                break
+            except jwt.InvalidSignatureError:
+                continue
+            except jwt.ExpiredSignatureError:
+                raise AuthenticationFailed(detail="Workload access token has expired. Exchange a new OIDC token.")
+            except jwt.PyJWTError:
+                raise AuthenticationFailed(detail="Workload access token is invalid.")
+        if claims is None:
+            raise AuthenticationFailed(detail="Workload access token is invalid.")
+
+        team_id = claims["team_id"]
+        if not isinstance(team_id, int):
+            raise AuthenticationFailed(detail="Workload access token is invalid.")
+        policy_id = str(claims["policy_id"])
+        active_version = cls._active_policy_version(team_id, policy_id)
+        if not active_version or active_version != str(claims.get("policy_version") or ""):
+            raise AuthenticationFailed(
+                detail="The workload trust policy behind this token was changed, disabled or deleted. Exchange a new OIDC token."
+            )
+
+        # The token acts as an owner, so it stops working as soon as that user leaves the
+        # organization or is no longer an owner.
+        membership = (
+            OrganizationMembership.objects.filter(
+                organization_id=str(claims["org_id"]),
+                user__uuid=str(claims["user_uuid"]),
+                user__is_active=True,
+                level=OrganizationMembership.Level.OWNER,
+            )
+            .select_related("user")
+            .first()
+        )
+        if membership is None:
+            raise AuthenticationFailed(
+                detail="The organization owner this workload token acts as is no longer an owner."
+            )
+
+        raw_workload = claims.get("workload")
+        workload = raw_workload if isinstance(raw_workload, dict) else {}
+        raw_recorded_claims = workload.get("claims")
+        recorded_claims = raw_recorded_claims if isinstance(raw_recorded_claims, dict) else {}
+        return VerifiedWorkloadAccessToken(
+            user=membership.user,
+            organization_id=str(claims["org_id"]),
+            team_id=team_id,
+            policy_id=policy_id,
+            policy_name=str(claims.get("policy_name") or ""),
+            scopes=str(claims["scope"]).split(),
+            workload_provider=str(workload.get("provider") or ""),
+            workload_subject_name=str(workload.get("subject_name") or ""),
+            workload_claims={str(key): str(value) for key, value in recorded_claims.items()},
+        )
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        with tracer.start_as_current_span("posthog.auth.oidc_workload"):
+            token = _bearer_token(request)
+            if not token or not self.is_workload_token(token):
+                return None
+
+            verified = self.verify_access_token(token)
+            refuse_blocked_account(request, verified.user, call_site="oidc_workload_token", impersonated=False)
+            # The owner the token acts as never minted it, so the owner's staff rights don't carry over.
+            verified.user.withhold_staff_rights()
+            self.scopes = verified.scopes
+            self.organization_id = verified.organization_id
+            self.team_id = verified.team_id
+            self.policy_id = verified.policy_id
+
+            tag_authentication(
+                user_id=verified.user.pk, team_id=verified.team_id, access_method=AccessMethod.OIDC_WORKLOAD
+            )
+            self.record_activity_actor(verified.user, verified.policy_id)
+            self._record_workload(verified)
+            return verified.user, None
+
+    @staticmethod
+    def _record_workload(verified: VerifiedWorkloadAccessToken) -> None:
+        """Put the workload on every activity row this request writes, so the row names the workload as
+        the actor after the token is gone, and can be filtered by the client tag."""
+        if not activity_storage.is_request_scoped():
+            return
+        subject_name = verified.workload_subject_name
+        if subject_name:
+            activity_storage.set_client(f"{WORKLOAD_CLIENT_PREFIX}{subject_name}"[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+
+        def workload_trigger() -> Trigger:
+            # Deferred because `posthog.api.oauth` imports its views, which import this module.
+            from posthog.workload_identity.providers import get_workload_provider_by_key  # noqa: PLC0415
+
+            provider = get_workload_provider_by_key(verified.workload_provider)
+            claims = verified.workload_claims
+            actor_label = (
+                _format_with_claims(provider.actor_label_template, claims).strip(" ·") if provider else ""
+            ) or subject_name
+            run_url_template = provider.run_url_template if provider else None
+            # A link with an empty path segment points nowhere useful, so it needs every claim it names.
+            run_url = (
+                _format_with_claims(run_url_template, claims)
+                if run_url_template and all(claims.get(name) for name in _template_fields(run_url_template))
+                else None
+            )
+            claim_labels = {claim.name: claim.label for claim in provider.recorded_claims} if provider else {}
+            return Trigger(
+                job_type=WORKLOAD_TRIGGER_JOB_TYPE,
+                job_id=verified.policy_id,
+                payload={
+                    "provider": verified.workload_provider,
+                    "provider_name": provider.name if provider else verified.workload_provider,
+                    "actor_label": actor_label,
+                    "subject_name": subject_name,
+                    "claims": claims,
+                    "claim_labels": {name: claim_labels.get(name, name) for name in claims},
+                    "run_url": run_url,
+                    "policy_id": verified.policy_id,
+                    "policy_name": verified.policy_name,
+                },
+            )
+
+        activity_storage.set_verified_trigger_resolver(workload_trigger)
 
     def authenticate_header(self, request) -> str:
         return self.keyword

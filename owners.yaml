@@ -44,6 +44,10 @@ teams:
     team-replay:
         notifications:
             stamphog: false
+    # The entry exists only to drop the daily stamphog digest from the team channel.
+    team-warehouse-sources:
+        notifications:
+            stamphog: false
 rules:
     - match: Dockerfile.llm-analytics
       owners: team-ai-observability
@@ -96,6 +100,17 @@ rules:
           - '/frontend/src/lib/lemon-ui/'
           - '/frontend/src/lib/ui/'
       owners: platform-ux
+    # Platform UX owns the nav rail and the UI rules file, so every change to them goes to that team, however small.
+    - match:
+          - '/frontend/src/platform-ux.md'
+          - '/frontend/src/layout/today/TodayRail.tsx'
+          - '/frontend/src/layout/today/TodayRailTile.tsx'
+          - '/frontend/src/layout/today/todayRailItems.tsx'
+          - '/frontend/src/layout/today/TodayMoreMenu.tsx'
+          - '/frontend/src/layout/today/todayRailSeverity.ts'
+          - '/frontend/src/layout/today/todayRailStatusLogic.ts'
+      owners: platform-ux
+      sensitive: true
     - match: '/hog/'
       owners: team-growth
     - match: '/nodejs/tests/'
@@ -154,13 +169,16 @@ rules:
           - '/posthog/test/repo_invariants/test_model_enum_defaults.py'
           - '/posthog/test/repo_invariants/test_squash_partial_fallback.py'
           - '/posthog/test/repo_invariants/test_startup_import_budget.py'
+          - '/posthog/test/repo_invariants/test_unowned_test_directories.py'
           - '/products/README.md'
           - '/products/architecture.md'
           - '/products/isolation_baseline.txt'
           - '/tools/openapi-codegen/'
       owners: team-devex
       sensitive: true
-    - match: '/products/model_crossing_uses_baseline.txt'
+    - match:
+          - '/posthog/test/repo_invariants/unowned_test_directories_baseline.txt'
+          - '/products/model_crossing_uses_baseline.txt'
       owners: team-devex
     - match: '/posthog/management/commands/find_enum_collisions.py'
       owners: team-devex
@@ -187,9 +205,12 @@ rules:
       owners: team-devex
     - match: '/tools/query-performance-ai/'
       owners: team-analytics-platform
-    # A new product, provider, domain, or top-level package shapes the monorepo layout.
-    # The rule names who owns that decision and claims none of the files inside.
+    # A new root file or folder, product, provider, domain, or top-level package shapes
+    # the monorepo layout. The rule names who owns that decision and claims none of the
+    # files inside. '/*' matches only entries directly in the root, because '*' does not
+    # cross '/'.
     - match:
+          - '/*'
           - '/products/*'
           - '/posthog/ingress/*'
           - '/posthog/egress/*'
@@ -199,3 +220,84 @@ rules:
           - '/cli/*'
           - '/hog/*'
       additions: team-devex
+    - match:
+          - '/common/hogvm/python/test/test_*.py'
+          - '/common/hogvm/typescript/src/__tests__/*.test.*'
+      owners: hogql
+    - match:
+          - '/frontend/src/layout/ErrorBoundary/*.test.*'
+          - '/frontend/src/layout/navigation-3000/*.test.*'
+          - '/frontend/src/layout/navigation/Breadcrumbs/*.test.*'
+          - '/frontend/src/layout/panel-layout/*.test.*'
+          - '/frontend/src/layout/panel-layout/ProjectTree/*.test.*'
+          - '/frontend/src/layout/panel-layout/ProjectTree/menus/*.test.*'
+          - '/frontend/src/layout/panel-layout/navbar/*.test.*'
+          - '/frontend/src/lib/charts/*.test.*'
+          - '/frontend/src/lib/forms/*.test.*'
+          - '/frontend/src/lib/hooks/*.test.*'
+          - '/frontend/src/lib/logic/scenes/*.test.*'
+          - '/frontend/src/lib/memory/*.test.*'
+          - '/frontend/src/taxonomy/*.test.*'
+      owners: platform-ux
+    - match:
+          - '/packages/llm-normalizer/src/*.test.*'
+          - '/packages/llm-normalizer/src/normalizer/recipe/*.test.*'
+          - '/packages/llm-normalizer/src/normalizer/recipe/ast/expr/*.test.*'
+          - '/packages/llm-normalizer/src/normalizer/recipe/ast/predicate/*.test.*'
+          - '/packages/llm-normalizer/src/normalizer/recipe/ast/rule/*.test.*'
+          - '/packages/llm-normalizer/src/normalizer/recipe/compile/*.test.*'
+          - '/packages/llm-normalizer/src/normalizer/recipe/runtime/*.test.*'
+      owners: team-ai-observability
+    - match:
+          - '/frontend/src/lib/monaco/languages/*.test.*'
+      owners: team-apm
+    - match:
+          - '/frontend/src/queries/nodes/HogQLX/*.test.*'
+      owners: team-data-tools
+    - match:
+          - '/common/esbuilder/*.test.*'
+          - '/frontend/src/mocks/*.test.*'
+          - '/frontend/src/test/*.test.*'
+          - '/tools/hogbox-preview/tests/test_*.py'
+          - '/tools/test_*.py'
+          - '/tools/workflow-plan/tests/*.test.*'
+      owners: team-devex
+    - match:
+          - '/playwright/e2e/experiments/*.spec.*'
+      owners: team-experiments
+    - match:
+          - '/common/ingestion/acceptance_tests/test_*.py'
+      owners: team-ingestion
+    - match:
+          - '/frontend/src/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2/*.test.*'
+          - '/frontend/src/layout/navigation-3000/sidepanel/panels/activity/*.test.*'
+          - '/frontend/src/layout/navigation/ImpersonationNotice/*.test.*'
+      owners: team-platform-features
+    - match:
+          - '/frontend/src/exporter/ExportedInsight/*.test.*'
+          - '/frontend/src/exporter/scenes/*.test.*'
+          - '/frontend/src/queries/nodes/DataTable/*.test.*'
+          - '/frontend/src/queries/nodes/DataTable/ColumnConfigurator/*.test.*'
+          - '/frontend/src/queries/nodes/DataTable/TableView/*.test.*'
+          - '/frontend/src/queries/nodes/DataVisualization/*.test.*'
+          - '/frontend/src/queries/nodes/DataVisualization/Components/Charts/*.test.*'
+          - '/frontend/src/queries/nodes/DataVisualization/Components/Heatmap/*.test.*'
+          - '/frontend/src/queries/nodes/DataVisualization/Components/Variables/*.test.*'
+          - '/frontend/src/queries/nodes/InsightQuery/utils/*.test.*'
+          - '/frontend/src/queries/nodes/InsightViz/*.test.*'
+          - '/playwright/e2e/persons/*.spec.*'
+          - '/playwright/e2e/product-analytics/insights/*.spec.*'
+      owners: team-product-analytics
+    - match:
+          - '/common/replay-headless/src/__tests__/*.test.*'
+          - '/common/replay-shared/src/*.test.*'
+          - '/common/replay-shared/src/canvas/*.test.*'
+          - '/common/replay-shared/src/rrweb-plugins/*.test.*'
+          - '/common/replay-shared/src/snapshot-processing/*.test.*'
+      owners: team-replay
+    - match:
+          - '/frontend/src/lib/signals/*.test.*'
+      owners: team-self-driving
+    - match:
+          - '/frontend/src/layout/navigation-3000/sidepanel/panels/max/*.test.*'
+      owners: team-surfaces

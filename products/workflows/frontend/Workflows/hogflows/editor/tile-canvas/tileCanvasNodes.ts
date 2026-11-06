@@ -1,5 +1,6 @@
 import type { Edge, Node } from '@xyflow/react'
 
+import { getEdgeId } from '../../edgeId'
 import type { HogFlow, HogFlowEdge } from '../../types'
 import {
     Box,
@@ -19,6 +20,9 @@ import {
     NodeMotion,
     PathGroup,
     Point,
+    MOVING_STEP_ATTR,
+    QUICK_ADD_ATTR,
+    STEP_DRAG_DATA_TYPE,
     VisibleEdge,
     VisibleGraph,
     VisibleNode,
@@ -190,20 +194,97 @@ export function edgeLabelText(edge: VisibleEdge, routed: RoutedEdge): string | u
     return edge.label && routed.label ? edge.label : undefined
 }
 
-/** The arrow whose + is closest to the point, if one is within reach. */
-export function nearestInsertEdge(edges: TileEdgeType[], point: Point, reach: number): HogFlowEdge | null {
+/** The arrow whose + is closest to the point and, when a set is given, in it. */
+export function nearestInsertEdge(
+    edges: TileEdgeType[],
+    point: Point,
+    placeableEdgeKeys: Set<string> | null = null
+): HogFlowEdge | null {
     let best: { edge: HogFlowEdge; distance: number } | null = null
     for (const { data } of edges) {
-        if (!data?.routed || !data.edge.insertEdge) {
+        if (
+            !data?.routed ||
+            !data.edge.insertEdge ||
+            (placeableEdgeKeys && !placeableEdgeKeys.has(getEdgeId(data.edge.insertEdge)))
+        ) {
             continue
         }
         const at = quickAddPoint(data.routed, edgeLabelText(data.edge, data.routed))
         const distance = Math.hypot(at.x - point.x, at.y - point.y)
-        if (distance <= reach && (!best || distance < best.distance)) {
+        if (!best || distance < best.distance) {
             best = { edge: data.edge.insertEdge, distance }
         }
     }
     return best?.edge ?? null
+}
+
+export interface StepDragEvent {
+    clientX: number
+    clientY: number
+    target: EventTarget | null
+    dataTransfer: { readonly types: readonly string[]; dropEffect: string }
+    preventDefault: () => void
+}
+
+export interface StepDropCanvas {
+    edges: TileEdgeType[]
+    placeableEdgeKeys: Set<string> | null
+    isWaitingForStep: boolean
+    toFlowPoint: (screenPoint: Point) => Point
+    dropTargetEdgeKey: string | null
+    setDropTargetEdgeKey: (key: string | null) => void
+    dropAt: (edge: HogFlowEdge, snapped: boolean) => void
+}
+
+function isAwaitedStepDrag(event: StepDragEvent, canvas: StepDropCanvas): boolean {
+    return canvas.isWaitingForStep && event.dataTransfer.types.includes(STEP_DRAG_DATA_TYPE)
+}
+
+function isReleasedWhereDragCancels(event: StepDragEvent): boolean {
+    return event.target instanceof Element && !!event.target.closest(`[${MOVING_STEP_ATTR}], .react-flow__panel`)
+}
+
+function placeableEdgeUnderDrag(event: StepDragEvent, canvas: StepDropCanvas): HogFlowEdge | null {
+    if (isReleasedWhereDragCancels(event)) {
+        return null
+    }
+    const point = canvas.toFlowPoint({ x: event.clientX, y: event.clientY })
+    return nearestInsertEdge(canvas.edges, point, canvas.placeableEdgeKeys)
+}
+
+function acceptStepDrag(event: StepDragEvent): void {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+}
+
+function isReleasedOnPlus(event: StepDragEvent): boolean {
+    return event.target instanceof Element && !!event.target.closest(`[data-attr="${QUICK_ADD_ATTR}"]`)
+}
+
+export function handleStepDragOver(event: StepDragEvent, canvas: StepDropCanvas): void {
+    if (!isAwaitedStepDrag(event, canvas)) {
+        return
+    }
+    const edge = placeableEdgeUnderDrag(event, canvas)
+    const key = edge ? getEdgeId(edge) : null
+    if (key !== canvas.dropTargetEdgeKey) {
+        canvas.setDropTargetEdgeKey(key)
+    }
+    if (edge) {
+        acceptStepDrag(event)
+    }
+}
+
+export function handleStepDrop(event: StepDragEvent, canvas: StepDropCanvas): void {
+    if (!isAwaitedStepDrag(event, canvas)) {
+        return
+    }
+    const edge = placeableEdgeUnderDrag(event, canvas)
+    canvas.setDropTargetEdgeKey(null)
+    if (edge) {
+        event.preventDefault()
+        canvas.dropAt(edge, !isReleasedOnPlus(event))
+    }
 }
 
 export function buildCanvasEdges(graph: VisibleGraph, layout: CanvasLayout | null): TileEdgeType[] {

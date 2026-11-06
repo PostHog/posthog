@@ -18,7 +18,7 @@ from parameterized import parameterized
 
 from posthog.exceptions import ClickHouseQueryTimeOut
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.experiments.backend import setup_context as setup_context_module
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
@@ -80,10 +80,10 @@ def _retention_metric(uuid: str, start_event: str = "signup", completion_event: 
     }
 
 
-def _key(experiment: Experiment, metric_uuid: str) -> str:
+def _key(experiment: Experiment, metric_uuid: str, *, other_version: bool = False) -> str:
     calculation_config = get_metric_calculation_config(experiment, metric_uuid)
     assert calculation_config is not None
-    return calculation_config.calculation_key()
+    return calculation_config.key_for_version(2) if other_version else calculation_config.calculation_key()
 
 
 def _payload_of_each_section() -> dict[str, Any]:
@@ -168,6 +168,7 @@ class TestClassifyLib(SimpleTestCase):
             ("posthog-node", "server"),
             ("posthog-python", "server"),
             ("posthog-rails", "server"),
+            ("posthog-laravel", "server"),
             ("posthog-ios", "mobile"),
             ("posthog-unity", "mobile"),
             ("posthog-something-new", "other"),
@@ -885,27 +886,43 @@ class TestPostgresSections(APIBaseTest):
         assert outcome.analyzed_exposures == 70
         assert outcome.result_data_through == now - timedelta(days=1)
 
-    def test_a_result_of_an_earlier_configuration_is_not_the_outcome(self) -> None:
+    @parameterized.expand(
+        [
+            ("start_date_edited_after_the_result", "current", {"days": 12}, False),
+            # A result under the other key version still describes the experiment.
+            ("result_under_the_other_key_version", "other_version", None, True),
+            ("result_under_the_current_key", "current", None, True),
+        ]
+    )
+    def test_the_outcome_follows_the_calculation_key(
+        self, _name: str, key_family: str, moved_start: dict[str, int] | None, has_outcome: bool
+    ) -> None:
         now = timezone.now()
         experiment = self._experiment(
-            "edited-start", start_date=now - timedelta(days=10), metrics=[_mean_metric("inline-primary")]
+            "keyed", start_date=now - timedelta(days=10), metrics=[_mean_metric("inline-primary")]
         )
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="inline-primary",
-            fingerprint=_key(experiment, "inline-primary"),
+            fingerprint=_key(experiment, "inline-primary", other_version=key_family == "other_version"),
             query_from=now - timedelta(days=10),
             query_to=now,
             status=ExperimentMetricResult.Status.COMPLETED,
             result=_stored_result(40, [40], False),
             completed_at=now,
         )
-        Experiment.objects.filter(pk=experiment.pk).update(start_date=now - timedelta(days=12))
+        if moved_start is not None:
+            Experiment.objects.filter(pk=experiment.pk).update(start_date=now - timedelta(**moved_start))
 
         previous = get_previous_experiments(Experiment.objects.filter(team_id=self.team.pk), limit=10)
 
-        assert previous.experiments[0].outcome is None
-        assert previous.summary.launched_without_results == 1
+        outcome = previous.experiments[0].outcome
+        if has_outcome:
+            assert outcome is not None
+            assert outcome.analyzed_exposures == 80
+        else:
+            assert outcome is None
+            assert previous.summary.launched_without_results == 1
 
     def test_a_draft_does_not_crowd_out_a_launched_experiment(self) -> None:
         self._experiment("fresh-draft", days_ago=0)
@@ -976,7 +993,7 @@ class TestPostgresSections(APIBaseTest):
         assert previous.summary.using_uneven_split == 0
 
     def test_an_action_exposure_is_reported_as_an_action(self) -> None:
-        action = Action.objects.create(team=self.team, name="Saw pricing", steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, name="Saw pricing", steps_json=[{"event": "$pageview"}])
         self._experiment(
             "action-exposure", exposure_criteria={"exposure_config": {"kind": "ActionsNode", "id": action.id}}
         )
@@ -1121,7 +1138,7 @@ class TestPostgresSections(APIBaseTest):
 
         popular = self._saved_metric("Popular", _mean_metric("popular", event="signup"))
         inflated = self._saved_metric("Inflated by deleted", _mean_metric("inflated", event="signup"))
-        action = Action.objects.create(team=self.team, name="Bought", steps_json=[{"event": "purchase"}])
+        action = create_action(team=self.team, name="Bought", steps_json=[{"event": "purchase"}])
         via_action = self._saved_metric(
             "Via action",
             {
