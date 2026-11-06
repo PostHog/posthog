@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 
 // Database 9 keeps the FLUSHDB away from the dev stack, which uses database 0.
 const REDIS_URL: &str = "redis://127.0.0.1:6379/9";
+const PARITY_INSTANCE_ID: &str = "<instance_id>";
 
 fn obj(entries: Vec<(&str, JsValue)>) -> JsValue {
     let mut o = JsObject::new();
@@ -127,6 +128,19 @@ fn canonical_value(
             ("kind", JsValue::string("json")),
             ("raw", JsValue::string(&raw)),
             ("json", json),
+        ]);
+    }
+    if output == "log_entries" {
+        // `parity-harness.ts` replaces the random per-message `instance_id` and keeps its position.
+        let mut parsed = json_parse(&String::from_utf8_lossy(value)).unwrap();
+        if let JsValue::Object(o) = &mut parsed {
+            o.insert_str("instance_id", JsValue::string(PARITY_INSTANCE_ID));
+        }
+        let raw = json_stringify(&parsed);
+        return obj(vec![
+            ("kind", JsValue::string("json")),
+            ("raw", JsValue::string(&raw)),
+            ("json", sort_keys(&parsed)),
         ]);
     }
     let sha: String = Sha256::digest(value)
@@ -309,7 +323,7 @@ async fn run_scenario(
     });
     // The output order is not a contract, so compare per output kind as multisets.
     let expected_outputs = array(get(expected, "outputs")).to_vec();
-    for kind in ["logs", "logs_dlq", "app_metrics"] {
+    for kind in ["logs", "logs_dlq", "app_metrics", "log_entries"] {
         let pick = |v: &JsValue| matches!(get(v, "output"), JsValue::String(s) if *s == kind);
         check(
             &format!("outputs[{kind}]"),
