@@ -226,8 +226,8 @@ by the mobile footer change:
 
 ## Web analytics
 
-- **No Point sheet on the trend.** The trend is a query, not a saved insight, and the Point sheet's "Open on web" and
-  "About this chart" assume an insight. The scrub tooltip shows the value, the previous period and the change.
+- **No "About this chart" on the trend.** The trend is a query, not a saved insight, so its Point sheet hides that row.
+- **Active hours sends no chart selection events.** The chart selection hook has no heat grid kind.
 - **One value per property.** A tap on another value of a filtered property replaces it. The web adds it to the
   filter as a second value.
 - **Filters stay on the phone.** They last for the session, per project, in memory. They do not follow the web's
