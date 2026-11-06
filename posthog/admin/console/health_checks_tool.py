@@ -94,7 +94,9 @@ class HealthCheckRuns:
 
         async def fetch(client: Client) -> list[HealthCheckRun]:
             runs: list[HealthCheckRun] = []
-            async for workflow in client.list_workflows(query=query, rpc_timeout=TEMPORAL_READ_TIMEOUT):
+            async for workflow in client.list_workflows(
+                query=query, limit=RECENT_RUNS, rpc_timeout=TEMPORAL_READ_TIMEOUT
+            ):
                 runs.append(
                     HealthCheckRun(
                         workflow_id=workflow.id,

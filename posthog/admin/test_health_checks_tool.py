@@ -68,7 +68,7 @@ class TestHealthChecksTool(BaseTest):
 
         timeouts = []
 
-        async def list_workflows(query: str, rpc_timeout: timedelta | None = None):
+        async def list_workflows(query: str, limit: int | None = None, rpc_timeout: timedelta | None = None):
             timeouts.append(rpc_timeout)
             yield workflow
 
