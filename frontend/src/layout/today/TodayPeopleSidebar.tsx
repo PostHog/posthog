@@ -9,6 +9,7 @@ import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { TodayPaneList } from './TodayPaneList'
 import { TodayPaneSection } from './TodayPaneSection'
+import { peopleRecentRowKey } from './todayPeople'
 import { TodayPeopleRow, TodayPeopleRowCounts, TodayPeopleRowKey, todayPeopleLogic } from './todayPeopleLogic'
 import { TodayPeopleNavRow } from './TodayPeopleNavRow'
 import { TodayPeopleRecentRow } from './TodayPeopleRecentRow'
@@ -61,7 +62,7 @@ export function TodayPeopleSidebar(): JSX.Element {
                             <TodayPeopleRecentRow
                                 key={recent.href}
                                 recent={recent}
-                                active={activeRow === `recent:${recent.href}`}
+                                active={activeRow === peopleRecentRowKey(recent.href)}
                             />
                         ))}
                     </TodayPaneSection>

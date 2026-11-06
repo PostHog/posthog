@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -8,7 +8,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
+import { productHasEffectiveNoneAccess } from 'lib/utils/accessControlUtils'
 import { hogql } from 'lib/utils/hogql'
 import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,13 +16,14 @@ import { urls } from 'scenes/urls'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { GroupTab, groupTabs as groupTabsFor } from '~/models/groupTabs'
-import { GroupType, GroupTypeIndex, TeamPublicType, TeamType } from '~/types'
+import { AccessControlResourceType, GroupType, GroupTypeIndex, TeamPublicType, TeamType } from '~/types'
 
 import { cohortsList } from 'products/cohorts/frontend/generated/api'
 import { accountsList, customerJourneysList } from 'products/customer_analytics/frontend/generated/api'
 
-import { TODAY_PEOPLE_ROW_LABELS, TodayPeopleRecent, TodayPeopleStaticRowKey } from './todayPeopleModel'
+import { TODAY_PEOPLE_ROW_LABELS, TodayPeopleRecent, TodayPeopleStaticRowKey, peopleRecentRowKey } from './todayPeople'
 import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
+import { TODAY_USER_PERSIST_OPTIONS } from './todayUserPersistOptions'
 
 // pinned: persisted section ids and the `section` property of `people section toggled`.
 export type TodayPeopleSection = 'recents'
@@ -47,12 +48,6 @@ interface TodayPeopleRowBase {
 export type TodayPeopleRow =
     | (TodayPeopleRowBase & { kind: 'static'; key: TodayPeopleStaticRowKey })
     | (TodayPeopleRowBase & { kind: 'group'; key: TodayPeopleGroupRowKey })
-
-// Collapsed sections belong to one person in one project. Without both ids nothing persists.
-const TEAM_ID = getCurrentTeamIdOrNone()
-const USER_ID = getCurrentUserIdOrNone()
-const SECTIONS_PERSIST_OPTIONS =
-    TEAM_ID && USER_ID ? { persist: true, prefix: `${TEAM_ID}__${USER_ID}__` } : { persist: false }
 
 export function accountGroupTypeIndex(
     configuredIndex: number | null | undefined,
@@ -104,7 +99,10 @@ export function peopleSidebarRows(
         csp ? row('notes', urls.customerAnalyticsNotes()) : null,
         csp ? row('announcements', urls.customerAnalyticsAnnouncements()) : null,
         featureRequests ? row('feature_requests', urls.customerAnalyticsFeatureRequests()) : null,
-        row('support', urls.supportTickets(), [urls.supportDashboard()]),
+        // Without Ticket access the page only says access denied.
+        !productHasEffectiveNoneAccess(AccessControlResourceType.Ticket)
+            ? row('support', urls.supportTickets(), [urls.supportDashboard()])
+            : null,
     ]
     return rows.filter((row): row is TodayPeopleRow => row !== null)
 }
@@ -124,7 +122,7 @@ export function activePeopleRow(
     // A row keeps one URL for its record, but other pages can link to the record with another one.
     const recent = recents.find((item) => item.href === openRecent?.href || isUnderPath(path, item.href))
     if (recent) {
-        return `recent:${recent.href}`
+        return peopleRecentRowKey(recent.href)
     }
     return rows.find((row) => row.paths.some((rowPath) => isUnderPath(path, rowPath)))?.key ?? null
 }
@@ -290,7 +288,7 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
         // pinned: storage key for the persisted sections. Renaming it reopens everyone's sections.
         collapsedSections: [
             [] as TodayPeopleSection[],
-            SECTIONS_PERSIST_OPTIONS,
+            TODAY_USER_PERSIST_OPTIONS,
             {
                 toggleSection: (state, { section }) =>
                     state.includes(section) ? state.filter((id) => id !== section) : [...state, section],
@@ -298,7 +296,7 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
         ],
         moreOpen: [
             false,
-            SECTIONS_PERSIST_OPTIONS,
+            TODAY_USER_PERSIST_OPTIONS,
             {
                 toggleMore: (state) => !state,
             },
@@ -367,10 +365,7 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
         },
     })),
     subscriptions(({ actions }) => ({
-        // Group types load after this logic mounts, and the Accounts count can depend on them.
+        // Runs on mount, and again once group types load, because the Accounts count can depend on them.
         accountsGroupTypeIndex: () => actions.loadCounts(),
     })),
-    afterMount(({ actions }) => {
-        actions.loadCounts()
-    }),
 ])

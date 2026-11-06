@@ -8,13 +8,9 @@ frontend/src/layout/navigation-3000/layout-modes/TodayFramedLayout.tsx -> .Today
 frontend/src/layout/navigation-3000/layout-modes/TodayPhoneLayout.tsx -> .TodayAppLayout
 frontend/src/layout/today/TodayContextPanelContent.tsx -> .TodayContextPanelContent
 frontend/src/layout/today/TodayContextPanelLauncher.tsx -> .TodayContextPanelButton
-frontend/src/layout/today/TodayPaneRow.tsx -> .TodayIconBadge
 frontend/src/layout/today/TodayPaneSearchList.tsx -> .TodayPaneSearchList
 frontend/src/layout/today/TodayPhoneHeader.tsx -> .TodayPhoneHeader
 frontend/src/layout/today/TodayProductHoverCard.tsx -> .TodayIconBadge
-frontend/src/layout/today/TodayProductsSidebar.tsx -> .TodayPane
-frontend/src/layout/today/TodaySettingsSidebar.tsx -> .TodayPane
-frontend/src/layout/today/TodaySpacesSidebar.tsx -> .TodayPane
 frontend/src/layout/today/TodayTabBar.tsx -> .TodayTabBar
 frontend/src/layout/today/TodayTopBar.tsx -> .TodayTopBar
 frontend/src/lib/components/TileDecorations/TileDecorations.tsx -> .LemonIcon

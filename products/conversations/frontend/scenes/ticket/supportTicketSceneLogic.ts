@@ -40,7 +40,7 @@ import {
     ImpersonationTicketContext,
     impersonationNoticeLogic,
 } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
-import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from '~/layout/today/todayPeopleModel'
+import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from '~/layout/today/todayPeople'
 import api, { ApiConfig } from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'

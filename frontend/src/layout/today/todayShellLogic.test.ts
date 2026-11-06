@@ -80,6 +80,23 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
+        ['/project/1/person/ada%40example.com', 'analytics'],
+        ['/project/1/persons/0190-uuid', 'analytics'],
+        ['/project/1/groups/0/acme', 'analytics'],
+        ['/project/1/cohorts/5', 'analytics'],
+        ['/project/1/persons', 'people'],
+        ['/project/1/groups/0', 'people'],
+        ['/project/1/cohorts', 'people'],
+    ])('%s opened from an insight shows the %s pane', (pathname, pane) => {
+        router.actions.push('/project/1/insights/abc')
+        const logic = todayShellLogic()
+        logic.mount()
+
+        router.actions.push(pathname)
+        expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
         ['a rail pick on Analytics', '/project/1/airplane', 'analytics', 'analytics'],
         ['a fresh load of an insight', '/project/1/insights/abc', null, 'analytics'],
         ['a rail pick on Products', '/project/1/airplane', 'products', 'people'],

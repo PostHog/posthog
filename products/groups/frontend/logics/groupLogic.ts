@@ -14,7 +14,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from '~/layout/today/todayPeopleModel'
+import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from '~/layout/today/todayPeople'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { isDataTableNode } from '~/queries/schema/node-guards'

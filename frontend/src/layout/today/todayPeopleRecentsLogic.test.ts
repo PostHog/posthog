@@ -4,7 +4,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from './todayPeopleModel'
+import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from './todayPeople'
 import { TODAY_PEOPLE_RECENTS_LIMIT, addPeopleRecent, todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
 
 // The real logic loads every scene. This one lets a test set the active scene logic's record.
@@ -13,10 +13,16 @@ jest.mock('scenes/sceneLogic', () => {
     return {
         sceneLogic: kea([
             path(['test', 'sceneLogic']),
-            actions({ setActiveSceneLogic: (logic: unknown) => ({ logic }) }),
+            actions({
+                setActiveSceneLogic: (logic: unknown) => ({ logic }),
+                setActiveLoadedScene: (scene: unknown) => ({ scene }),
+            }),
             reducers({
                 activeSceneLogic: [null, { setActiveSceneLogic: (_: unknown, { logic }: { logic: unknown }) => logic }],
-                activeLoadedScene: [null, {}],
+                activeLoadedScene: [
+                    null,
+                    { setActiveLoadedScene: (_: unknown, { scene }: { scene: unknown }) => scene },
+                ],
             }),
         ]),
     }
@@ -62,6 +68,32 @@ describe('todayPeopleRecentsLogic', () => {
 
         setActive(sceneShowing(recent('/cohorts/5', 'Churned')))
         expect(logic.values.recents.map((item) => item.name)).toEqual(names)
+    })
+
+    it('reads the record with the props of the open scene', () => {
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+        })
+        sceneLogic.mount()
+        const logic = todayPeopleRecentsLogic()
+        logic.mount()
+        const sceneActions = sceneLogic.actions as any
+
+        // Like the cohort and group scene logics, the selector reads the record id from its props.
+        sceneActions.setActiveLoadedScene({
+            sceneParams: { params: { id: '7' } },
+            paramsToProps: ({ params }: { params: { id: string } }) => ({ id: params.id }),
+        })
+        sceneActions.setActiveSceneLogic({
+            selectors: {
+                [TODAY_PEOPLE_RECENT_KEY]: (_: unknown, props: { id?: string }) =>
+                    props.id ? recent(`/cohorts/${props.id}`, `Cohort ${props.id}`) : null,
+            },
+        })
+
+        expect(logic.values.recents).toEqual([recent('/cohorts/7', 'Cohort 7')])
     })
 
     it('stores a recent, newest first, and lists the rows by name', () => {

@@ -19,8 +19,8 @@ import { SIDEBAR_GROUP_META, SidebarProductMeta, sidebarProductCopy } from '~/la
 import { FileSystemIconColor } from '~/types'
 
 import { TodayPaneRow } from './TodayPaneRow'
+import { TodayPeopleStaticRowKey } from './todayPeople'
 import { TodayPeopleRow } from './todayPeopleLogic'
-import { TodayPeopleStaticRowKey } from './todayPeopleModel'
 import { TodayExplainerPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 

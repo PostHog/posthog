@@ -10,7 +10,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { TODAY_PEOPLE_ROW_LABELS } from '~/layout/today/todayPeopleModel'
+import { TODAY_PEOPLE_ROW_LABELS } from '~/layout/today/todayPeople'
 import { groupsModel } from '~/models/groupsModel'
 import {
     ActionsNode,

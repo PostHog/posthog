@@ -28,7 +28,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from '~/layout/today/todayPeopleModel'
+import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from '~/layout/today/todayPeople'
 import { tagsModel } from '~/models/tagsModel'
 import { Breadcrumb, UserType } from '~/types'
 

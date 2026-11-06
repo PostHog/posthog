@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { IconBuilding, IconPeople, IconPerson, IconSupport } from '@posthog/icons'
 
 import { TodayPaneRow } from './TodayPaneRow'
-import { TodayPeopleRecent, TodayPeopleRecentType } from './todayPeopleModel'
+import { TodayPeopleRecent, TodayPeopleRecentType, peopleRecentRowKey } from './todayPeople'
 import { TodayExplainerPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 
@@ -37,7 +37,7 @@ export function TodayPeopleRecentRow({ recent, active }: { recent: TodayPeopleRe
     return (
         <TodayPreviewTrigger payload={preview}>
             <TodayPaneRow
-                value={`recent:${recent.href}`}
+                value={peopleRecentRowKey(recent.href)}
                 label={recent.name}
                 icon={RECENT_ICONS[recent.type]}
                 to={recent.href}

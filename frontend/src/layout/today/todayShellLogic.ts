@@ -19,7 +19,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
-import { isPeopleDetailPath, isPeopleListPath } from './todayPeopleModel'
+import { isPeopleDetailPath, isPeopleListPath } from './todayPeople'
 import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
 
 export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'people' | 'products' | 'settings'
@@ -152,7 +152,7 @@ function productsPaneListsPath(path: string): boolean {
 function paneAfterNavigation(
     openPane: TodayRailPane | null,
     pathname: string,
-    shownPane: TodayRailPane | null = openPane
+    shownPane: TodayRailPane | null
 ): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
     const routePane = railPaneForPath(pathname)
@@ -342,7 +342,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
     })),
     reducers({
         // The last pane picked on the rail, or reached through a route that belongs to one, stays open on other pages.
-        // The locationChanged listener sets it after a page change, because that rule reads the feature flags.
+        // The locationChanged listener sets it after a page change, because the drill-in rule reads the previous page from the cache.
         pickedPane: [
             null as TodayRailPane | null,
             {

@@ -7,7 +7,7 @@ export function newestByName<T>(items: T[], name: (item: T) => string, id: (item
         .slice(0, limit)
         .sort(
             (first, second) =>
-                name(first).localeCompare(name(second), undefined, { sensitivity: 'base' }) ||
+                name(first).localeCompare(name(second), undefined, { sensitivity: 'base', numeric: true }) ||
                 id(first).localeCompare(id(second))
         )
 }

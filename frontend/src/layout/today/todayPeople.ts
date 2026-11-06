@@ -52,3 +52,8 @@ export function isPeopleDetailPath(path: string): boolean {
             isUnderPath(path, '/groups'))
     )
 }
+
+/** The id of a recent's row, for the active row and the row's own value. */
+export function peopleRecentRowKey(href: string): string {
+    return `recent:${href}`
+}

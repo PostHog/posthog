@@ -8,6 +8,7 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 import { initKeaTests } from '~/test/init'
 import { ReplayTabs } from '~/types'
 
+import { isPeopleListPath } from './todayPeople'
 import { resolveStarredProducts, todayProductsLogic } from './todayProductsLogic'
 
 const productShortcut = (id: string, path: string, href?: string): FileSystemEntry =>
@@ -31,7 +32,7 @@ describe('todayProductsLogic', () => {
         ])
     })
 
-    it('leaves Persons and Customer analytics to the People pane', () => {
+    it('leaves Persons, Customer analytics and Support to the People pane', () => {
         useMocks({ get: { '/api/projects/:team_id/file_system_shortcut/': { results: [] } } })
         initKeaTests()
         const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true }
@@ -42,6 +43,20 @@ describe('todayProductsLogic', () => {
         const hrefs = logic.values.products.map((item) => item.href)
         expect(hrefs).not.toContain(urls.persons())
         expect(hrefs).not.toContain(urls.customerAnalytics())
+        expect(hrefs).not.toContain(urls.supportTickets())
         expect(hrefs).toContain(urls.replay(ReplayTabs.Home))
+    })
+
+    // Cohorts and groups are not products in the Products pane, so the rule is tested on the paths.
+    test.each([
+        [urls.cohorts(), true],
+        [urls.groups(0), true],
+        ['/groups/0/new', true],
+        [urls.supportTickets(), true],
+        [urls.cohort(5), false],
+        ['/groups/0/acme', false],
+        ['/groups/0/acme/events', false],
+    ])('isPeopleListPath(%s) is %s', (path, listed) => {
+        expect(isPeopleListPath(path)).toBe(listed)
     })
 })

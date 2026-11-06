@@ -1,10 +1,21 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { useMocks } from '~/mocks/jest'
 import { GroupTab } from '~/models/groupTabs'
+import { initKeaTests } from '~/test/init'
 import { GroupType, GroupTypeIndex } from '~/types'
 
-import { accountGroupTypeIndex, activePeopleRow, peopleSidebarRows, visibleMoreRows } from './todayPeopleLogic'
+import {
+    accountGroupTypeIndex,
+    activePeopleRow,
+    peopleSidebarRows,
+    todayPeopleLogic,
+    visibleMoreRows,
+} from './todayPeopleLogic'
 
 const groupTypes = (...indexes: number[]): Map<GroupTypeIndex, GroupType> =>
     new Map(
@@ -147,5 +158,23 @@ describe('todayPeopleLogic', () => {
     ])('on %s with flags %o the %s row is active', (pathname, flags, active) => {
         const recents = [{ type: 'cohort' as const, name: 'Churned', href: urls.cohort('2') }]
         expect(activePeopleRow(pathname, peopleSidebarRows(flags, 0, ONE_TYPE), recents)).toBe(active)
+    })
+
+    it('keeps the other counts when one count request fails', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/accounts/': { count: 4, results: [] },
+                '/api/projects/:team_id/cohorts/': () => [500, { detail: 'nope' }],
+                '/api/projects/:team_id/customer_journeys/': { count: 2, results: [] },
+            },
+        })
+        initKeaTests()
+        const flags = { ...JOURNEYS, [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true }
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        const logic = todayPeopleLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadCountsSuccess'])
+        expect(logic.values.counts).toEqual({ accounts: 4, cohorts: undefined, journeys: 2 })
     })
 })

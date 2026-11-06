@@ -4,6 +4,8 @@ import { AutocompleteItem, Button, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { useInTodayPaneList } from './TodayPaneList'
+
 export interface TodayPaneOptionProps extends Omit<
     ComponentProps<typeof AutocompleteItem>,
     'value' | 'render' | 'className' | 'children'
@@ -26,9 +28,11 @@ export function TodayPaneOption({
     children,
     ...props
 }: TodayPaneOptionProps): JSX.Element {
+    const inPaneList = useInTodayPaneList()
     return (
         <AutocompleteItem
             value={value}
+            {...(inPaneList && { tabIndex: 0 })}
             aria-current={active ? 'page' : undefined}
             data-variant={variant}
             {...props}
