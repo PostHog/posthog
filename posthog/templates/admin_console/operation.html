@@ -29,7 +29,7 @@
         <form method="post" class="flex flex-col" data-autofocus>
             {% csrf_token %}
             <input type="hidden" name="form_nonce" value="{{ form_nonce }}" />
-            <div class="quill-card__content flex flex-col gap-4"
+            <div class="quill-card__content flex flex-col gap-4 pb-4"
                  data-slot="card-content">
                 {% if operation.description %}<p class="m-0">{{ operation.description }}</p>{% endif %}
                 {% if operation.undo_hint %}<p class="m-0 text-muted-foreground">{{ operation.undo_hint }}</p>{% endif %}

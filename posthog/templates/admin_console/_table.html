@@ -31,13 +31,13 @@
                                         {% if cell.tone %}
                                             {% include "admin_console/_badge.html" with label=cell.text tone=cell.tone %}
                                         {% elif cell.href %}
-                                            <a class="block max-w-[320px] break-words text-foreground underline decoration-border underline-offset-2 hover:decoration-current"
+                                            <a class="block max-w-[480px] break-words text-foreground underline decoration-border underline-offset-2 hover:decoration-current"
                                                href="{{ cell.href }}">{{ cell.text }}</a>
                                         {% else %}
                                             {% if forloop.counter0 in table.numeric_columns %}
                                                 {{ cell.text }}
                                             {% else %}
-                                                <span class="block max-w-[320px] break-words whitespace-pre-line">{{ cell.text }}</span>
+                                                <span class="block max-w-[480px] break-words whitespace-pre-line">{{ cell.text }}</span>
                                             {% endif %}
                                         {% endif %}
                                         {% if cell.detail %}<div class="font-mono text-[11px] text-muted-foreground whitespace-nowrap">{{ cell.detail }}</div>{% endif %}
