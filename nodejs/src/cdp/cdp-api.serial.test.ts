@@ -2682,22 +2682,37 @@ describe('CDP API', () => {
             }
         })
 
-        it('refuses a code send with files and stores none while attachments are off', async () => {
+        it('refuses a new code send with files while attachments are off, and still replays one sent before', async () => {
+            const sentBefore = {
+                ...body,
+                idempotency_key: `key-${new UUIDT().toString()}`,
+                send: { ...codeSend, attachments: [attachment()] },
+            }
+            const accepted = await sendAccepted(hogFlow.id, sentBefore)
             hub.CDP_EMAIL_ATTACHMENTS_ENABLED = false
             const filename = `report-${new UUIDT().toString()}.pdf`
+            const refusedKey = `key-${new UUIDT().toString()}`
 
             try {
-                const res = await sendAccepted(hogFlow.id, {
+                const replay = await sendAccepted(hogFlow.id, sentBefore)
+                const refused = await sendAccepted(hogFlow.id, {
                     ...body,
+                    idempotency_key: refusedKey,
                     send: { ...codeSend, attachments: [attachment({ filename })] },
                 })
+                const withoutFiles = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    idempotency_key: refusedKey,
+                    send: codeSend,
+                })
 
-                expect(res.status).toEqual(400)
-                expect(parseJSON(res.body.error)).toEqual([
+                expect(replay.body).toMatchObject({ invocation_id: accepted.body.invocation_id, replayed: true })
+                expect(refused.status).toEqual(400)
+                expect(parseJSON(refused.body.error)).toEqual([
                     expect.objectContaining({ code: 'unrecognized_keys', keys: ['attachments'], path: ['send'] }),
                 ])
                 expect(await storedAttachments(filename)).toEqual([])
-                expect(mockQueueInvocations).not.toHaveBeenCalled()
+                expect(withoutFiles.status).toEqual(202)
             } finally {
                 hub.CDP_EMAIL_ATTACHMENTS_ENABLED = true
             }

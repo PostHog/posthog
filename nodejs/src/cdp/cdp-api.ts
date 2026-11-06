@@ -1253,9 +1253,6 @@ export class CdpApi {
                     return reply('invalid_request', 400, { error: parsed.error.message })
                 }
                 const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey, send } = parsed.data
-                if (send?.attachments !== undefined && !this.config.CDP_EMAIL_ATTACHMENTS_ENABLED) {
-                    return reply('invalid_request', 400, { error: fieldNotAcceptedError('attachments') })
-                }
 
                 stages.start('load')
                 const teamLookup = this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
@@ -1344,6 +1341,14 @@ export class CdpApi {
                     }
                 }
                 try {
+                    // After the idempotency check, so a retry of a send accepted with files still gets its answer.
+                    if (send?.attachments !== undefined && !this.config.CDP_EMAIL_ATTACHMENTS_ENABLED) {
+                        if (idempotencyKey) {
+                            stages.start('idempotency')
+                            await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                        }
+                        return reply('invalid_request', 400, { error: fieldNotAcceptedError('attachments') })
+                    }
                     stages.start('checks')
                     const refusal = await this.refuseTransactionalEmail(
                         team.id,
