@@ -38,10 +38,14 @@ from rest_framework.exceptions import (
 )
 
 from posthog.schema import (
+    AccountActivityMatrixQuery,
     AccountsQuery,
     AccountsTableQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
+    BookActivityFirstsQuery,
+    BookActivityMatrixQuery,
+    BookActivityPeopleQuery,
     BreakdownType,
     CachedLifecycleQueryResponse,
     CachedStickinessQueryResponse,
@@ -686,6 +690,10 @@ RunnableQueryNode = Union[
     UsageMetricsQuery,
     AccountsQuery,
     AccountsTableQuery,
+    AccountActivityMatrixQuery,
+    BookActivityMatrixQuery,
+    BookActivityPeopleQuery,
+    BookActivityFirstsQuery,
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
@@ -1738,6 +1746,54 @@ def get_query_runner(
         from products.customer_analytics.backend.facade.queries import AccountsQueryRunner
 
         return AccountsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "AccountActivityMatrixQuery":
+        from products.customer_analytics.backend.facade.queries import AccountActivityMatrixQueryRunner
+
+        return AccountActivityMatrixQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "BookActivityMatrixQuery":
+        from products.customer_analytics.backend.facade.queries import BookActivityMatrixQueryRunner
+
+        return BookActivityMatrixQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "BookActivityPeopleQuery":
+        from products.customer_analytics.backend.facade.queries import BookActivityPeopleQueryRunner
+
+        return BookActivityPeopleQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "BookActivityFirstsQuery":
+        from products.customer_analytics.backend.facade.queries import BookActivityFirstsQueryRunner
+
+        return BookActivityFirstsQueryRunner(
             query=query,
             team=team,
             timings=timings,

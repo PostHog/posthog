@@ -80,7 +80,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_fro
 from posthog.hogql_queries.warehouse_suggestion_notes import credential_access
 from posthog.models.user import User
 from posthog.models.utils import uuid7
-from posthog.permissions import get_authenticator_scopes, scopes_caller_lacks
+from posthog.permissions import get_authenticator_scopes, scopes_caller_lacks, scopes_missing_after_legacy_fallback
 from posthog.query_scan import slot as query_scan_slot
 from posthog.query_scan.flag import QueryScanMode, get_query_scan_flag
 from posthog.query_scan.serve import analysis_with_prompt
@@ -99,8 +99,21 @@ from posthog.schema_migrations.upgrade import upgrade
 from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
-from products.customer_analytics.backend.facade.api import validate_account_users_access
-from products.customer_analytics.backend.facade.constants import ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX
+from products.customer_analytics.backend.facade.api import (
+    get_activity_query_status_scopes,
+    validate_account_activity_access,
+    validate_account_users_access,
+    validate_book_activity_access,
+    validate_book_activity_accounts_access,
+    validate_book_activity_people_access,
+)
+from products.customer_analytics.backend.facade.constants import (
+    ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
+    ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX,
+    BOOK_ACTIVITY_ACCOUNTS_QUERY_STATUS_LABEL_PREFIX,
+    BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
+    BOOK_ACTIVITY_PEOPLE_QUERY_STATUS_LABEL_PREFIX,
+)
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import validate_managed_trino_raw_access
 from products.metrics.backend.facade.api import derived_metric_resources
@@ -221,6 +234,10 @@ def _process_query_request(
 # API token must hold the product scope, not just query:read, to run them through
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
+    "AccountActivityMatrixQuery": ["query:read", "account:read", "person:read"],
+    "BookActivityMatrixQuery": ["query:read", "account:read"],
+    "BookActivityPeopleQuery": ["query:read", "account:read", "person:read"],
+    "BookActivityFirstsQuery": ["query:read", "account:read", "person:read"],
     "InboxUsageQuery": ["query:read", "signal_usage:read"],
     "AccountUsersQuery": ["query:read", "account:read", "person:read"],
     "AccountsTableQuery": ["query:read", "account:read"],
@@ -523,21 +540,33 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             show_progress or request.query_params.get("showProgress", False) == "true"
         )  # TODO: Remove this once we have a consistent naming convention
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
-        account_users_account_id = next(
-            (
-                label.removeprefix(ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX)
+        held_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+        required_scopes = get_activity_query_status_scopes(query_status.labels or [])
+        if (
+            held_scopes is not None
+            and "*" not in held_scopes
+            and required_scopes is not None
+            and scopes_missing_after_legacy_fallback(request, self, held_scopes, required_scopes)
+        ):
+            raise PermissionDenied("This API key does not have the required scopes to read this query.")
+        for label_prefix, validate_account_access in (
+            (ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX, validate_account_users_access),
+            (ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX, validate_account_activity_access),
+            (BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX, validate_book_activity_access),
+            (BOOK_ACTIVITY_ACCOUNTS_QUERY_STATUS_LABEL_PREFIX, validate_book_activity_accounts_access),
+            (BOOK_ACTIVITY_PEOPLE_QUERY_STATUS_LABEL_PREFIX, validate_book_activity_people_access),
+        ):
+            for labeled_account_id in (
+                label.removeprefix(label_prefix)
                 for label in query_status.labels or []
-                if label.startswith(ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX)
-            ),
-            None,
-        )
-        if account_users_account_id is not None:
-            try:
-                validate_account_users_access(
-                    self.team, request.user if isinstance(request.user, User) else None, account_users_account_id
-                )
-            except UserAccessControlError as error:
-                raise PermissionDenied(str(error)) from error
+                if label.startswith(label_prefix)
+            ):
+                try:
+                    validate_account_access(
+                        self.team, request.user if isinstance(request.user, User) else None, labeled_account_id
+                    )
+                except UserAccessControlError as error:
+                    raise PermissionDenied(str(error)) from error
         self._enforce_derived_metric_source_access(request, query_status.labels or [])
         if managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL in (query_status.labels or []):
             try:
