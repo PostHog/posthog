@@ -54514,7 +54514,7 @@ export namespace Schemas {
     }
 
     /**
-     * Secret inputs entered again, keyed by input key, sent with confirm=true. Use it when publishing returned code secret_reentry_required: the staged config sends a stored secret to a new address, so the secret has to be entered to go live. Only the draft's secret inputs are accepted.
+     * Secret inputs entered again, keyed by input key, sent with confirm=true. Use it when publishing returned code secret_reentry_required: the staged config sends a stored secret to a new address, so the secret has to be entered to go live. Only secrets the draft already holds are accepted, each with a non-empty value.
      */
     export type HogFunctionPublishRequestInputs = {[key: string]: HogFunctionPublishSecretInput};
 
@@ -54523,7 +54523,7 @@ export namespace Schemas {
       confirm?: boolean;
       /** From the preview response, and required when confirm=true on an enabled function. Expires after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you always publish the exact draft you previewed. */
       confirm_token?: string;
-      /** Secret inputs entered again, keyed by input key, sent with confirm=true. Use it when publishing returned code secret_reentry_required: the staged config sends a stored secret to a new address, so the secret has to be entered to go live. Only the draft's secret inputs are accepted. */
+      /** Secret inputs entered again, keyed by input key, sent with confirm=true. Use it when publishing returned code secret_reentry_required: the staged config sends a stored secret to a new address, so the secret has to be entered to go live. Only secrets the draft already holds are accepted, each with a non-empty value. */
       inputs?: HogFunctionPublishRequestInputs;
     }
 

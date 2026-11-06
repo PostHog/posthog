@@ -1659,7 +1659,7 @@ export const HogFunctionsPublishCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            "Secret inputs entered again, keyed by input key, sent with confirm=true. Use it when publishing returned code secret_reentry_required: the staged config sends a stored secret to a new address, so the secret has to be entered to go live. Only the draft's secret inputs are accepted."
+            'Secret inputs entered again, keyed by input key, sent with confirm=true. Use it when publishing returned code secret_reentry_required: the staged config sends a stored secret to a new address, so the secret has to be entered to go live. Only secrets the draft already holds are accepted, each with a non-empty value.'
         ),
 })
 
