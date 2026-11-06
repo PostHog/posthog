@@ -74,6 +74,7 @@ from products.workflows.backend.presentation.views.hog_flow import (
     _should_validate_strictly,
     mint_audience_confirm_token,
 )
+from products.workflows.backend.services.workflow_test_runs import workflow_test_run_context
 from products.workflows.backend.tests.api.test_workflow_data_suggestions import _push_function_template
 
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
@@ -3634,6 +3635,43 @@ class TestHogFlowAPI(APIBaseTest):
             "integration_ids": [workspace.id],
         }
         assert "sent-by-the-test" not in json.dumps(detail)
+
+    @parameterized.expand(
+        [
+            (
+                "email_single_sender",
+                "template-email",
+                {"inputs": {"email": {"value": {"from": {"integrationId": 7, "email": "a@example.com"}}}}},
+                [7],
+            ),
+            (
+                "email_sender_list_wins",
+                "template-email",
+                {"inputs": {"email": {"value": {"from": {"integrationId": 7, "integrationIds": [8, 9]}}}}},
+                [8, 9],
+            ),
+            (
+                "mapping_overrides_step_input",
+                "template-slack",
+                {
+                    "inputs": {"slack_workspace": {"value": 1}},
+                    "mappings": [
+                        {
+                            "inputs_schema": [{"key": "extra", "type": "integration"}],
+                            "inputs": {"slack_workspace": {"value": 2}, "extra": {"value": 3}},
+                        }
+                    ],
+                },
+                [2, 3],
+            ),
+        ]
+    )
+    def test_test_run_context_records_the_integrations_the_worker_loads(
+        self, _name: str, template_id: str, config: dict[str, Any], expected_ids: list[int]
+    ):
+        sync_template_to_db(_email_function_template())
+        actions = [{"id": "action_1", "type": "function", "config": {"template_id": template_id, **config}}]
+        assert workflow_test_run_context(actions, "action_1").integration_ids == expected_ids
 
     def test_test_invocation_with_real_requests_does_not_run_when_its_activity_log_write_fails(self):
         hog_flow, _ = self._create_hog_flow_with_action(

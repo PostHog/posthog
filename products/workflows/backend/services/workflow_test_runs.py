@@ -16,6 +16,7 @@ from products.cdp.backend.models.hog_function_template import HogFunctionTemplat
 from products.workflows.backend.facade.contracts import WorkflowActor
 
 _INTEGRATION_INPUT_TYPES = ("integration", "integration_multi")
+_EMAIL_INPUT_TYPES = ("native_email", "email")
 
 
 # `ActivityDetailEncoder` serializes a context through `__dict__`, which a slotted class leaves empty.
@@ -40,14 +41,33 @@ def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _integration_ids(template_id: Optional[str], inputs: dict[str, Any]) -> list[int]:
+def _email_sender_ids(value: Any) -> Iterable[int]:
+    # The email service picks one sender from `integrationIds` when the list is set, else uses `integrationId`.
+    sender = _as_dict(_as_dict(value).get("from"))
+    many = sender.get("integrationIds")
+    return _integration_ids_in_value(many if isinstance(many, list) and many else sender.get("integrationId"))
+
+
+def _integration_ids(template_id: Optional[str], config: dict[str, Any]) -> list[int]:
     # A function step takes its inputs schema from its template, as the worker does when it loads the step.
     template = HogFunctionTemplate.get_template(template_id) if template_id else None
+    schemas: list[Any] = list((template.inputs_schema if template else None) or [])
+    inputs = dict(_as_dict(config.get("inputs")))
+    # The worker merges each mapping's inputs over the step inputs before it loads integrations.
+    mappings = config.get("mappings")
+    for mapping in mappings if isinstance(mappings, list) else []:
+        mapping_schema = _as_dict(mapping).get("inputs_schema")
+        schemas.extend(mapping_schema if isinstance(mapping_schema, list) else [])
+        inputs.update(_as_dict(_as_dict(mapping).get("inputs")))
     ids: set[int] = set()
-    for schema in (template.inputs_schema if template else None) or []:
-        if isinstance(schema, dict) and schema.get("type") in _INTEGRATION_INPUT_TYPES:
-            entry = _as_dict(inputs.get(str(schema.get("key"))))
-            ids.update(_integration_ids_in_value(entry.get("value")))
+    for schema in schemas:
+        if not isinstance(schema, dict):
+            continue
+        value = _as_dict(inputs.get(str(schema.get("key")))).get("value")
+        if schema.get("type") in _INTEGRATION_INPUT_TYPES:
+            ids.update(_integration_ids_in_value(value))
+        elif schema.get("type") in _EMAIL_INPUT_TYPES:
+            ids.update(_email_sender_ids(value))
     return sorted(ids)
 
 
@@ -70,7 +90,7 @@ def workflow_test_run_context(actions: Any, current_action_id: Optional[str]) ->
         action_type=action.get("type"),
         template_id=template_id,
         input_keys=sorted(inputs.keys()),
-        integration_ids=_integration_ids(template_id, inputs),
+        integration_ids=_integration_ids(template_id, config),
     )
 
 
