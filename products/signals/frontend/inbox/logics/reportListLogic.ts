@@ -695,10 +695,6 @@ export const reportListLogic = kea<reportListLogicType>([
                     const requestContext = requestContextFromValues(values)
                     const firstPageRequestId = cache.firstPageRequestId
                     const current = values.reportsResponse?.results ?? []
-                    // `removeReport` records ids here while the request is in flight. `current` predates
-                    // those removals, so filter them out or a removed report comes back when the page lands.
-                    const removedWhilePending = new Set<string>()
-                    cache.removedWhilePageLoads = removedWhilePending
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
                         ...listRequestParams(params),
@@ -710,9 +706,10 @@ export const reportListLogic = kea<reportListLogicType>([
                     if (cache.firstPageRequestId !== firstPageRequestId && values.reportsResponse) {
                         return values.reportsResponse
                     }
+                    const latest = values.reportsResponse?.results ?? []
                     return {
                         ...response,
-                        results: [...current.filter((r) => !removedWhilePending.has(r.id)), ...response.results],
+                        results: [...latest, ...keepRowFieldsWrittenDuringFetch(response.results, current, latest)],
                         requestParams: params,
                         requestContext,
                     }
@@ -1022,9 +1019,6 @@ export const reportListLogic = kea<reportListLogicType>([
             } finally {
                 requested.forEach((id) => inFlight.delete(id))
             }
-        },
-        removeReport: ({ reportId }) => {
-            cache.removedWhilePageLoads?.add(reportId)
         },
         // One page of ids per request, sent one after the other so a page open never fans out into
         // parallel query bursts. A newer page load supersedes an in-flight refresh at the breakpoint.
