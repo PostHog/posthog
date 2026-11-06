@@ -107,7 +107,8 @@ export function SurveyPreviewBrowserFrame({
                         highlightClasses(highlightedArea === 'survey')
                     )}
                 >
-                    <div className="min-h-0 overflow-auto rounded">{preview}</div>
+                    {/* posthog-js hangs the close button half outside the survey card, so the scroll box pads for it */}
+                    <div className="min-h-0 overflow-auto rounded pt-5 pr-5">{preview}</div>
                 </div>
             </div>
         </div>
