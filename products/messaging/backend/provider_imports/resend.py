@@ -525,13 +525,13 @@ def _fetch_automations(
     templates: dict[str, dict[str, Any] | None] = {}
     for page in client.pages("/automations", _after(checkpoint)):
         automations = [client.get(f"/automations/{item['id']}") for item in page.data if item.get("id")]
-        for automation in automations:
-            for reference in _template_references(automation):
-                if reference not in templates:
-                    templates[reference] = _read_template(client, reference)
+        references = {reference for automation in automations for reference in _template_references(automation)}
+        for reference in references:
+            if reference not in templates:
+                templates[reference] = _read_template(client, reference)
         yield ImportPage(
             processed=len(page.data),
-            save=partial(_save_automations, context, automations, dict(templates)),
+            save=partial(_save_automations, context, automations, {ref: templates[ref] for ref in references}),
             checkpoint=_next_checkpoint(page.next_after),
         )
 

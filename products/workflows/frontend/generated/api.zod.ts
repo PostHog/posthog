@@ -3509,9 +3509,9 @@ export const workflowImportsCreateBodyDryRunDefault = false
 
 export const WorkflowImportsCreateBody = /* @__PURE__ */ zod.object({
     source: zod
-        .enum(['customerio', 'resend'])
-        .describe('\* `customerio` - Customer.io\n\* `resend` - Resend')
-        .describe('The tool the automations come from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend'),
+        .enum(['customerio'])
+        .describe('\* `customerio` - Customer.io')
+        .describe('The tool the automations come from.\n\n\* `customerio` - Customer.io'),
     campaigns: zod
         .array(
             zod.object({

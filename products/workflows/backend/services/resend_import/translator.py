@@ -24,6 +24,8 @@ _DURATION_PART = re.compile(r"(\d+(?:\.\d+)?)\s*(second|sec|minute|min|hour|hr|d
 _UNIT_SECONDS = {"second": 1, "sec": 1, "minute": 60, "min": 60, "hour": 3600, "hr": 3600, "day": 86400, "week": 604800}
 _DEFAULT_WAIT_SECONDS = 86400
 _UNFILLED_VARIABLE = re.compile(r"\bvariables\.([\w-]+)")
+# The email renderer treats these differently inside a quoted value from how Resend prints them.
+_UNSAFE_IN_LITERAL = re.compile(r"\\|\{\{|\}\}|\{%|%\}|&(?:\w+|#\d+|#[xX][0-9a-fA-F]+);")
 _OPERATORS = {
     "eq": "exact",
     "neq": "is_not",
@@ -54,20 +56,27 @@ class _Builder:
         self.automation = automation
         self.emails = emails
         self.notes: list[ImportNote] = []
-        self.steps = {
+        steps = {
             str(step["key"]): step
             for step in automation.get("steps") or []
             if isinstance(step, dict) and step.get("key") is not None
         }
+        # A source key may equal an id this translator adds, and a graph can't hold the same id twice.
+        renamed = _rename_reserved_keys(steps)
+        self.steps = {renamed.get(key, key): step for key, step in steps.items()}
         self.links: dict[str, list[tuple[str, str]]] = {}
         for connection in automation.get("connections") or []:
             if isinstance(connection, dict):
-                self.links.setdefault(str(connection.get("from")), []).append(
-                    (str(connection.get("to")), str(connection.get("type") or "default"))
+                source, target = str(connection.get("from")), str(connection.get("to"))
+                self.links.setdefault(renamed.get(source, source), []).append(
+                    (renamed.get(target, target), str(connection.get("type") or "default"))
                 )
 
     def note(self, level: NoteLevel, message: str, step_key: str | None = None) -> None:
-        self.notes.append(ImportNote(level=level, message=message, step_id=step_key, step_name=step_key))
+        note = ImportNote(level=level, message=message, step_id=step_key, step_name=step_key)
+        # An email's subject, HTML and text each read the same variables.
+        if note not in self.notes:
+            self.notes.append(note)
 
     def build(self) -> TranslatedWorkflow:
         name = str(self.automation.get("name") or "Imported from Resend")[:400]
@@ -201,18 +210,24 @@ class _Builder:
     def _with_variables(self, key: str, text: str, variables: Mapping[str, Any]) -> str:
         for name, source in variables.items():
             replacement = self._variable_source(key, name, source)
-            text = re.sub(rf"\bvariables\.{re.escape(name)}\b", replacement, text)
+            text = re.sub(rf"\bvariables\.{re.escape(name)}\b", lambda _, value=replacement: value, text)
         return text
 
     def _variable_source(self, key: str, name: str, source: Any) -> str:
         reference = source.get("var") if isinstance(source, dict) else None
         if reference is None:
-            return '"' + str(source).replace('"', "") + '"'
+            literal = _liquid_literal(str(source))
+            if literal is None:
+                self.note(
+                    NoteLevel.NEEDS_INPUT, f"PostHog can't keep the value of {name} as written. Add it again.", key
+                )
+                return f"variables.{name}"
+            return literal
         path = str(reference)
         if path.startswith("event."):
-            return f"event.properties.{path.removeprefix('event.')}"
+            return f"event.properties.{_property_name(path.removeprefix('event.'))}"
         if path.startswith("contact."):
-            return f"person.properties.{path.removeprefix('contact.')}"
+            return f"person.properties.{_property_name(path.removeprefix('contact.'))}"
         self.note(
             NoteLevel.NEEDS_INPUT, f"{name} reads {path}, which PostHog doesn't have. Set where it comes from.", key
         )
@@ -251,7 +266,8 @@ class _Builder:
     def _property(self, key: str, rule: dict[str, Any]) -> dict[str, Any] | None:
         field = str(rule.get("field") or "")
         operator = str(rule.get("operator") or "")
-        namespace, _, name = field.partition(".")
+        namespace, _, raw_name = field.partition(".")
+        name = _property_name(raw_name)
         property_type = {"contact": "person", "event": "event"}.get(namespace)
         value = rule.get("value")
         if property_type is None or not name or isinstance(value, dict):
@@ -349,6 +365,31 @@ class _Builder:
         groups = self._condition_groups(key, self.steps[key].get("config") or {})
         self.notes = kept
         return groups
+
+
+def _rename_reserved_keys(steps: Mapping[str, Any]) -> dict[str, str]:
+    renamed: dict[str, str] = {}
+    for key in steps:
+        if key in (TRIGGER_ID, _EXIT_ID):
+            new_key = f"{key}_step"
+            while new_key in steps or new_key in renamed.values():
+                new_key += "_"
+            renamed[key] = new_key
+    return renamed
+
+
+def _property_name(path: str) -> str:
+    return path.removeprefix("properties.")
+
+
+def _liquid_literal(text: str) -> str | None:
+    if _UNSAFE_IN_LITERAL.search(text):
+        return None
+    if '"' not in text:
+        return f'"{text}"'
+    if "'" not in text:
+        return f"'{text}'"
+    return None
 
 
 def _step_name(key: str, step_type: str) -> str:

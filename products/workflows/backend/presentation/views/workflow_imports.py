@@ -18,7 +18,11 @@ from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.workflows.backend.facade.contracts import ImportOptions, WorkflowImportRecord
-from products.workflows.backend.facade.enums import WorkflowImportNoteLevel, WorkflowImportSource, WorkflowImportStatus
+from products.workflows.backend.facade.enums import (
+    WorkflowImportNoteLevel,
+    WorkflowImportRequestSource,
+    WorkflowImportStatus,
+)
 from products.workflows.backend.facade.workflow_imports import import_for_workflow
 from products.workflows.backend.presentation.views.workflow_import_drafts import import_campaigns
 
@@ -77,7 +81,7 @@ class CustomerioSegmentSerializer(serializers.Serializer):
 
 class WorkflowImportRequestSerializer(serializers.Serializer):
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=WorkflowImportSource.choices,
+        choices=WorkflowImportRequestSource.choices,
         help_text="The tool the automations come from.",
     )
     campaigns = CustomerioCampaignSerializer(
@@ -100,11 +104,6 @@ class WorkflowImportRequestSerializer(serializers.Serializer):
             "conditions with no cohort here are left for the team to set."
         ),
     )
-
-    def validate_source(self, value: str) -> str:
-        if value != WorkflowImportSource.CUSTOMERIO:
-            raise serializers.ValidationError("This endpoint imports Customer.io automations only.")
-        return value
 
     def validate_campaigns(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not value:

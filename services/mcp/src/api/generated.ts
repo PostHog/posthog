@@ -117408,12 +117408,21 @@ export namespace Schemas {
      */
     export type WorkflowImportRequestLayouts = {[key: string]: string};
 
+    /**
+     * * `customerio` - Customer.io
+     */
+    export type WorkflowImportRequestSourceEnum = typeof WorkflowImportRequestSourceEnum[keyof typeof WorkflowImportRequestSourceEnum];
+
+
+    export const WorkflowImportRequestSourceEnum = {
+      Customerio: 'customerio',
+    } as const;
+
     export interface WorkflowImportRequest {
       /** The tool the automations come from.
        *
-       * * `customerio` - Customer.io
-       * * `resend` - Resend */
-      source: ImportProviderKeyEnum;
+       * * `customerio` - Customer.io */
+      source: WorkflowImportRequestSourceEnum;
       /** The automations to import, at most 50. People are never read from these objects. */
       campaigns: CustomerioCampaign[];
       /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */

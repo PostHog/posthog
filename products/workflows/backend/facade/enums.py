@@ -75,6 +75,10 @@ class WorkflowImportSource(LabeledStrEnum):
     RESEND = "resend", "Resend"
 
 
+class WorkflowImportRequestSource(LabeledStrEnum):
+    CUSTOMERIO = "customerio", "Customer.io"
+
+
 class WorkflowImportNoteLevel(LabeledStrEnum):
     # The step behaves differently in PostHog, and the note says how.
     APPROXIMATED = "approximated", "Approximated"
