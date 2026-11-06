@@ -82,6 +82,8 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
         alerts=tuple(instance_view(alert, configuration) for alert in configuration.alerts.all()),
         labels=configuration.labels,
         annotations=configuration.annotations,
+        created_by_id=configuration.created_by_id,
+        first_enabled_at=configuration.first_enabled_at,
     )
 
 
@@ -108,9 +110,11 @@ def list_configurations(
     offset: int,
     legacy_configuration_id: UUID | None = None,
     configuration_ids: Collection[UUID] | None = None,
+    native_only: bool = False,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations, newest first, with the total behind it. With a
     `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
+    With `native_only`, only the ones with no source row.
 
     The page is taken in the database rather than in the caller, so a team with many alerts
     costs one page rather than all of them. Slicing keeps the prefetch, which resolves over the
@@ -121,6 +125,8 @@ def list_configurations(
         readable = readable.filter(legacy_configuration_id=legacy_configuration_id)
     if configuration_ids is not None:
         readable = readable.filter(id__in=list(configuration_ids))
+    if native_only:
+        readable = readable.filter(legacy_configuration_id__isnull=True)
     return PlatformAlertConfigurationPage(
         configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
         total=readable.count(),

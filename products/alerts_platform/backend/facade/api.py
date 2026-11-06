@@ -193,9 +193,11 @@ def list_configurations(
     offset: int,
     legacy_configuration_id: UUID | None = None,
     configuration_ids: Collection[UUID] | None = None,
+    native_only: bool = False,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations a caller may read, with the total behind it. With a
-    `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those."""
+    `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
+    With `native_only`, only the ones with no source row."""
     return platform_reads.list_configurations(
         team_id=team_id,
         source_kinds=source_kinds,
@@ -203,6 +205,7 @@ def list_configurations(
         offset=offset,
         legacy_configuration_id=legacy_configuration_id,
         configuration_ids=configuration_ids,
+        native_only=native_only,
     )
 
 
@@ -325,14 +328,22 @@ def update_configuration(
     source_kinds: Sequence[str],
     configuration_id: UUID,
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+    snooze_until: datetime | None = None,
+    snooze_changed: bool = False,
 ) -> PlatformAlertConfigurationView | None:
     """Applies an edit to a configuration the platform owns, or None when the caller cannot read it.
+    With `snooze_changed`, `snooze_until` becomes the whole alert's mute, and None clears it.
 
     Raises `PlatformAlertNotEditable` for a configuration its source owns, and
     `InvalidPlatformAlertEdit` for an edit its source kind rejects.
     """
     return platform_writes.update_configuration(
-        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, change=change
+        team_id=team_id,
+        source_kinds=source_kinds,
+        configuration_id=configuration_id,
+        change=change,
+        snooze_until=snooze_until,
+        snooze_changed=snooze_changed,
     )
 
 

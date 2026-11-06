@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
@@ -191,6 +191,9 @@ class LogsView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         return f"{self.name} (Team: {self.team})"
 
 
+CHECK_INTERVAL_MINUTES: Final = 5
+
+
 class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     class State(models.TextChoices):
         NOT_FIRING = "not_firing", "Not firing"
@@ -227,7 +230,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
 
     # Window & scheduling
     window_minutes = models.PositiveIntegerField(default=5)
-    check_interval_minutes = models.PositiveIntegerField(default=5)
+    check_interval_minutes = models.PositiveIntegerField(default=CHECK_INTERVAL_MINUTES)
 
     # State
     state = models.CharField(

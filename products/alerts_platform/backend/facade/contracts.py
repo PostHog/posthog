@@ -1013,6 +1013,9 @@ class PlatformAlertConfigurationView:
     alerts: tuple[PlatformAlertSnapshot, ...]
     labels: dict[str, str] = field(default_factory=dict)
     annotations: dict[str, str] = field(default_factory=dict)
+    # Recorded only for an alert with no source row. A copy's source row records them.
+    created_by_id: int | None = None
+    first_enabled_at: datetime | None = None
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -1172,6 +1175,9 @@ class SourceConfigSpec:
     platform, and enforces the source's caps and plan entitlements. `mirror` runs in the edit's transaction. Without
     `create` or `delete`, the API cannot create or delete alerts of the kind, unless the kind is
     `native`: then the platform creates and deletes them itself, and the source keeps no row.
+
+    A kind can have both. `mirror` and `delete` then serve the alerts that have a source row, and
+    `native` serves the ones that have none. A create goes through `create` while the kind has one.
     """
 
     model: type[BaseModel]
@@ -1195,14 +1201,13 @@ class SourceConfigSpec:
     # the other kinds and the platform's own pages closed.
     access_flag: str | None = None
 
-    def __post_init__(self) -> None:
-        # The source-row hooks write a row a native kind does not have.
-        if self.native is not None and (self.mirror or self.create or self.delete):
-            raise ValueError("A native kind keeps no source row, so it cannot register mirror, create or delete.")
-
     @property
     def creatable(self) -> bool:
         return self.native is not None or self.create is not None
+
+    def creates_natively(self) -> bool:
+        """Whether a create makes only the configuration, with no source row."""
+        return self.native is not None and self.create is None
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]
