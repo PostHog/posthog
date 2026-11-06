@@ -520,7 +520,7 @@ describe('mcpDashboardOverviewLogic', () => {
         // Each card reads its own flag, so a reducer that marks the wrong loader puts the error on
         // the wrong card, and one that never clears leaves a card stuck after a successful retry.
         it.each([
-            ['users', 'loadUsers', (node: any) => node.query?.includes('current_users')],
+            ['periodTotals', 'loadPeriodTotals', (node: any) => node.query?.includes('current_users')],
             ['harnessRows', 'loadHarnessRows', (node: any) => node.kind === 'MCPHarnessBreakdownQuery'],
             ['activityRows', 'loadActivityRows', (node: any) => node.kind === 'MCPToolCallsAndErrorsQuery'],
             ['toolDailyRows', 'loadToolDailyRows', (node: any) => node.kind === 'MCPToolCallBreakdownQuery'],
@@ -549,9 +549,9 @@ describe('mcpDashboardOverviewLogic', () => {
 
         it('ignores a failure from a request that a newer load already replaced', async () => {
             let rejectFirst: (error: unknown) => void = () => {}
-            let usersCalls = 0
+            let periodTotalsCalls = 0
             mockApi.query.mockImplementation((node: any) => {
-                if (node.query?.includes('current_users') && ++usersCalls === 1) {
+                if (node.query?.includes('current_users') && ++periodTotalsCalls === 1) {
                     return new Promise((_, reject) => (rejectFirst = reject)) as any
                 }
                 return Promise.resolve({ results: [] }) as any
@@ -560,12 +560,12 @@ describe('mcpDashboardOverviewLogic', () => {
             logic.mount()
             await expectLogic(logic, () => {
                 logic.actions.setDateFilter('-30d', null)
-            }).toDispatchActions(['loadUsersSuccess'])
+            }).toDispatchActions(['loadPeriodTotalsSuccess'])
 
             rejectFirst({ status: 504, detail: 'Query timed out' })
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.failedLoads.users).toBeFalsy()
+            expect(logic.values.failedLoads.periodTotals).toBeFalsy()
         })
 
         it('reloads every tile when the date filter changes', async () => {

@@ -527,22 +527,10 @@ export interface mcpDashboardOverviewLogicActions {
         errorObject?: any
     }
     loadHarnessRowsSuccess: (
-        harnessRows: {
-            category: string
-            error_rate_pct: number
-            errors: number
-            sessions: number
-            total_calls: number
-        }[],
+        harnessRows: HarnessRow[],
         payload?: void
     ) => {
-        harnessRows: {
-            category: string
-            error_rate_pct: number
-            errors: number
-            sessions: number
-            total_calls: number
-        }[]
+        harnessRows: HarnessRow[]
         payload?: void
     }
     loadKPIs: (_: void) => void
@@ -717,11 +705,11 @@ export interface mcpDashboardOverviewLogicMeta {
                     | 'harnessRows'
                     | 'kpis'
                     | 'modelRows'
+                    | 'periodTotals'
                     | 'protocolVersionRows'
                     | 'sessionRows'
                     | 'toolDailyRows'
-                    | 'toolRows'
-                    | 'users',
+                    | 'toolRows',
                     boolean
                 >
             >
