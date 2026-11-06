@@ -45,7 +45,7 @@ A committed state change reaches the workers through the `reload-sandbox-sender-
 A tenant that SES no longer knows reads as not paused, so deleting it clears a stored pause. Each failed read of the tenant counts in `workflows_sandbox_tenant_sync_failures_total`, labeled `transient` for throttling, an unreachable endpoint, timeouts, a connection dropped before or during the response, and SES server errors, and `error` for everything else, such as missing credentials, denied access, or TLS and proxy failures.
 `missing` counts a read that found no tenant by that name, which is a deleted tenant or a `SES_SANDBOX_TENANT_NAME` that names the wrong one, so an alert should fire on it.
 `busy` counts a sync that found another sync holding the state row. Its task retries, so an alert can ignore it.
-A long SES outage or a blocked endpoint stays `transient` on every read, so an alert on the mirror also watches sustained `transient` failures.
+A long SES outage or a blocked endpoint stays `transient` on every read, so an alert on the mirror also watches sustained `transient` failures. Ship that alert, on sustained `error`, `missing` and `transient` failures, before `workflows-sandbox-sender` reaches projects beyond test projects.
 
 ### Sending tiers
 
