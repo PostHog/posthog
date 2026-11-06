@@ -243,6 +243,12 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
             ),
+        masked_columns: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again."
+            ),
         row_filters: zod
             .array(
                 zod.object({
@@ -359,6 +365,12 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+            ),
+        masked_columns: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again."
             ),
         row_filters: zod
             .array(
@@ -638,6 +650,12 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                     .array(zod.string())
                     .nullish()
                     .describe('Columns to sync. Null means sync all columns.'),
+                masked_columns: zod
+                    .array(zod.string())
+                    .nullish()
+                    .describe(
+                        'Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. Any change starts a full resync of the table.'
+                    ),
                 row_filters: zod
                     .array(
                         zod.object({
@@ -1577,4 +1595,32 @@ export const WarehouseAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.o
         .min(1)
         .max(warehouseAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
         .describe("IDs of the alert's destinations to delete, as the list endpoint returns them."),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const WarehouseMigrationsCreateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .enum(['fivetran'])
+        .describe('\* `fivetran` - Fivetran')
+        .describe('The ETL vendor to import from.\n\n\* `fivetran` - Fivetran'),
+    api_key: zod.string().describe('Read-only API key for the vendor account.'),
+    api_secret: zod.string().describe('Secret that belongs to the API key.'),
+})
+
+/**
+ * Skip many connections at once, or all but the ones to keep.
+ */
+
+export const WarehouseMigrationsItemsBulkSkipCreateBody = /* @__PURE__ */ zod.object({
+    item_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .optional()
+        .describe('Items to skip. Pass this or `keep_item_ids`, not both.'),
+    keep_item_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Items to keep. Every other item is skipped, for example to migrate only one connection.'),
 })

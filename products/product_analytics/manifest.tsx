@@ -45,11 +45,14 @@ export const manifest: ProductManifest = {
         insightNew: ({
             type,
             dashboardId,
+            tileGroupKey,
             query,
             sceneSource,
         }: {
             type?: InsightType
             dashboardId?: DashboardType['id'] | null
+            /** The dashboard tile group the saved insight goes into. Only applies with `dashboardId`. */
+            tileGroupKey?: string | null
             query?: Node
             sceneSource?: InsightSceneSource
         } = {}): string => {
@@ -69,11 +72,15 @@ export const manifest: ProductManifest = {
                 return urls.sqlEditor({ query })
             }
 
-            return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
-                ...(type ? { insight: type } : {}),
-                ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-                ...(sceneSource ? { sceneSource } : {}),
-            }).url
+            return combineUrl(
+                '/insights/new',
+                dashboardId ? { dashboard: dashboardId, ...(tileGroupKey ? { tile_group: tileGroupKey } : {}) } : {},
+                {
+                    ...(type ? { insight: type } : {}),
+                    ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
+                    ...(sceneSource ? { sceneSource } : {}),
+                }
+            ).url
         },
         insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
             urls.insightNew({

@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
+import { OAuthScopeList } from 'lib/components/ScopeAccessRow/OAuthScopeList'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
@@ -32,10 +32,25 @@ export function OAuthDeviceAuthorize(): JSX.Element {
         decisionLoading,
         error,
         isStepUp,
-        scopeDescriptions,
+        identityScopeDescriptions,
+        requiredScopeRows,
+        adjustableScopeRows,
+        scopeGroups,
+        allScopesRequired,
+        scopeSummary,
+        keptScopes,
     } = useValues(oauthDeviceAuthorizeLogic)
-    const { setUserCode, lookUpCode, setOrganizationId, setProjectId, loadProjects, approve, deny } =
-        useActions(oauthDeviceAuthorizeLogic)
+    const {
+        setUserCode,
+        lookUpCode,
+        setOrganizationId,
+        setProjectId,
+        loadProjects,
+        approve,
+        deny,
+        setScopeAccess,
+        setScopeGroupAccess,
+    } = useActions(oauthDeviceAuthorizeLogic)
 
     if (decision) {
         const approved = decision === 'authorized'
@@ -160,21 +175,33 @@ export function OAuthDeviceAuthorize(): JSX.Element {
                             </div>
                         </AuthBanner>
                     )}
-                    <div>
-                        <p className="mb-2 font-semibold">
-                            {isStepUp
-                                ? `${deviceGrant.client_name} keeps the access you gave it, and will also be able to:`
-                                : `${deviceGrant.client_name} will be able to:`}
-                        </p>
-                        <ul className="max-h-64 overflow-y-auto space-y-1 pr-1">
-                            {scopeDescriptions.map((description) => (
-                                <li key={description} className="flex items-center gap-2">
-                                    <IconCheck color="var(--success)" className="shrink-0" />
-                                    <span>{description}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
+                    <LemonCollapse
+                        panels={[
+                            {
+                                key: 'permissions',
+                                header: (
+                                    <span className="font-semibold" data-attr="oauth-device-scope-summary">
+                                        {scopeSummary}
+                                    </span>
+                                ),
+                                content: (
+                                    <div className="flex flex-col gap-3">
+                                        <OAuthScopeList
+                                            appName={deviceGrant.client_name}
+                                            identityScopeDescriptions={identityScopeDescriptions}
+                                            requiredScopeRows={requiredScopeRows}
+                                            adjustableScopeRows={adjustableScopeRows}
+                                            scopeGroups={scopeGroups}
+                                            allScopesRequired={allScopesRequired}
+                                            onChangeRow={setScopeAccess}
+                                            onChangeGroup={setScopeGroupAccess}
+                                            dataAttrPrefix="oauth-device-scope-group"
+                                        />
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
                     {error && <AuthBanner variant="danger">{error}</AuthBanner>}
                     <div className="grid grid-cols-2 gap-2">
                         <LemonButton
@@ -196,7 +223,13 @@ export function OAuthDeviceAuthorize(): JSX.Element {
                             size="large"
                             onClick={approve}
                             loading={decisionLoading}
-                            disabledReason={projectId === null ? 'Select a project first' : undefined}
+                            disabledReason={
+                                projectId === null
+                                    ? 'Select a project first'
+                                    : keptScopes.length === 0
+                                      ? 'Give at least one permission first'
+                                      : undefined
+                            }
                         >
                             Approve
                         </LemonButton>

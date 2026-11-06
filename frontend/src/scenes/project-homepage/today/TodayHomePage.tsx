@@ -9,6 +9,7 @@ import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { reportIdFromPath, todayLogic } from './todayLogic'
 import { TodayPulse } from './TodayPulse'
+import { TodayPulseEditor } from './TodayPulseEditor'
 import { TodayRecents } from './TodayRecents'
 import { TodaySampleBanner } from './TodaySampleBanner'
 
@@ -60,6 +61,7 @@ export function TodayHomePage(): JSX.Element {
         pulsePending,
         pulseTiles,
         pulseSlots,
+        pulsePinsLoaded,
     } = useValues(todayHighlightsLogic)
     const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
@@ -119,6 +121,7 @@ export function TodayHomePage(): JSX.Element {
                 </div>
                 <div className="TodayHome__metaRow">
                     <TodayMetaLine />
+                    {!pulsePending && highlights && pulsePinsLoaded ? <TodayPulseEditor /> : null}
                 </div>
             </section>
             <div className="TodayHome__body">

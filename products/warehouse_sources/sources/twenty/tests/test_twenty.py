@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
 )
 from products.warehouse_sources.sources.twenty import twenty as twenty_module
@@ -236,3 +237,12 @@ class TestPagination:
         )
 
         assert result.requests[0].param("order_by") == "updatedAt[AscNullsFirst]"
+
+    def test_api_type_error_is_non_retryable(self):
+        # Twenty's own backend can throw an unhandled TypeError while building the query (observed
+        # on `opportunities`); the request is unchanged on every retry, so this must stop the sync
+        # instead of retrying forever.
+        result = _run(always(ScriptedResponse(status=400, json={"code": "TypeError"})), endpoint="opportunities")
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), TwentySource().get_non_retryable_errors())

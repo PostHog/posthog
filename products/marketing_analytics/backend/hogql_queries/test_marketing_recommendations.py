@@ -198,6 +198,27 @@ class TestMarketingRecommendations(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("page_two_is_only_striking_distance", 15.0, 2000, {"striking_distance"}),
+            ("page_two_with_few_impressions_is_a_content_gap", 15.0, 20, {"content_gap"}),
+            ("page_one_with_few_impressions_is_neither", 8.0, 20, set()),
+        ]
+    )
+    def test_a_ranking_search_gets_one_organic_rule(
+        self, _name: str, position: float, impressions: float, expected: set[str]
+    ) -> None:
+        terms = (
+            _term("funnel analysis", "c1", cost=100, conversions=5),
+            _term("session replay", "c1", cost=900, conversions=5),
+        )
+        organic = (OrganicQueryStats(query="funnel analysis", clicks=1, impressions=impressions, position=position),)
+
+        recs = recommend(_inputs((_campaign(),), terms, organic))
+
+        rules = {rec.rule for rec in recs if rec.subject == "funnel analysis"} & {"content_gap", "striking_distance"}
+        assert rules == expected
+
+    @parameterized.expand(
+        [
             ("another_ad_often_shows_above", 0.6, "keep", "Keep the ad"),
             ("ad_owns_the_top_spot", 0.95, "save", "Test pausing"),
             ("top_spot_not_measured", None, "save", "Check whether other ads show above yours"),

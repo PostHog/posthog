@@ -1,7 +1,9 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
+import { z } from 'zod'
 
 import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
+import { parseJson, parseJsonOrUndefined } from '@/core/json'
 import type { Prompts } from '@/core/prompts'
 import type { Env, Runtime, Secrets } from '@/core/runtime'
 
@@ -20,7 +22,7 @@ export interface FakeRuntimeOptions {
     answers?: string[]
     // Answers every API request. Without it, requests fail with HTTP 500. A string body is sent
     // as is, for JSON that JSON.stringify can't produce.
-    respond?: (url: string, body: unknown) => { status: number; body: unknown }
+    respond?: (url: string, body: unknown, authorization: string | null) => { status: number; body: unknown }
     telemetryToken?: string
     // The MCP tool catalog `hog api` loads. Without it, loading the catalog fails the test.
     apiTools?: ApiToolLibrary
@@ -56,6 +58,11 @@ function fakePrompts(answers: string[]): Prompts {
         note: () => {},
         spinner: () => ({ stop: () => {}, error: () => {} }),
     }
+}
+
+// Requests carry JSON, except OAuth requests, which are form encoded.
+function parseBody(body: string): unknown {
+    return parseJsonOrUndefined(body, z.unknown()) ?? Object.fromEntries(new URLSearchParams(body))
 }
 
 function memorySecrets(items: Record<string, string>): Secrets {
@@ -148,9 +155,13 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         },
         fetch: (async (input: string | URL | Request, init?: RequestInit) => {
             const url = String(input)
-            const body = init?.body === undefined ? undefined : JSON.parse(String(init.body))
+            const body = init?.body === undefined ? undefined : parseBody(String(init.body))
             requests.push({ method: init?.method ?? 'GET', url, body })
-            const reply = options.respond?.(url, body) ?? { status: 500, body: { detail: 'no fake response' } }
+            const authorization = new Headers(init?.headers).get('authorization')
+            const reply = options.respond?.(url, body, authorization) ?? {
+                status: 500,
+                body: { detail: 'no fake response' },
+            }
             const text = typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
             return new Response(text, { status: reply.status })
         }) as typeof fetch,
@@ -197,6 +208,13 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         },
         writePrivateFile: async (path, contents) => {
             files[path] = contents
+        },
+        createFile: async (path, contents) => {
+            if (path in files) {
+                return false
+            }
+            files[path] = contents
+            return true
         },
         removeFile: async (path) => {
             delete files[path]
@@ -250,8 +268,32 @@ export interface HogRun {
     elapsedMs: number
     tls: { verify: boolean }
     keychain: Record<string, string>
-    json: () => any
-    error: () => any
+    json(): unknown
+    json<S extends z.ZodType>(schema: S): z.output<S>
+    error(): ErrorOutput
+}
+
+const ErrorOutputSchema = z.object({
+    error: z.object({ code: z.string(), message: z.string(), hint: z.string().optional() }),
+})
+
+type ErrorOutput = z.output<typeof ErrorOutputSchema>['error']
+
+const UNREADABLE_OUTPUT = { code: 'unreadable_test_output' }
+
+export function readJson(text: string): unknown
+export function readJson<S extends z.ZodType>(text: string, schema: S): z.output<S>
+export function readJson(text: string, schema: z.ZodType = z.unknown()): unknown {
+    return parseJson(text, schema, UNREADABLE_OUTPUT)
+}
+
+function jsonReader(text: () => string): HogRun['json'] {
+    function read(): unknown
+    function read<S extends z.ZodType>(schema: S): z.output<S>
+    function read(schema: z.ZodType = z.unknown()): unknown {
+        return readJson(text(), schema)
+    }
+    return read
 }
 
 export async function runHog(argv: string[], options: FakeRuntimeOptions = {}): Promise<HogRun> {
@@ -268,7 +310,7 @@ export async function runHog(argv: string[], options: FakeRuntimeOptions = {}): 
         elapsedMs: runtime.now() - start,
         tls: runtime.tls,
         keychain: runtime.keychain,
-        json: () => JSON.parse(runtime.stdout()),
-        error: () => JSON.parse(runtime.stderr()).error,
+        json: jsonReader(() => runtime.stdout()),
+        error: () => readJson(runtime.stderr(), ErrorOutputSchema).error,
     }
 }

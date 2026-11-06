@@ -174,6 +174,26 @@ impl StreamingWriter {
         self
     }
 
+    /// Number of files open for writing, one per partition value written since the last
+    /// flush.
+    pub(crate) fn open_files(&self) -> usize {
+        self.open.len()
+    }
+
+    /// Whether a file is open for the partition of the first row of `values`.
+    pub(crate) fn holds_partition_of(&self, values: &RecordBatch) -> Result<bool> {
+        if values.num_rows() == 0 || self.partition_columns.is_empty() {
+            return Ok(!self.open.is_empty());
+        }
+        let schema = values.schema();
+        let mut arrays: Vec<ArrayRef> = Vec::with_capacity(self.partition_columns.len());
+        for c in &self.partition_columns {
+            arrays.push(values.column(schema.index_of(c)?).clone());
+        }
+        let values = self.partition_values_at(&arrays, 0)?;
+        Ok(self.open.contains_key(&hive_partition_path(&values)))
+    }
+
     /// Bytes held across all open files; the rollover measure.
     pub(crate) fn buffer_len(&self) -> usize {
         self.open.values().map(OpenFile::buffer_len).sum()

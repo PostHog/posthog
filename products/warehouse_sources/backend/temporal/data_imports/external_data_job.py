@@ -40,6 +40,7 @@ from products.managed_warehouse.backend.facade.temporal import (
 )
 from products.warehouse_sources.backend.ad_hoc_sync import resume_schedule_after_ad_hoc_run
 from products.warehouse_sources.backend.billing import billed_usage_for_job
+from products.warehouse_sources.backend.facade.contracts import SOURCE_CREDENTIALS_MISSING_ERROR
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
@@ -52,6 +53,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_should_sync,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
     PersonPropertySyncActivityInputs,
@@ -201,6 +203,12 @@ Any_Source_Errors: dict[str, str | None] = {
     # integration id back at the customer.
     "Integration not found:": MISSING_INTEGRATION_MESSAGE,
     "Missing integration ID": MISSING_INTEGRATION_MESSAGE,
+    # Raised by `SourceInputsStore.load` when a source has no copy of its connection fields in `job_inputs` and
+    # its credentials row is missing or unreadable. A retry reads the same row, so only new credentials help.
+    SOURCE_CREDENTIALS_MISSING_ERROR: (
+        "The saved credentials of this source are missing or cannot be read. Enter the credentials of the "
+        "source again, or reconnect its account, then re-enable the sync."
+    ),
     # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
     # REST-based source). The server refused the handshake, which is deterministic for a given
     # host/TLS config — retrying replays the identical failure, so it's not transient. Usually a
@@ -229,6 +237,10 @@ Any_Source_Errors: dict[str, str | None] = {
     # it here so every other source stops retrying too. The enriched message names the offending column
     # and shows example cells, so keep the raw error rather than replacing it with a generic one.
     "must be real number, not str": None,
+    # Raised before extraction, and again before the table changes, when a migration source must not
+    # adopt a self-managed table because the access rules changed. Only a person can fix the rules,
+    # and the message names the table and the next step, so keep it.
+    ADOPTION_ACCESS_ERROR: None,
     # Raised by botocore (`is_valid_endpoint_url`) when the object storage endpoint URL has a
     # hostname it rejects — most often an underscore, invalid in a DNS hostname but common in a
     # self-hosted deployment's OBJECT_STORAGE_ENDPOINT (e.g. a docker service name). The endpoint is
@@ -472,6 +484,23 @@ def _is_app_db_failure(internal_error: str) -> bool:
     return normalized.startswith(APP_DB_ERROR_PREFIX) and READ_ONLY_TRANSACTION_PHRASE in normalized
 
 
+def _non_retryable_error_message(non_retryable_errors: dict[str, str | None], internal_error: str) -> str | None:
+    """Customer-facing copy for a non-retryable failure: the first matching entry that has one.
+
+    A `None` entry only marks the error non-retryable. Temporal prefixes the driver's class name, so
+    a class-name key such as `InsufficientPrivilege` matches the same error as a later key that
+    carries the message, and it must not hide that message.
+    """
+    return next(
+        (
+            message
+            for pattern, message in non_retryable_errors.items()
+            if message is not None and error_message_matches(internal_error, [pattern])
+        ),
+        None,
+    )
+
+
 def _transient_error_message(internal_error: str) -> str | None:
     """Customer-facing copy for a transient failure that outlived its retries, if we have any.
 
@@ -642,15 +671,10 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         )
 
         if has_non_retryable_error:
-            friendly_errors = [
-                friendly_error
-                for error, friendly_error in non_retryable_errors.items()
-                if error_message_matches(internal_error_normalized, [error])
-            ]
-
-            if friendly_errors and friendly_errors[0] is not None:
-                logger.exception(friendly_errors[0])
-                inputs.latest_error = friendly_errors[0]
+            friendly_error = _non_retryable_error_message(non_retryable_errors, internal_error_normalized)
+            if friendly_error is not None:
+                logger.exception(friendly_error)
+                inputs.latest_error = friendly_error
 
             # Computed after the friendly error so the teardown records the same message
             # the job will show. Excluding this workflow keeps the disable's teardown from

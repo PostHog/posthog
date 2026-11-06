@@ -1,11 +1,25 @@
-import { useActions, useValues } from 'kea'
-import { memo } from 'react'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { memo, useEffect } from 'react'
 
 import { SaveToDatasetButton } from '../../../datasets/SaveToDatasetButton'
+import { saveToDatasetButtonLogic } from '../../../datasets/saveToDatasetButtonLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from '../components/TraceView'
 import { traceExportLogic } from '../traceExportLogic'
+import { traceMessagesOpeningLogic } from '../traceMessagesOpeningLogic'
+import { traceReviewLogic, traceReviewLogicValues } from '../traceReviewLogic'
 import { traceViewModelLogic, traceViewModelLogicValues } from '../traceViewModelLogic'
-import { FeedbackEntry, LabeledLink, MatchDirection, NodeDetailTab, SummaryItemKind, TraceMode } from '../types'
+import {
+    FeedbackEntry,
+    LabeledLink,
+    MatchDirection,
+    MessagesOpening,
+    NodeDetailTab,
+    SummaryItemKind,
+    TraceMode,
+} from '../types'
+import { confirmRemoveFromQueue } from './confirmRemoveFromQueue'
+import { TraceReviewActions } from './TraceReviewActions'
+import { traceReviewBridgeLogic } from './traceReviewBridgeLogic'
 
 export interface TraceViewContainerProps {
     hostId: string
@@ -44,7 +58,17 @@ type ReadyValues = Pick<
     | 'feedbackCountByNodeId'
     | 'feedbackMode'
     | 'selectedStepFeedback'
-> & { traceExportLoading: boolean; traceCopying: boolean; backLink: LabeledLink | null }
+> &
+    Pick<
+        traceReviewLogicValues,
+        'reviewStatus' | 'reviewStatusFailed' | 'queueHref' | 'canEditReviews' | 'removeFromQueueLoading'
+    > & {
+        traceId: string
+        traceExportLoading: boolean
+        traceCopying: boolean
+        backLink: LabeledLink | null
+        messagesOpening: MessagesOpening
+    }
 
 interface ReadyActions {
     setMode: (mode: TraceMode) => void
@@ -64,18 +88,30 @@ interface ReadyActions {
     summaryStepClicked: (nodeId: string, kind: SummaryItemKind) => void
     showFeedback: (nodeId: string | null, entry: FeedbackEntry) => void
     retryTraceFeedback: () => void
+    loadReviewStatus: () => void
+    removeFromQueue: () => void
+    setMessagesOpening: (opening: MessagesOpening) => void
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
     if (!values.summary) {
         return null
     }
+    const queue = values.reviewStatus?.queue ?? null
     return {
         header: {
             ...values.header,
             backLink: values.backLink,
             copyAction: { loading: values.traceCopying, onCopy: actions.copyTrace },
             exportAction: { loading: values.traceExportLoading, onExport: actions.exportTrace },
+            actions: (
+                <TraceReviewActions
+                    traceId={values.traceId}
+                    status={values.reviewStatus}
+                    failed={values.reviewStatusFailed}
+                    onQueueChanged={actions.loadReviewStatus}
+                />
+            ),
         },
         summary: {
             ...values.summary,
@@ -85,6 +121,16 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
                 ? { chip: values.feedbackChip, onClick: () => actions.showFeedback(null, 'chip') }
                 : null,
             git: values.gitBranch,
+            review: values.reviewStatus
+                ? {
+                      status: values.reviewStatus,
+                      queueHref: values.queueHref,
+                      onRemoveFromQueue:
+                          values.canEditReviews && queue && !values.removeFromQueueLoading
+                              ? () => confirmRemoveFromQueue(queue.name, actions.removeFromQueue)
+                              : null,
+                  }
+                : null,
         },
         mode: values.mode,
         onModeChange: actions.setMode,
@@ -99,6 +145,8 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
                   tab: values.detailTab,
                   onTabChange: actions.setDetailTab,
                   onViewInThread: values.canViewInThread ? actions.viewInThread : null,
+                  messagesOpening: values.messagesOpening,
+                  onMessagesOpeningChange: actions.setMessagesOpening,
                   actions: values.datasetItemSource ? <SaveToDatasetButton {...values.datasetItemSource} /> : null,
                   stepFeedback: values.selectedStepFeedback
                       ? {
@@ -152,6 +200,7 @@ export const TraceViewContainer = memo(function TraceViewContainer({
         detailData,
         detailTab,
         datasetItemSource,
+        datasetsEnabled,
         canViewInThread,
         thread,
         timeline,
@@ -176,6 +225,16 @@ export const TraceViewContainer = memo(function TraceViewContainer({
     const exportLogic = traceExportLogic({ traceId, timestampHint })
     const { traceExportLoading, traceCopying } = useValues(exportLogic)
     const { exportTrace, copyTrace } = useActions(exportLogic)
+    const reviewLogic = traceReviewLogic({ traceId })
+    const { reviewStatus, reviewStatusFailed, queueHref, canEditReviews, removeFromQueueLoading } =
+        useValues(reviewLogic)
+    const { loadReviewStatus, removeFromQueue } = useActions(reviewLogic)
+    useMountedLogic(traceReviewBridgeLogic({ traceId }))
+    // The dataset button unmounts while a step loads. Its logic has no key, so it would refetch datasets and recents
+    // on every remount without this mount.
+    useEffect(() => (datasetsEnabled ? saveToDatasetButtonLogic.mount() : undefined), [datasetsEnabled])
+    const { messagesOpening } = useValues(traceMessagesOpeningLogic)
+    const { setMessagesOpening } = useActions(traceMessagesOpeningLogic)
 
     const readyProps =
         status === 'ready'
@@ -212,8 +271,15 @@ export const TraceViewContainer = memo(function TraceViewContainer({
                       traceExportLoading,
                       traceCopying,
                       backLink,
+                      traceId,
+                      reviewStatus,
+                      reviewStatusFailed,
+                      queueHref,
+                      canEditReviews,
+                      removeFromQueueLoading,
+                      messagesOpening,
                   },
-                  { ...actions, exportTrace, copyTrace }
+                  { ...actions, exportTrace, copyTrace, loadReviewStatus, removeFromQueue, setMessagesOpening }
               )
             : null
 

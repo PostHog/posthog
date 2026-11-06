@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, Callable
+from enum import StrEnum
 from typing import Optional
 
 from django.conf import settings
+from django.db import transaction
 
 import orjson
 import pyarrow as pa
@@ -24,14 +26,52 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bat
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 
+# Informational key on a job's `schema_snapshot`. The job keeps `sync_type: webhook`, because the next
+# run compares it with the schema's sync type to decide whether it may continue this job's cursor.
+WEBHOOK_FALLBACK_SNAPSHOT_KEY = "webhook_fallback"
+
+
+class WebhookState(StrEnum):
+    # Read the rows that the webhook delivered.
+    ACTIVE = "active"
+    # The run polls the API by design: the table is not on webhook sync, or the run seeds or rebuilds it.
+    POLL = "poll"
+    # The table is on webhook sync, but the source has no enabled webhook, so nothing delivers rows.
+    NO_WEBHOOK = "no_webhook"
+
+
+class WebhookFallback(StrEnum):
+    """How a webhook-sync run with no enabled webhook polls the API instead."""
+
+    FULL_REFRESH = "full_refresh"
+    INCREMENTAL = "incremental"
+
+
+def _stamp_webhook_fallback(job_id: str, team_id: int, fallback: WebhookFallback) -> None:
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    with transaction.atomic():
+        job = (
+            ExternalDataJob.objects.select_for_update()
+            .filter(id=job_id, team_id=team_id)
+            .only("id", "schema_snapshot")
+            .first()
+        )
+        if job is None:
+            return
+        snapshot = {**dict(job.schema_snapshot or {}), WEBHOOK_FALLBACK_SNAPSHOT_KEY: fallback.value}
+        ExternalDataJob.objects.filter(id=job.id, team_id=team_id).update(schema_snapshot=snapshot)
+
 
 class WebhookSourceManager:
     _inputs: SourceInputs
     _logger: FilteringBoundLogger
+    _state: WebhookState | None
 
     def __init__(self, inputs: SourceInputs, logger: FilteringBoundLogger) -> None:
         self._inputs = inputs
         self._logger = logger
+        self._state = None
 
     def _get_webhook_s3_prefix(self) -> str:
         return f"s3://{settings.DATAWAREHOUSE_BUCKET}/source_webhook_producer/{self._inputs.team_id}/{self._inputs.schema_id}"
@@ -40,7 +80,11 @@ class WebhookSourceManager:
         return s3_path.replace("s3://", "")
 
     async def webhook_enabled(self, webhook_only: bool = False) -> bool:
+        return await self.webhook_state(webhook_only=webhook_only) is WebhookState.ACTIVE
+
+    async def webhook_state(self, webhook_only: bool = False) -> WebhookState:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.webhook_registration import source_has_enabled_webhook
 
         schema = await database_sync_to_async_pool(db_read_with_retry)(
             lambda: ExternalDataSchema.objects.get(id=self._inputs.schema_id, team_id=self._inputs.team_id)
@@ -59,38 +103,37 @@ class WebhookSourceManager:
                 f"schema.initial_sync_complete={schema.initial_sync_complete}. "
                 f"webhook_only={webhook_only}. reset_pipeline={self._inputs.reset_pipeline}"
             )
-            return False
+            self._state = WebhookState.POLL
+            return self._state
 
-        return await self._has_enabled_webhook_function()
+        has_webhook_function = await database_sync_to_async_pool(db_read_with_retry)(
+            lambda: source_has_enabled_webhook(self._inputs.team_id, self._inputs.source_id)
+        )
 
-    async def webhook_unregistered(self) -> bool:
-        """Whether a webhook schema is past its initial sync but its source has no enabled webhook.
+        self._state = WebhookState.ACTIVE if has_webhook_function else WebhookState.NO_WEBHOOK
+        return self._state
 
-        Such a schema falls back to a poll. A schema created with webhook sync has no stored cursor,
-        so that poll re-reads the whole table on every run. The caller decides whether to skip it.
+    @property
+    def webhook_missing(self) -> bool:
+        """Whether the last `webhook_state` check found a webhook-sync table with no enabled webhook."""
+        return self._state is WebhookState.NO_WEBHOOK
+
+    async def record_webhook_fallback(self, fallback: WebhookFallback) -> None:
+        """Mark this run's job as one that polls the API because the table has no enabled webhook.
+
+        Call it after `webhook_enabled` returns False and the source starts to poll. It does nothing
+        unless that check found a webhook-sync table with no enabled webhook, so an initial sync or a
+        reset, which poll by design, stay unmarked. Without the mark, the job still reads as a webhook
+        sync, so its rows count as webhook rows.
         """
-        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-
-        schema = await database_sync_to_async_pool(db_read_with_retry)(
-            lambda: ExternalDataSchema.objects.get(id=self._inputs.schema_id, team_id=self._inputs.team_id)
+        if not self.webhook_missing:
+            return
+        await self._logger.awarning(
+            "This table uses webhook sync, but the source has no active webhook, so this sync reads the "
+            "source API instead. Set up the webhook on the source's Webhook tab, or change the sync method.",
+            webhook_fallback=fallback.value,
         )
-        if not schema.is_webhook or not schema.initial_sync_complete or self._inputs.reset_pipeline:
-            return False
-
-        return not await self._has_enabled_webhook_function()
-
-    async def _has_enabled_webhook_function(self) -> bool:
-        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-
-        return await database_sync_to_async_pool(db_read_with_retry)(
-            lambda: HogFunction.objects.filter(
-                inputs__source_id__value=self._inputs.source_id,
-                team_id=self._inputs.team_id,
-                type="warehouse_source_webhook",
-                enabled=True,
-                deleted=False,
-            ).exists()
-        )
+        await database_sync_to_async_pool(_stamp_webhook_fallback)(self._inputs.job_id, self._inputs.team_id, fallback)
 
     async def schema_is_webhook(self) -> bool:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema

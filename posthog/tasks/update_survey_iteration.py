@@ -2,7 +2,8 @@ from datetime import date, timedelta
 
 from django.utils import timezone
 
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.tasks.survey_system_stop import log_survey_stopped_by_system
 
 from products.feature_flags.backend.facade.api import create_flag, update_flag
 from products.feature_flags.backend.facade.filters import replace_release_conditions
@@ -15,10 +16,12 @@ def _update_survey_iteration(survey: Survey) -> None:
     if survey.iteration_start_dates is None or survey.end_date is not None:
         return
 
-    if _has_final_iteration_ended(survey):
-        survey.end_date = timezone.now()
-        survey.save(update_fields=["end_date"])
-        _log_survey_closed_by_schedule(survey)
+    final_iteration_end = _get_final_iteration_end(survey)
+    if final_iteration_end is not None and date.today() > final_iteration_end:
+        if not _was_resumed_by_a_person_after(survey, final_iteration_end):
+            survey.end_date = timezone.now()
+            survey.save(update_fields=["end_date"])
+            _log_survey_closed_by_schedule(survey)
         return
 
     current_iteration = _get_current_iteration(survey)
@@ -38,35 +41,39 @@ def _log_survey_closed_by_schedule(survey: Survey) -> None:
     # Record a system activity-log entry so the survey's history explains why it stopped.
     # Without this, the scheduler's direct save() leaves no trace, and a user who removes
     # the end date only ever sees their own removals logged — never the automatic close.
-    log_activity(
-        organization_id=survey.team.organization_id,
-        team_id=survey.team_id,
-        user=None,  # system action: renders as PostHog in the activity log
-        was_impersonated=False,
-        item_id=survey.id,
-        scope="Survey",
-        activity="updated",
-        detail=Detail(
-            name=survey.name,
-            changes=[Change(type="Survey", field="end_date", action="created", after=survey.end_date)],
-        ),
+    log_survey_stopped_by_system(
+        survey,
+        "survey_schedule_ended",
+        {"iteration_count": survey.iteration_count, "iteration_frequency_days": survey.iteration_frequency_days},
     )
 
 
-def _has_final_iteration_ended(survey: Survey) -> bool:
+def _get_final_iteration_end(survey: Survey) -> date | None:
     if not survey.iteration_start_dates or not survey.iteration_frequency_days:
-        return False
+        return None
 
     last_iteration_start = survey.iteration_start_dates[-1]
     if last_iteration_start is None:
-        return False
+        return None
 
     try:
-        final_iteration_end = last_iteration_start.date() + timedelta(days=survey.iteration_frequency_days)
+        return last_iteration_start.date() + timedelta(days=survey.iteration_frequency_days)
     except OverflowError:
         # iteration_frequency_days is not capped by the API; a huge value must not crash the task
-        return False
-    return date.today() > final_iteration_end
+        return None
+
+
+def _was_resumed_by_a_person_after(survey: Survey, day: date) -> bool:
+    # The iteration dates stay anchored to start_date, so a survey resumed after its schedule ended
+    # still looks finished. Closing it again would silently undo the person's resume.
+    return ActivityLog.objects.filter(
+        team_id=survey.team_id,
+        scope="Survey",
+        item_id=str(survey.id),
+        is_system=False,
+        created_at__date__gt=day,
+        detail__changes__contains=[{"field": "end_date", "after": None}],
+    ).exists()
 
 
 def _get_targeting_flag(survey: Survey) -> FeatureFlag:

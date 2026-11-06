@@ -6,7 +6,7 @@ import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRea
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
-import { ObservationThumbnail } from '../../components/ObservationThumbnail'
+import { QuillObservationThumbnail } from '../../components/QuillObservationThumbnail'
 import type { HighlightFeedItemApi } from '../../generated/api.schemas'
 import { citedTextToPlainText } from '../../utils/citations'
 import { CARD_SEEN_DWELL_MS } from '../highlightFeedTelemetry'
@@ -14,7 +14,7 @@ import { highlightPicksLogic } from '../highlightPicksLogic'
 import { highlightPickSummary } from '../highlightPickSummary'
 import { highlightReasonCopy } from './HighlightFeedCard'
 import { HighlightPickPreview } from './HighlightPickPreview'
-import { HighlightPickRankBadge } from './HighlightPickRankBadge'
+import { QuillHighlightPickRankBadge } from './QuillHighlightPickRankBadge'
 
 interface QuillHighlightPickRowProps {
     item: HighlightFeedItemApi
@@ -45,15 +45,20 @@ export function QuillHighlightPickRow({ item, position, isActive, rank }: QuillH
                     />
                 }
             >
-                <span className={cn('flex w-full min-w-0 items-center gap-3 py-1', observation.viewed && 'opacity-60')}>
+                <span
+                    className={cn(
+                        'flex w-full min-w-0 items-center gap-3 py-1 text-left',
+                        observation.viewed && 'opacity-60'
+                    )}
+                >
                     <span className="relative w-28 shrink-0">
-                        <ObservationThumbnail
+                        <QuillObservationThumbnail
                             observation={observation}
                             className="w-full"
                             size="small"
                             retryKey={picksLoad?.feedLoadId}
                         />
-                        {rank !== undefined && <HighlightPickRankBadge rank={rank} size="small" />}
+                        {rank !== undefined && <QuillHighlightPickRankBadge rank={rank} />}
                         {!observation.viewed && (
                             <span className="absolute inset-y-0 left-0 w-1 rounded-l bg-primary" aria-hidden />
                         )}

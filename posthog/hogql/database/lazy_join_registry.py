@@ -26,7 +26,12 @@ from posthog.hogql.database.schema.session_replay_events import (
 from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table
 from posthog.hogql.database.schema.sessions_v2 import join_events_table_to_sessions_table_v2
 from posthog.hogql.database.schema.sessions_v3 import join_events_table_to_sessions_table_v3
-from posthog.hogql.database.schema.system import definition_tags_join, ticket_assignment_join, ticket_tags_join
+from posthog.hogql.database.schema.system import (
+    definition_tags_join,
+    endpoint_current_version_join,
+    ticket_assignment_join,
+    ticket_tags_join,
+)
 from posthog.hogql.database.warehouse_join_resolvers import (
     resolve_data_warehouse_experiments_join,
     resolve_data_warehouse_join,
@@ -87,6 +92,7 @@ RESOLVERS: dict[str, LazyJoinResolver] = {
     tags.TICKET_TAGS: ticket_tags_join,
     tags.DEFINITION_TAGS: definition_tags_join,
     tags.TICKET_ASSIGNMENT: ticket_assignment_join,
+    tags.ENDPOINT_CURRENT_VERSION: endpoint_current_version_join,
     tags.ACCOUNT_TAGS: account_tags_join,
     tags.ACCOUNT_NOTEBOOKS: account_notebooks_join,
     tags.ACCOUNT_CUSTOM_PROPERTIES: account_custom_properties_join,

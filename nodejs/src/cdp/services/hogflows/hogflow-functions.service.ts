@@ -121,26 +121,28 @@ export class HogFlowFunctionsService {
             },
         }
 
+        const functionState = invocation.state.currentAction?.hogFunctionState ?? {
+            globals: await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(
+                hogFunction,
+                globalsWithSource,
+                undefined,
+                {
+                    appSourceId: invocation.parentRunId ?? invocation.hogFlow.id,
+                    instanceId: invocation.state.currentAction?.id,
+                }
+            ),
+            timings: [],
+            attempts: 0,
+            actionId: invocation.state.currentAction?.id,
+            actionStepCount: invocation.state.actionStepCount,
+            customerTaskIdempotencyVersion: invocation.state.customerTaskIdempotencyVersion,
+            rerunAttempts: invocation.state.rerunAttempts,
+        }
+
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
             hogFunction,
-            state: invocation.state.currentAction?.hogFunctionState ?? {
-                globals: await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(
-                    hogFunction,
-                    globalsWithSource,
-                    undefined,
-                    {
-                        appSourceId: invocation.parentRunId ?? invocation.hogFlow.id,
-                        instanceId: invocation.state.currentAction?.id,
-                    }
-                ),
-                timings: [],
-                attempts: 0,
-                actionId: invocation.state.currentAction?.id,
-                actionStepCount: invocation.state.actionStepCount,
-                customerTaskIdempotencyVersion: invocation.state.customerTaskIdempotencyVersion,
-                rerunAttempts: invocation.state.rerunAttempts,
-            },
+            state: { ...functionState, ...(invocation.state.send && { send: invocation.state.send }) },
         }
 
         return hogFunctionInvocation
