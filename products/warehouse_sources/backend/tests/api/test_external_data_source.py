@@ -6614,7 +6614,7 @@ class TestExternalDataSource(APIBaseTest):
                     "webhook_only": False,
                     "prefers_full_refresh": False,
                     "available_columns": [
-                        {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                        {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
                     ],
                     "detected_primary_keys": ["id"],
                     "primary_key_detection_supported": True,
@@ -6694,7 +6694,7 @@ class TestExternalDataSource(APIBaseTest):
                     "webhook_only": False,
                     "prefers_full_refresh": False,
                     "available_columns": [
-                        {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                        {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
                     ],
                     "detected_primary_keys": ["id"],
                     "primary_key_detection_supported": True,

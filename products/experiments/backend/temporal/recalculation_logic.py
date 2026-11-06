@@ -701,6 +701,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     attempt: int = 1,
     precomputation_mode: PrecomputationMode | None = None,
     calculation_key_version: int = 1,
+    task_queue: str = "",
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -864,7 +865,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 feature=Feature.CACHE_WARMUP,
                 client_query_id=client_query_id,
                 # Also covers the precompute inserts, which run inside this context.
-                ch_user=recalculation_clickhouse_user(str(experiment.team.organization_id)),
+                ch_user=recalculation_clickhouse_user(task_queue),
             ):
                 result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = sanitize_non_finite(result.model_dump(mode="json"))
