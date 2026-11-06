@@ -2,6 +2,7 @@ import {
     MakeLogicType,
     BuiltLogic,
     actions,
+    afterMount,
     connect,
     kea,
     listeners,
@@ -22,7 +23,6 @@ import { InsightEventSource, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
-import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import {
     SEARCH_PARAM_FILTERS_KEY,
     dashboardSearchParamsFromOverrides,
@@ -42,6 +42,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
+import { DataVisualizationRenderer, InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
 import { isDataTableNode, isInsightVizNode } from '~/queries/schema/node-guards'
 import { checkLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
@@ -69,6 +70,7 @@ import {
 } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import { isDashboardFilterOverrideEmpty } from 'products/dashboards/frontend/dashboardFilterEmpty'
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -1028,5 +1030,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             setInsightId: actionToUrl,
             setInsightMode: actionToUrl,
         }
+    }),
+    afterMount(() => {
+        // An insight is a chart or a SQL visualization. Fetch both renderers alongside the insight itself.
+        void InsightVizRenderer.preload()
+        void DataVisualizationRenderer.preload()
     }),
 ])

@@ -83,6 +83,7 @@ class NamedBytesIO(io.BytesIO):
 CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # Raised when we cannot connect to Snowflake.
     "DatabaseError",
     # Raised by Snowflake when a query cannot be compiled.
@@ -653,8 +654,27 @@ def _is_connect_error_retryable(err: Exception) -> bool:
     return isinstance(err, OperationalError) and err.errno in (ER_FAILED_TO_CONNECT_TO_DB, ER_RETRYABLE_CODE)
 
 
+# These columns hold `$set` and `$set_once` and can include any text sent by a client. PARSE_JSON
+# fails the whole COPY on one malformed value, and unfortunately COPY transformations do not support
+# TRY_PARSE_JSON (at least according to the Snowflake docs), so we use CHECK_JSON as a guard
+# instead. Other JSON columns do not use this guard: we currently accept duplicate keys in JSON
+# objects and CHECK_JSON has no option to support this like PARSE_JSON does with the 'd' option.
+COLUMNS_WITH_UNVALIDATED_JSON = frozenset({"people_set", "people_set_once"})
+
+
 def _quote_snowflake_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
+
+
+def _build_copy_select_expression(field: Field) -> str:
+    """Return the expression that a COPY INTO uses to load `field` from a staged Parquet file."""
+    column = f"$1:{_quote_snowflake_identifier(field.name)}"
+    name = field.name.lower()
+    if field.data_type != JsonType() or name == "elements":
+        return column
+    if name in COLUMNS_WITH_UNVALIDATED_JSON:
+        return f"IFF(CHECK_JSON({column}) IS NULL, PARSE_JSON({column}, 'd'), NULL)"
+    return f"PARSE_JSON({column}, 'd')"
 
 
 class SnowflakeClient:
@@ -1191,12 +1211,7 @@ class SnowflakeClient:
             SnowflakeInsufficientPrivilegesError: If the configured Snowflake role lacks required privileges to
                 perform this operation.
         """
-        select_fields = ", ".join(
-            f"PARSE_JSON($1:{_quote_snowflake_identifier(field.name)}, 'd')"
-            if field.data_type == JsonType() and field.name.lower() != "elements"
-            else f"$1:{_quote_snowflake_identifier(field.name)}"
-            for field in table
-        )
+        select_fields = ", ".join(_build_copy_select_expression(field) for field in table)
         query = f"""
         COPY INTO "{table.name}" ({", ".join(_quote_snowflake_identifier(field.name) for field in table)})
 
@@ -1492,7 +1507,7 @@ async def insert_into_snowflake_activity_from_stage(
         inputs.table_name,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         if inputs.integration_id is None:
             raise SnowflakeIntegrationRequiredError(inputs.batch_export_id)
 
@@ -1511,6 +1526,7 @@ async def insert_into_snowflake_activity_from_stage(
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:

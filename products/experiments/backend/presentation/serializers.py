@@ -54,6 +54,9 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
     ExperimentHealthMetricCompileErrorKind,
+    ExperimentHealthRuleSide,
+    ExperimentHealthRuleTest,
+    ExperimentHealthValueKey,
     ExperimentValidationError,
     HealthExposureInputsStatus,
     RunningTimeMode,
@@ -208,6 +211,19 @@ class ExperimentHealthEvidenceField(serializers.DictField):
     pass
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {
+            "oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}],
+            "nullable": True,
+        },
+    }
+)
+class ExperimentHealthCheckValuesField(serializers.DictField):
+    pass
+
+
 class ExperimentHealthFindingSerializer(serializers.Serializer):
     code = serializers.ChoiceField(
         choices=ExperimentHealthFindingCode.choices,
@@ -255,6 +271,47 @@ class ExperimentHealthFindingSerializer(serializers.Serializer):
             "Null when the skill has none."
         ),
     )
+    check = serializers.ChoiceField(
+        choices=ExperimentHealthCheckKey.choices,
+        help_text=(
+            "The key of the check in `checks` that reported the finding. A check can report several codes, so the "
+            "code doesn't name the check."
+        ),
+    )
+
+
+class ExperimentHealthRuleMinimumSerializer(serializers.Serializer):
+    value = serializers.ChoiceField(
+        choices=ExperimentHealthValueKey.choices,
+        help_text="The key in `values` that must reach the threshold before the check judges.",
+    )
+    threshold = serializers.FloatField(
+        help_text="The value that the key must reach. Below it, the check reports no finding."
+    )
+
+
+class ExperimentHealthCheckRuleSerializer(serializers.Serializer):
+    value = serializers.ChoiceField(
+        choices=ExperimentHealthValueKey.choices,
+        help_text="The key in `values` that the check compares with the threshold.",
+    )
+    threshold = serializers.FloatField(help_text="The threshold, in the unit that the suffix of the key gives.")
+    warns = serializers.ChoiceField(
+        choices=ExperimentHealthRuleSide.choices,
+        help_text=(
+            "above: the check reports a finding when the value is above the threshold. below: when the value is "
+            "below it. A value at the threshold passes."
+        ),
+    )
+    test = serializers.ChoiceField(
+        choices=ExperimentHealthRuleTest.choices,
+        allow_null=True,
+        help_text="The statistical test that computes the value, for example chi_squared. Null for a count or a share.",
+    )
+    minimum = ExperimentHealthRuleMinimumSerializer(
+        allow_null=True,
+        help_text="What the check needs before it judges. Null when the check judges from the first value.",
+    )
 
 
 class ExperimentHealthCheckResultSerializer(serializers.Serializer):
@@ -266,6 +323,9 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
         ),
     )
     name = serializers.CharField(help_text="The problem the check looks for, for example 'Metrics not set up'.")
+    description = serializers.CharField(
+        help_text=("What the check looks for and why it matters. The same for every experiment and every status.")
+    )
     status = serializers.ChoiceField(
         choices=ExperimentHealthCheckStatus.choices,
         help_text=(
@@ -280,6 +340,22 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
         help_text=(
             "Why the check did not look, for the statuses not_applicable and not_checked, for example "
             "'Runs after launch'. Null for passed and finding."
+        ),
+    )
+    values = ExperimentHealthCheckValuesField(
+        help_text=(
+            "What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty "
+            "when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, "
+            "_percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a "
+            "suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key "
+            "that decides."
+        ),
+    )
+    rule = ExperimentHealthCheckRuleSerializer(
+        allow_null=True,
+        help_text=(
+            "How the check decides. The same for every experiment and every status. Null for a check without a "
+            "numeric rule."
         ),
     )
 
@@ -3633,10 +3709,10 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
     flag_called_after_end = serializers.BooleanField(
         allow_null=True,
         help_text=(
-            "Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended "
-            "experiment whose flag is still active with multiple variants. False only after 3 days without a "
-            "recorded call. Null before the end, before those 3 days are over, or when the organization's flag "
-            "calls can't be read."
+            "Whether PostHog has recorded a call of the flag after the end and within the last 3 days. The flag "
+            "state check reads it on an ended experiment whose flag is still active with multiple variants. False "
+            "only once 3 days have passed since the end. Null before the end, before those 3 days are over without a "
+            "call, or when the organization's flag calls can't be read."
         ),
     )
     exposure_events = ExperimentHealthInputsExposureEventsSerializer(

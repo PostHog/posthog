@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime as dt
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 
 @frozen
@@ -193,11 +194,83 @@ class PromptStats:
     top_words: tuple[PromptSearchWord, ...]
 
 
+def _rate(part: int, whole: int) -> float | None:
+    return part / whole if whole else None
+
+
+@frozen
+class PromptSetCounts:
+    """Checks across the prompt set in one window, all engines. Rates leave failed checks out."""
+
+    checks: int
+    failed: int
+    cited: int
+    mentioned: int
+    # Distinct prompts that ran at least once in the window, and how many of them were cited at least once.
+    prompts: int
+    prompts_cited: int
+
+    @property
+    def citation_rate(self) -> float | None:
+        return _rate(self.cited, self.checks - self.failed)
+
+    @property
+    def mention_rate(self) -> float | None:
+        return _rate(self.mentioned, self.checks - self.failed)
+
+
+@frozen
+class PromptSetEngineCounts(PromptSetCounts):
+    engine: str
+
+
+@frozen
+class PromptSetTopicCounts(PromptSetCounts):
+    """Checks that ran with this topic in the window, and the active prompts that have it now."""
+
+    topic: str
+    active_prompts: int
+
+
+@frozen
+class PromptSetDomain:
+    """How many answers across the set cited a domain in the window."""
+
+    domain: str
+    answers: int
+    share_of_answers: float
+    is_target: bool
+
+
+@frozen
+class PromptSetOverview:
+    """How the whole prompt set did over the last `days` days, against the `days` days before."""
+
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    # Active, unarchived prompts: the ones the next daily run takes.
+    prompts_tracked: int
+    target_domains: tuple[str, ...]
+    brand_names: tuple[str, ...]
+    current: PromptSetCounts
+    previous: PromptSetCounts
+    engines: tuple[PromptSetEngineCounts, ...]
+    topics: tuple[PromptSetTopicCounts, ...]
+    top_domains: tuple[PromptSetDomain, ...]
+
+
+class PromptOrigin(LabeledStrEnum):
+    API = "api"
+    SUGGESTION = "suggestion"
+
+
 @frozen
 class PromptImport:
     prompt: str
     topic: str = ""
     external_visibility: float | None = None
+    origin: PromptOrigin = PromptOrigin.API
 
 
 @frozen
@@ -245,3 +318,61 @@ class PromptUpdateError(Exception):
 
 class PromptTextConflictError(Exception):
     """The new text matches another prompt in the set. The message is safe to show the user."""
+
+
+class PromptSuggestionError(Exception):
+    """Prompt suggestions could not be produced. The message is safe to show the user."""
+
+
+class PromptCircle(LabeledStrEnum):
+    """Where a prompt sits between the buyer, the brand and its competitors."""
+
+    DIFFERENTIATION = "differentiation"
+    BATTLEGROUND = "battleground"
+    VULNERABILITY = "vulnerability"
+    TABLE_STAKES = "table_stakes"
+    BRANDED = "branded"
+
+
+class FunnelStage(LabeledStrEnum):
+    TOP = "top"
+    MIDDLE = "middle"
+    BOTTOM = "bottom"
+
+
+@frozen
+class PromptSuggestionRequest:
+    domain: str
+    brand: str = ""
+    description: str = ""
+    competitors: tuple[str, ...] = ()
+    topics: tuple[str, ...] = ()
+    count: int = 20
+
+
+@frozen
+class PromptSuggestion:
+    prompt: str
+    topic: str
+    circle: PromptCircle
+    funnel_stage: FunnelStage
+    branded: bool
+    reason: str
+
+
+class PromptSuggestionStatus(LabeledStrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@frozen
+class PromptSuggestionJob:
+    id: str
+    status: PromptSuggestionStatus
+    suggestions: tuple[PromptSuggestion, ...] = ()
+    error: str = ""
+
+
+class PromptSuggestionJobNotFoundError(Exception):
+    pass

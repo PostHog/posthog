@@ -1,6 +1,6 @@
 import traceback
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, cast, get_args
 
 from django.db import models
 from django.db.models import Q, QuerySet
@@ -31,10 +31,12 @@ ACTIVITY_LOG_CLIENT_MAX_LENGTH = 256
 ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH = 32
 # Set by `OAuthAccessTokenAuthentication` from the scout run bound to a sandbox token.
 SCOUT_CLIENT_PREFIX = "scout:"
+# Set by `WorkloadAccessTokenAuthentication` from the subject name the workload token's OIDC claims named.
+WORKLOAD_CLIENT_PREFIX = "workload:"
 # Prefixes only the server may write. The activity log tells a reader that a tag carrying one of
 # them comes from the authenticated request rather than from the client, so the two kinds of tag
 # must not share a name.
-SERVER_DERIVED_CLIENT_PREFIXES = (SCOUT_CLIENT_PREFIX,)
+SERVER_DERIVED_CLIENT_PREFIXES = (SCOUT_CLIENT_PREFIX, WORKLOAD_CLIENT_PREFIX)
 
 
 DeclaredCredentialType = Literal[
@@ -44,6 +46,7 @@ DeclaredCredentialType = Literal[
     "project_secret_key",
     "team_secret_token",
     "id_jag",
+    "oidc_workload",
     "internal_jwt",
     "service_jwt",
     "internal_api_secret",
@@ -62,6 +65,13 @@ DeclaredCredentialType = Literal[
 # `log_activity` writes `unattributed` for a row in a request where no authentication class recorded
 # a credential, so no class may declare it.
 CredentialType = Literal[DeclaredCredentialType, "unattributed"]
+CREDENTIAL_TYPE_CHOICES: tuple[CredentialType, ...] = get_args(CredentialType)
+# The credential types whose `credential_id` customers can read. Each id names a login session or a
+# key that the customer can look up and revoke through the PostHog API. Never add `service_jwt`: its
+# id is the audience of an internal PostHog service.
+CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES: frozenset[CredentialType] = frozenset(
+    {"session", "personal_api_key", "project_secret_key"}
+)
 # Sized for an ID-JAG `client_id`, the longest value: the identity provider config accepts client
 # ids up to 256 characters. Key ids, OAuth application UUIDs and session public ids are much shorter.
 ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH = 256
@@ -261,6 +271,27 @@ class ActivityLoggingStorage:
         if hasattr(self._local, "trigger"):
             delattr(self._local, "trigger")
 
+    def set_verified_trigger_resolver(self, resolver: Callable[[], Optional["Trigger"]]) -> None:
+        """Hand over a trigger the authenticated credential proves, such as the CI job behind a CI
+        access token, to build when a row first needs it. Unlike `set_trigger`, it applies to every row."""
+        self._local.verified_trigger_resolver = resolver
+
+    def get_verified_trigger(self) -> Optional["Trigger"]:
+        resolver = getattr(self._local, "verified_trigger_resolver", None)
+        if resolver is not None:
+            delattr(self._local, "verified_trigger_resolver")
+            try:
+                self._local.verified_trigger = resolver()
+            except Exception:
+                logger.warning("activity_log.verified_trigger_resolver_failed", exc_info=True)
+                self._local.verified_trigger = None
+        return getattr(self._local, "verified_trigger", None)
+
+    def clear_verified_trigger(self) -> None:
+        for name in ("verified_trigger_resolver", "verified_trigger"):
+            if hasattr(self._local, name):
+                delattr(self._local, name)
+
     def clear_all(self) -> None:
         self.clear_request_scoped()
         self.clear_user()
@@ -271,6 +302,7 @@ class ActivityLoggingStorage:
         self.clear_ip_address()
         self.clear_credential()
         self.clear_trigger()
+        self.clear_verified_trigger()
 
 
 activity_storage = ActivityLoggingStorage()

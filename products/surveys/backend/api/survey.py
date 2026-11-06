@@ -1,5 +1,6 @@
 import re
 import builtins
+import itertools
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -41,6 +42,7 @@ from rest_framework.response import Response
 from posthog.schema import ProductKey
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
+from posthog.api.pagination import PageLinksSerializer, offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action
@@ -70,8 +72,8 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import existing_action_ids, get_actions
+from products.actions.backend.presentation.views.action import ActionSerializer, ActionStepJSONSerializer
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.approvals.backend.transactions import gated_atomic
@@ -94,6 +96,7 @@ from products.surveys.backend.models import (
     ensure_question_ids,
 )
 from products.surveys.backend.responses import (
+    StatsWindow,
     SurveyRates,
     SurveyStats,
     build_choice_translation_map,
@@ -1008,7 +1011,7 @@ class SurveyResponsesQuerySerializer(serializers.Serializer):
     )
 
 
-class SurveyResponsesListSerializer(serializers.Serializer):
+class SurveyResponsesListSerializer(PageLinksSerializer):
     results = SurveyResponseRowSerializer(many=True, help_text="Survey response rows for the requested page.")
     has_more = serializers.BooleanField(
         help_text="True if more rows exist beyond the current page — fetch the next page with offset + limit."
@@ -1130,6 +1133,17 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
         if isinstance(translations, dict):
             data["translations"] = sanitize_survey_translations(translations)
         return data
+
+
+def _free_name_hint(name: str, project_id: int) -> str:
+    taken = set(
+        Survey.objects.filter(team__project_id=project_id, name__startswith=name).values_list("name", flat=True)
+    )
+    free_name = next(candidate for n in itertools.count(2) if (candidate := f"{name} ({n})") not in taken)
+    max_length = Survey._meta.get_field("name").max_length
+    if max_length is not None and len(free_name) > max_length:
+        return "Use a different name."
+    return f'Use a different name, such as "{free_name}".'
 
 
 class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
@@ -1317,9 +1331,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if action_ids is None or not all(0 < action_id < 2**63 for action_id in action_ids):
             raise serializers.ValidationError("Each action in the survey conditions needs a valid id.")
 
-        added_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
         if self.instance is not None:
-            added_actions = added_actions.exclude(id__in=self.instance.actions.values("id"))
+            action_ids -= set(self.instance.actions.values_list("id", flat=True))
+        added_actions = get_actions(project_id=self.context["project_id"], action_ids=action_ids)
         denied_ids = self.context["view"].user_access_control.denied_object_ids(
             "action", [(str(action.id), action.team_id, action.created_by_id) for action in added_actions], "viewer"
         )
@@ -1749,7 +1763,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             self.context["request"].method == "POST"
             and Survey.objects.filter(name=data.get("name"), team__project_id=self.context["project_id"]).exists()
         ):
-            raise serializers.ValidationError("There is already a survey with this name.", code="unique")
+            raise serializers.ValidationError(
+                f"There is already a survey with this name. {_free_name_hint(data['name'], self.context['project_id'])}",
+                code="unique",
+            )
 
         existing_survey: Survey | None = self.instance
 
@@ -1760,7 +1777,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             .exclude(id=existing_survey.id)
             .exists()
         ):
-            raise serializers.ValidationError("There is already another survey with this name.", code="unique")
+            raise serializers.ValidationError(
+                f"There is already another survey with this name. {_free_name_hint(data['name'], self.context['project_id'])}",
+                code="unique",
+            )
 
         if data.get("targeting_flag_filters"):
             groups = (data.get("targeting_flag_filters") or {}).get("groups") or []
@@ -2093,7 +2113,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 instance.targeting_flag.save()
 
             self._add_user_survey_interacted_filters(instance)
-            self._associate_actions(instance, validated_data.get("conditions"))
+            if "conditions" in validated_data:
+                self._associate_actions(instance, validated_data["conditions"])
             self._add_internal_response_sampling_filters(instance)
 
         log_activity(
@@ -2182,7 +2203,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         action_ids = (value.get("id") for value in values)
 
-        instance.actions.set(Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids))
+        instance.actions.set(existing_action_ids(project_id=self.context["project_id"], action_ids=action_ids))
         instance.save()
 
     def _should_survey_flags_be_active(self, instance: Survey) -> bool:
@@ -2686,11 +2707,9 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         counts = get_survey_responses_count(team=self.team, exclude_archived=exclude_archived, survey_ids=survey_ids)
         return Response(counts)
 
-    def _validate_and_parse_dates(
-        self, date_from: str | None, date_to: str | None
-    ) -> tuple[datetime | None, datetime | None]:
+    def _validate_and_parse_dates(self, date_from: str | None, date_to: str | None) -> StatsWindow:
         try:
-            return validate_and_parse_dates(date_from, date_to)
+            return validate_and_parse_dates(date_from, date_to, self.team)
         except ValueError as exc:
             raise exceptions.ValidationError(str(exc)) from exc
 
@@ -2708,8 +2727,8 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         """Get survey statistics from ClickHouse.
 
         Args:
-            date_from: Optional ISO timestamp for start date with timezone info
-            date_to: Optional ISO timestamp for end date with timezone info
+            date_from: Optional ISO timestamp or relative date (e.g. -7d) for start date with timezone info
+            date_to: Optional ISO timestamp or relative date for end date with timezone info
             survey_id: Optional survey ID to filter for. If None, gets stats for all surveys.
             exclude_archived: If True, exclude archived responses. Defaults to False (includes archived).
 
@@ -2732,15 +2751,15 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         parameters=[
             OpenApiParameter(
                 "date_from",
-                OpenApiTypes.DATETIME,
+                OpenApiTypes.STR,
                 required=False,
-                description="Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)",
+                description="Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m",
             ),
             OpenApiParameter(
                 "date_to",
-                OpenApiTypes.DATETIME,
+                OpenApiTypes.STR,
                 required=False,
-                description="Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
+                description="Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d",
             ),
             OpenApiParameter(
                 "include_per_question_stats",
@@ -2785,8 +2804,8 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         """Get survey response statistics for a specific survey.
 
         Args:
-            date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-            date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+            date_from: Optional ISO timestamp (e.g. 2024-01-01T00:00:00Z) or relative date (e.g. -7d) for start date
+            date_to: Optional ISO timestamp (e.g. 2024-01-31T23:59:59Z) or relative date for end date
             exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
             include_per_question_stats: Optional boolean to include per-question response counts and distributions
 
@@ -2812,13 +2831,10 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         response_data["end_date"] = survey.end_date
 
         if include_per_question_stats:
-            try:
-                from_ts = datetime.fromisoformat(date_from) if date_from else None
-                to_ts = datetime.fromisoformat(date_to) if date_to else None
-            except ValueError:
-                from_ts = None
-                to_ts = None
-            per_question = fetch_per_question_stats(survey=survey, team=self.team, since=from_ts, until=to_ts)
+            window = self._validate_and_parse_dates(date_from, date_to)
+            per_question = fetch_per_question_stats(
+                survey=survey, team=self.team, since=window.date_from, until=window.date_to
+            )
             response_data["per_question_stats"] = [
                 {
                     "question_id": q.question_id,
@@ -2947,6 +2963,8 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         if cleaned.get("exclude_archived"):
             exclude_uuids = get_archived_response_uuids(str(survey.id), self.team_id)
 
+        limit = cleaned.get("limit", 100)
+        offset = cleaned.get("offset", 0)
         rows, has_more = fetch_response_rows(
             survey=survey,
             team=self.team,
@@ -2955,8 +2973,8 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
             question_id=cleaned.get("question_id"),
             score_lte=cleaned.get("score_lte"),
             score_gte=cleaned.get("score_gte"),
-            limit=cleaned.get("limit", 100),
-            offset=cleaned.get("offset", 0),
+            limit=limit,
+            offset=offset,
             exclude_uuids=exclude_uuids,
         )
 
@@ -2985,11 +3003,14 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
                     for row in rows
                 ],
                 "has_more": has_more,
-                "limit": cleaned.get("limit", 100),
-                "offset": cleaned.get("offset", 0),
+                "limit": limit,
+                "offset": offset,
             }
         )
-        return Response(serialized.data)
+        data = serialized.data
+        next_offset = offset + limit if has_more else None
+        data.update(offset_page_links(request, offset=offset, limit=limit, next_offset=next_offset))
+        return Response(data)
 
     @extend_schema(
         operation_id="surveys_question_labels",
@@ -3063,15 +3084,15 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         parameters=[
             OpenApiParameter(
                 "date_from",
-                OpenApiTypes.DATETIME,
+                OpenApiTypes.STR,
                 required=False,
-                description="Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)",
+                description="Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m",
             ),
             OpenApiParameter(
                 "date_to",
-                OpenApiTypes.DATETIME,
+                OpenApiTypes.STR,
                 required=False,
-                description="Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
+                description="Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d",
             ),
         ],
         responses={
@@ -3092,8 +3113,8 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         """Get aggregated response statistics across all surveys.
 
         Args:
-            date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-            date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+            date_from: Optional ISO timestamp (e.g. 2024-01-01T00:00:00Z) or relative date (e.g. -7d) for start date
+            date_to: Optional ISO timestamp (e.g. 2024-01-31T23:59:59Z) or relative date for end date
 
         Returns:
             Aggregated statistics across all surveys including total counts and rates
@@ -3708,11 +3729,16 @@ class _SurveyAPIActionStepSerializer(ActionStepJSONSerializer):
         return fields
 
 
-class SurveyAPIActionSerializer(serializers.ModelSerializer):
-    steps = _SurveyAPIActionStepSerializer(many=True, required=False)
+class SurveyAPIActionSerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True, help_text="ID of the action.")
+    name = serializers.CharField(read_only=True, allow_null=True, help_text="Name of the action, or null if unnamed.")
+    steps = _SurveyAPIActionStepSerializer(
+        many=True, read_only=True, help_text="Steps an event must match one of to match the action."
+    )
 
+    # Not read by DRF on a plain Serializer: get_survey_conditions_with_actions projects a stale stored
+    # actions blob down to these fields, so the public payload never carries more than the serializer would.
     class Meta:
-        model = Action
         fields = [
             "id",
             "name",

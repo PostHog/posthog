@@ -125,6 +125,10 @@ const PieChartSettings = z.object({
         .optional(),
 })
 
+const AssistantDataVisualizationColumnDisplaySettings = z.object({
+    description: z.string().describe('Table column description shown in the header tooltip.').optional(),
+})
+
 const AssistantDataVisualizationAxisFormatting = z.object({
     decimalPlaces: z.coerce.number().describe('Number of decimal places to display.').optional(),
     prefix: z.string().describe('Text prepended to each value (e.g. `$`).').optional(),
@@ -138,6 +142,7 @@ const AssistantDataVisualizationAxisFormatting = z.object({
 })
 
 const AssistantDataVisualizationColumnSettings = z.object({
+    display: AssistantDataVisualizationColumnDisplaySettings.describe('Display settings for this column.').optional(),
     formatting: AssistantDataVisualizationAxisFormatting.describe(
         'Number-formatting settings for the values in this column.'
     ).optional(),
@@ -146,7 +151,7 @@ const AssistantDataVisualizationColumnSettings = z.object({
 const AssistantDataVisualizationColumn = z.object({
     column: z.string().describe('Name of a column returned by the SQL query.'),
     settings: AssistantDataVisualizationColumnSettings.describe(
-        'Optional number formatting for this column.'
+        'Optional display and number-formatting settings for this column.'
     ).optional(),
 })
 
@@ -217,6 +222,12 @@ const AssistantDataVisualizationChartSettings = z.object({
         .nullable()
         .describe(
             'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.'
+        )
+        .optional(),
+    showAnnotations: z.coerce
+        .boolean()
+        .describe(
+            'Show annotations on the chart. Only applies to line, area, bar, and stacked bar charts whose X axis is a date or datetime column.'
         )
         .optional(),
     showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),

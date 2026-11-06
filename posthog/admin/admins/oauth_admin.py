@@ -243,6 +243,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
         "is_dcr_client",
         "is_cimd_client",
         "is_first_party",
+        "supports_step_up",
         "auth_brand",
         "is_provisioning_partner",
         ProvisioningCapabilityFilter,
@@ -361,7 +362,18 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                     },
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
-                ("Status", {"fields": ("is_verified", "is_first_party", "is_dcr_client", "is_cimd_client")}),
+                (
+                    "Status",
+                    {
+                        "fields": (
+                            "is_verified",
+                            "is_first_party",
+                            "supports_step_up",
+                            "is_dcr_client",
+                            "is_cimd_client",
+                        )
+                    },
+                ),
                 (
                     "Provisioning",
                     {
@@ -402,7 +414,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                     },
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
-                ("Status", {"fields": ("is_verified", "is_first_party")}),
+                ("Status", {"fields": ("is_verified", "is_first_party", "supports_step_up")}),
             )
 
     def get_form(self, request, obj=None, change=False, **kwargs):
