@@ -54,7 +54,6 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 
     @parameterized.expand(
         [
-            # The stored row disagrees with SES, as it does on many domains: SES's live value wins.
             ("ses_value_wins", "returns", "returns"),
             ("ses_has_none", None, "own"),
         ]

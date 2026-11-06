@@ -73,8 +73,7 @@ class EmailIntegration:
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtext('email_sender_domain'), hashtext(%s))", [domain])
 
-        # Refused early as well as on the constraint below, so an address that already has a sender
-        # does not reach the provider and register a domain for a request that cannot succeed.
+        # Checked before the provider call, so a duplicate does not register an SES domain.
         if model.Integration.objects.filter(team_id=team_id, kind="email", integration_id=email_address).exists():
             raise _duplicate_sender_error(email_address)
 
@@ -94,9 +93,8 @@ class EmailIntegration:
                 get_ses_mail_from_subdomain,
             )
 
-            # SES keeps one MAIL FROM per domain identity, shared by every sender on it, and the stored
-            # rows can disagree with it. A sender added to a domain that already has one takes the value
-            # SES uses now, so adding it cannot repoint bounce handling for the senders already there.
+            # SES keeps one MAIL FROM per domain, and stored rows can disagree with it. A new sender takes
+            # the value SES uses now, so adding it cannot repoint bounce handling for the senders already there.
             if same_domain_integrations.exists():
                 mail_from_subdomain = get_ses_mail_from_subdomain(domain) or mail_from_subdomain
 
