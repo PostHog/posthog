@@ -125,7 +125,7 @@ export function useQuestionInput({ textAreaRef, onSubmit }: UseQuestionInputOpti
     // user keeps typing a message that still starts with "/". "/" + Esc is a valid path.
     const [autocompleteDismissed, setAutocompleteDismissed] = useState(false)
     const [editingQueueId, setEditingQueueId] = useState<string | null>(null)
-    const [dismissedReplySuggestionTurn, setDismissedReplySuggestionTurn] = useState<number | null>(null)
+    const [dismissedReplySuggestion, setDismissedReplySuggestion] = useState<string | null>(null)
     const acceptedReplySuggestion = useRef<string | null>(null)
     const displayQueuedMessages = useMemo(() => [...queuedMessages].reverse(), [queuedMessages])
 
@@ -204,7 +204,7 @@ export function useQuestionInput({ textAreaRef, onSubmit }: UseQuestionInputOpti
     const showFillInHint = !!fillInHint
     const replySuggestion =
         !inputValue && !threadLoading && !isSharedThread && !showFillInHint && sandboxReplySuggestions
-            ? sandboxReplySuggestions.turnIndex !== dismissedReplySuggestionTurn
+            ? `${conversation?.id}:${sandboxReplySuggestions.turnIndex}` !== dismissedReplySuggestion
                 ? (sandboxReplySuggestions.replies[0] ?? null)
                 : null
             : null
@@ -297,7 +297,7 @@ export function useQuestionInput({ textAreaRef, onSubmit }: UseQuestionInputOpti
             if (noModifiers && (event.key === 'Tab' || event.key === 'ArrowRight')) {
                 event.preventDefault()
                 acceptedReplySuggestion.current = replySuggestion
-                setDismissedReplySuggestionTurn(sandboxReplySuggestions.turnIndex)
+                setDismissedReplySuggestion(`${conversation?.id}:${sandboxReplySuggestions.turnIndex}`)
                 handleQuestionChange(replySuggestion)
                 posthog.capture('posthog ai reply suggestion accepted', {
                     conversation_id: conversation?.id,
@@ -308,7 +308,7 @@ export function useQuestionInput({ textAreaRef, onSubmit }: UseQuestionInputOpti
             }
             if (event.key === 'Escape') {
                 event.preventDefault()
-                setDismissedReplySuggestionTurn(sandboxReplySuggestions.turnIndex)
+                setDismissedReplySuggestion(`${conversation?.id}:${sandboxReplySuggestions.turnIndex}`)
                 posthog.capture('posthog ai reply suggestion dismissed', {
                     conversation_id: conversation?.id,
                     turn_index: sandboxReplySuggestions.turnIndex,

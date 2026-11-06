@@ -95,6 +95,14 @@ class TestGenerateReplySuggestions(BaseTest):
         }
         assert publish.kwargs == {"persist": False}
 
+    def test_a_long_answer_reaches_the_model_with_its_closing_question(self):
+        answer = "Step details. " * 600 + "Should I open a pull request with the fix?"
+        self.mocks["history"].return_value = [_user_message("Fix the relay"), _agent_final(answer), _turn_complete()]
+
+        self._generate()
+
+        assert self.mocks["suggest"].call_args.args[0].endswith("Should I open a pull request with the fix?")
+
     @parameterized.expand(
         [
             ("answer_still_streaming", {"history": TWO_TURNS[:-1]}, "turn_in_progress"),

@@ -198,13 +198,14 @@ export interface runInteractionLogicValues {
     currentRunStatus: RunStatus | null // runStreamLogic
     isThinking: boolean // runStreamLogic
     pendingPermissionRequest: PermissionRequestRecord | null // runStreamLogic
-    replySuggestions: ReplySuggestions | null // runStreamLogic
     permissionResponseRequestIds: Set<string> // runStreamLogic
+    replySuggestions: ReplySuggestions | null // runStreamLogic
     respondingToPermission: boolean // runStreamLogic
     runOpening: boolean // runStreamLogic
     runStarted: boolean // runStreamLogic
     defaultEffort: string | null // taskRunDefaultsLogic
     defaultModel: string | null // taskRunDefaultsLogic
+    acceptedReplySuggestion: string | null
     canSend: boolean
     clearing: boolean
     composerActive: boolean
@@ -234,6 +235,7 @@ export interface runInteractionLogicValues {
     consentBlockedSource: 'draft' | 'queue' | 'steer'
     contextCandidates: AttachedContextItem[]
     deferredSteerRequestId: string | null
+    dismissedReplySuggestionTurn: number | null
     draftRecovery: DraftRecovery
     effortOverride: string | null
     hasUnresolvedApproval: boolean
@@ -245,13 +247,11 @@ export interface runInteractionLogicValues {
     modeOverride: PermissionMode | null
     modelOverride: string | null
     pendingContextItems: AttachedContextItem[]
-    acceptedReplySuggestion: string | null
-    dismissedReplySuggestionTurn: number | null
     queueEditing: boolean
-    replySuggestion: string | null
     queueHeld: boolean
     queueHold: QueueHold
     queuedMessages: QueuedMessage[]
+    replySuggestion: string | null
     selectedEffort: ReasoningEffortEnumApi
     selectedMode: PermissionMode
     selectedModel: string
@@ -391,6 +391,14 @@ export interface runInteractionLogicActions {
     releaseApplyBackTargets: (streamKey: string) => {
         streamKey: string
     } // toolStreamEventsLogic
+    acceptReplySuggestion: (
+        reply: string,
+        key: string
+    ) => {
+        key: string
+        reply: string
+        turnIndex: number | null
+    }
     applyPendingCommentText: () => {
         value: true
     }
@@ -400,6 +408,9 @@ export interface runInteractionLogicActions {
     blockOnConsent: (source?: 'draft' | 'queue' | 'steer') => {
         source: 'draft' | 'queue' | 'steer'
     }
+    clearAcceptedReplySuggestion: () => {
+        value: true
+    }
     clearConsentBlock: () => {
         value: true
     }
@@ -408,6 +419,9 @@ export interface runInteractionLogicActions {
     }
     clearQueue: () => {
         value: true
+    }
+    dismissReplySuggestion: (turnIndex: number) => {
+        turnIndex: number
     }
     enableTaskDraftPersistence: (
         userId: string,
@@ -443,6 +457,9 @@ export interface runInteractionLogicActions {
     }
     removeQueuedMessage: (id: string) => {
         id: string
+    }
+    reportReplySuggestionShown: (turnIndex: number) => {
+        turnIndex: number
     }
     resetComposerForm: (values?: { draft: string }) => {
         values?: {
@@ -503,23 +520,6 @@ export interface runInteractionLogicActions {
     }
     setQueueEditing: (editing: boolean) => {
         editing: boolean
-    }
-    acceptReplySuggestion: (
-        reply: string,
-        key: string
-    ) => {
-        reply: string
-        key: string
-        turnIndex: number | null
-    }
-    dismissReplySuggestion: (turnIndex: number) => {
-        turnIndex: number
-    }
-    reportReplySuggestionShown: (turnIndex: number) => {
-        turnIndex: number
-    }
-    clearAcceptedReplySuggestion: () => {
-        value: true
     }
     setSending: (sending: boolean) => {
         sending: boolean
@@ -587,12 +587,6 @@ export interface runInteractionLogicMeta {
             permissionResponseRequestIds: Set<string>
         ) => boolean
         steerPending: (deferredSteerRequestId: string | null, sending: boolean) => boolean
-        replySuggestion: (
-            replySuggestions: ReplySuggestions | null,
-            dismissedReplySuggestionTurn: number | null,
-            isBusy: boolean,
-            isSubmitting: boolean
-        ) => string | null
         composerActive: (
             pendingPermissionRequest: PermissionRequestRecord | null,
             respondingToPermission: boolean,
@@ -623,6 +617,12 @@ export interface runInteractionLogicMeta {
             arg: any,
             arg2: any
         ) => PermissionMode
+        replySuggestion: (
+            replySuggestions: ReplySuggestions | null,
+            dismissedReplySuggestionTurn: number | null,
+            isBusy: boolean,
+            isSubmitting: boolean
+        ) => string | null
         isBusy: (
             isThinking: boolean,
             runOpening: boolean,

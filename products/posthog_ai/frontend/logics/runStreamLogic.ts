@@ -2668,6 +2668,8 @@ export interface runStreamLogicValues {
         maxAttempts: number
         phase: RecoveryPhase
     } | null
+    replySuggestions: ReplySuggestions | null
+    replySuggestionsFrame: ReplySuggestions | null
     resolvedPermissionRequestIds: Set<string>
     respondingToPermission: boolean
     runArtifacts: RunArtifacts
@@ -2678,8 +2680,6 @@ export interface runStreamLogicValues {
     seenPermissionRequestIds: Set<string>
     showThinkingIndicator: boolean
     sseStatus: RunSseStatus
-    replySuggestions: ReplySuggestions | null
-    replySuggestionsFrame: ReplySuggestions | null
     streamHasEnded: boolean
     streamPhase: 'idle' | 'provisioning' | 'thinking'
     threadItems: ThreadItem[]
@@ -2841,9 +2841,6 @@ export interface runStreamLogicActions {
     markTurnSuggestionAccepted: (turnIndex: number) => {
         turnIndex: number
     }
-    setReplySuggestions: (replySuggestions: ReplySuggestions | null) => {
-        replySuggestions: ReplySuggestions | null
-    }
     markTurnSuggestionExpanded: (turnIndex: number) => {
         turnIndex: number
     }
@@ -2963,6 +2960,9 @@ export interface runStreamLogicActions {
     }
     setPendingRunMessage: (message: PendingRunMessage | null) => {
         message: PendingRunMessage | null
+    }
+    setReplySuggestions: (replySuggestions: ReplySuggestions | null) => {
+        replySuggestions: ReplySuggestions | null
     }
     setRunOpening: (opening: boolean) => {
         opening: boolean
@@ -3709,7 +3709,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
         replySuggestionsFrame: [
             null as ReplySuggestions | null,
             {
-                setReplySuggestions: (_, { replySuggestions }) => replySuggestions,
+                setReplySuggestions: (state, { replySuggestions }) =>
+                    state && replySuggestions && replySuggestions.turnIndex < state.turnIndex
+                        ? state
+                        : replySuggestions,
                 pushHumanMessage: () => null,
                 reset: () => null,
             },

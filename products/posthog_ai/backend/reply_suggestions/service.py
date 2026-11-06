@@ -76,7 +76,7 @@ def generate_reply_suggestions(run_id: str, team_id: int) -> ReplySuggestionsOut
     entries = read_task_run_history(task_run.id, task_run.task_id, task_run.team_id, max_bytes=MAX_TRANSCRIPT_LOG_BYTES)
     if entries is None:
         return _skipped("log_too_large")
-    transcript = build_turn_transcript(entries)
+    transcript = build_turn_transcript(entries, assistant_text_limit=None)
     if not transcript.human_messages:
         return _skipped("no_user_message")
     if not transcript.latest_turn_complete:
