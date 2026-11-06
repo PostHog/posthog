@@ -354,6 +354,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             attempt: int,
             precomputation_mode: PrecomputationMode | None,
             calculation_key_version: int = 1,
+            task_queue: str = "",
         ) -> MetricRecalculationResult:
             recorded_flags.append(is_final_attempt)
             raise RuntimeError("always fails")

@@ -69,7 +69,6 @@ _QUEUED_RECALC_CEILING = timedelta(hours=1)
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
 RECALCULATION_RATE_LIMIT_FEATURE_FLAG = "experiment-metric-recalculation-rate-limit"
 RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG = "experiment-recalculation-activity-queue"
-RECALCULATION_CLICKHOUSE_USER_FEATURE_FLAG = "experiment-recalculation-clickhouse-user"
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
         ExperimentMetricsRecalculation.Trigger.MANUAL,
@@ -406,14 +405,15 @@ def _activity_task_queue(organization_id: str) -> str | None:
     return settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE if enabled else None
 
 
-def recalculation_clickhouse_user(organization_id: str) -> ClickHouseUser | None:
-    # None keeps today's routing, also on a flag error, because that routing always works.
-    try:
-        enabled = _organization_flag_enabled(RECALCULATION_CLICKHOUSE_USER_FEATURE_FLAG, organization_id)
-    except Exception as e:
-        capture_exception(e)
-        return None
-    return ClickHouseUser.EXPERIMENTS if enabled else None
+def recalculation_clickhouse_user(task_queue: str) -> ClickHouseUser | None:
+    # Only the queues with a fixed slot count run as the experiments user, because the aux cluster has no concurrency
+    # or memory limit for that user and the slot count is the cap. The set is read at call time, so a queue that
+    # collapses into the main queue (local development, single-queue mode) keeps the main queue's routing.
+    capped_task_queues = {
+        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+        settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE,
+    } - {settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE}
+    return ClickHouseUser.EXPERIMENTS if task_queue in capped_task_queues else None
 
 
 def _refresh_window_enforced(experiment: Experiment) -> bool:
