@@ -205,6 +205,34 @@ def list_configurations(
     )
 
 
+def count_configurations(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    native_only: bool = False,
+    enabled_only: bool = False,
+    check_interval_minutes: int | None = None,
+) -> int:
+    """How many alerts of a kind a team has on the platform. For a source's admission.
+
+    A source that keeps rows counts them and adds `native_only`. A copy stands for a row the source
+    already counts, and a copy left by a delete from before copies went with their row counts nothing.
+    """
+    return platform_reads.count_configurations(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        native_only=native_only,
+        enabled_only=enabled_only,
+        check_interval_minutes=check_interval_minutes,
+    )
+
+
+def hold_cap_lock(*, team_id: int, source_kind: SourceKind) -> None:
+    """The lock the platform holds while a source checks its caps, for a source creating an alert
+    outside the platform. Call it inside the create's transaction."""
+    platform_writes.hold_cap_lock(team_id, source_kind)
+
+
 def get_configuration(
     *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, lock: bool = False
 ) -> PlatformAlertConfigurationView | None:

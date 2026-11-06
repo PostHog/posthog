@@ -17,7 +17,8 @@ interface DraftTarget {
 export function useChatDraft(
     taskId: string | null,
     reportId: string | undefined,
-    demo = false
+    demo = false,
+    kind: 'task' | 'conversation' = 'task'
 ): {
     draft: ChatDraft
     queue: QueueState
@@ -37,7 +38,13 @@ export function useChatDraft(
     const userId = useAuthStore((state) => state.user?.uuid)
     const projectId = useAuthStore((state) => state.projectId)
     const identity = !demo && signedIn && host && userId && projectId !== null ? draftIdentity() : null
-    const key = taskId ? `task:${taskId}` : reportId ? `report:${reportId}` : 'new-chat'
+    const key = taskId
+        ? `${kind}:${taskId}`
+        : reportId
+          ? `report:${reportId}`
+          : kind === 'conversation'
+            ? 'new-classic-chat'
+            : 'new-chat'
     const initial = { text: '', reportIds: reportId ? [reportId] : [] }
     const [draft, setDraft] = useState<ChatDraft>(initial)
     const [queue, setQueue] = useState<QueueState>(EMPTY_QUEUE)
@@ -128,7 +135,7 @@ export function useChatDraft(
         setQueueError(undefined)
         const previous = target.current
         const prior = previousDestination.current
-        const adopting = prior.identity === identity && !prior.key.startsWith('task:') && key.startsWith('task:')
+        const adopting = prior.identity === identity && !prior.key.startsWith(`${kind}:`) && key.startsWith(`${kind}:`)
         previousDestination.current = { identity, key }
         if (!adopting) {
             destination.current++
@@ -206,7 +213,7 @@ export function useChatDraft(
             mounted.current = false
             cancelled = true
         }
-    }, [identity, key, reportId, flush])
+    }, [identity, key, reportId, flush, kind])
 
     const updateQueue = useCallback(
         async (action: QueueAction, clearComposer = false): Promise<boolean> => {

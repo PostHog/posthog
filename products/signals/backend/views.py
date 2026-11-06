@@ -5,11 +5,12 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import cached_property, partial
 from typing import Any, Literal, cast
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
@@ -18,12 +19,14 @@ from django.db.models import (
     Count,
     Exists,
     F,
+    Func,
     IntegerField,
     OuterRef,
     Prefetch,
     Q,
     Subquery,
     Sum,
+    UUIDField,
     Value,
     When,
 )
@@ -156,6 +159,7 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.personal_ranking.config import PERSONAL_INBOX_RANKING_FLAG
+from products.signals.backend.personal_ranking.list_sort import PersonalListOrder, personal_list_order
 from products.signals.backend.personal_ranking.serve import serve_personal_ranking
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
@@ -262,6 +266,7 @@ from products.signals.backend.scout_harness.views import emit_report_from_valida
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    GitHubRepositoryInaccessibleErrorSerializer,
     PersonalRankingQuerySerializer,
     PersonalRankingSerializer,
     PullRequestChecksPermissionErrorSerializer,
@@ -370,6 +375,23 @@ _PULL_REQUEST_ID_PARAMETER = OpenApiParameter(
     required=False,
     description="Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).",
 )
+
+
+def github_repository_inaccessible_response(team_id: int, repository: str) -> Response:
+    return Response(
+        GitHubRepositoryInaccessibleErrorSerializer(
+            {
+                "code": "github_repository_inaccessible",
+                "error": (
+                    f"PostHog's GitHub connection can't access {repository}. A project admin must give the "
+                    "GitHub app access to this repository, or reconnect GitHub."
+                ),
+                "remediation_url": f"/project/{team_id}/settings/project-integrations",
+            }
+        ).data,
+        status=status.HTTP_404_NOT_FOUND,
+    )
+
 
 # Reports one batch CI-status request may ask about. A report list page is 50 rows, so a full page
 # of pull requests fits, with room for a flat list that merges several sections.
@@ -1397,9 +1419,20 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             "type": "string",
             "nullable": True,
             "description": (
-                "The ranker that ordered the page when sort=recommended: priority, or open, action or fix "
-                "for that outcome of the served ranking model. Null for every other sort. Each row's "
+                "The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, "
+                "action or fix for that outcome of the served ranking model. For sort=personal it is personal "
+                "when your stored personal ranking ordered the page. Null for every other sort. Each row's "
                 "inbox_merge_key belongs to this ranker."
+            ),
+        }
+        paginated["properties"]["ranking_id"] = {
+            "type": "string",
+            "format": "uuid",
+            "nullable": True,
+            "description": (
+                "The stored personal ranking that ordered the page when sort=personal. Pass it back as "
+                "ranking_id on later pages, so a new ranking does not reorder them. Null when no personal "
+                "ranking applied, and for every other sort."
             ),
         }
         paginated["properties"]["count_is_capped"] = {
@@ -1413,8 +1446,8 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             "type": "boolean",
             "nullable": True,
             "description": (
-                "Whether the client shows a ranking score pill on each card, when sort=recommended. "
-                "The same flag arm sets this and the ranker. Null for every other sort."
+                "Whether the client shows a ranking score pill on each card, when sort=recommended or "
+                "sort=personal. The same flag arm sets this and the ranker. Null for every other sort."
             ),
         }
         return paginated
@@ -1605,11 +1638,14 @@ _REPORT_LIST_PARAMETERS = [
         location=OpenApiParameter.QUERY,
         required=False,
         description=(
-            "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when "
-            "ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
+            "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored "
+            "when ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
             "the open, action or fix outcome of the served ranking model, highest score first, with "
             "unscored and stale reports in priority order after the scored ones. The response's ranker "
-            "field names the one used, and its ranking_pill field says whether to show score pills."
+            "field names the one used, and its ranking_pill field says whether to show score pills. "
+            "personal puts the reports of your stored personal ranking first, by rank, then the reports it "
+            "folded, then every other report in your recommended order. It only reads the stored ranking "
+            "and never starts a build. With no stored personal ranking, it is the recommended order."
         ),
     ),
     OpenApiParameter(
@@ -1658,6 +1694,16 @@ _REPORT_LIST_PARAMETERS = [
         location=OpenApiParameter.QUERY,
         required=False,
         description="ISO 8601 datetime. Keeps reports created at or after this time.",
+    ),
+    OpenApiParameter(
+        name="created_before",
+        type=OpenApiTypes.DATETIME,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "ISO 8601 datetime. Keeps reports created before this time. Use it for reports older than a "
+            "cutoff, instead of reading every page."
+        ),
     ),
     OpenApiParameter(
         name="task_id",
@@ -1756,6 +1802,8 @@ class SignalReportViewSet(
         "priority": PRIORITY_ORDERING,
         # A feature flag resolves this preset per user. See `_recommended_arm`.
         "recommended": PRIORITY_ORDERING,
+        # `_personal_order` puts the stored ranking before the recommended arm's order.
+        "personal": PRIORITY_ORDERING,
         "last_updated": "-updated_at,status",
         "newest": "-created_at,status,-updated_at",
         "oldest": "created_at,status,-updated_at",
@@ -1972,7 +2020,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_listed_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
-        qs = self._apply_signal_report_created_after_filter(qs)
+        qs = self._apply_signal_report_created_at_filters(qs)
         unread = self.request.query_params.get("unread")
         if unread is not None:
             if unread not in {"true", "false"}:
@@ -2207,15 +2255,23 @@ class SignalReportViewSet(
             return queryset
         return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
 
-    def _apply_signal_report_created_after_filter(self, queryset):
-        raw = self.request.query_params.get("created_after")
+    def _datetime_query_param(self, name: str) -> datetime | None:
+        raw = self.request.query_params.get(name)
         if not raw:
-            return queryset
+            return None
         try:
-            created_after = serializers.DateTimeField().to_internal_value(raw)
+            return serializers.DateTimeField().to_internal_value(raw)
         except serializers.ValidationError:
-            raise serializers.ValidationError({"created_after": "Use an ISO 8601 datetime."})
-        return queryset.filter(created_at__gte=created_after)
+            raise serializers.ValidationError({name: "Use an ISO 8601 datetime."})
+
+    def _apply_signal_report_created_at_filters(self, queryset):
+        created_after = self._datetime_query_param("created_after")
+        if created_after is not None:
+            queryset = queryset.filter(created_at__gte=created_after)
+        created_before = self._datetime_query_param("created_before")
+        if created_before is not None:
+            queryset = queryset.filter(created_at__lt=created_before)
+        return queryset
 
     def _apply_signal_report_source_product_filter(self, queryset):
         source_product_filter = self.request.query_params.get("source_product")
@@ -2509,7 +2565,6 @@ class SignalReportViewSet(
         if inbox_view == "needs_decision":
             return queryset.filter(
                 Q(status=SignalReport.Status.FAILED)
-                | Q(status__in=[SignalReport.Status.MONITORING] if self._report_monitoring_enabled else [])
                 | (
                     Q(
                         status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
@@ -2765,13 +2820,35 @@ class SignalReportViewSet(
     @cached_property
     def _recommended_arm(self) -> RecommendedArm | None:
         params = self.request.query_params
-        if params.get("ordering") is not None or params.get("sort") != "recommended":
+        inbox_sort = params.get("sort")
+        if params.get("ordering") is not None or inbox_sort not in ("recommended", "personal"):
             return None
-        return resolve_recommended_arm(self.team, cast(User, self.request.user))
+        # The personal sort only borrows the arm's order, so it records no exposure for the experiment.
+        return resolve_recommended_arm(
+            self.team, cast(User, self.request.user), send_feature_flag_events=inbox_sort == "recommended"
+        )
+
+    @cached_property
+    def _personal_order(self) -> PersonalListOrder | None:
+        request = self.request
+        user = request.user
+        if (
+            self._recommended_arm is None
+            or request.query_params.get("sort") != "personal"
+            or is_service_auth(request)
+            or not isinstance(user, User)
+            or not user_flag_enabled(PERSONAL_INBOX_RANKING_FLAG, user, self.team)
+        ):
+            return None
+        return personal_list_order(self.team, user, request.query_params.get("ranking_id"))
 
     @property
-    def _inbox_ranker(self) -> InboxRanker | None:
+    def _base_inbox_ranker(self) -> InboxRanker | None:
         return self._recommended_arm.ranker if self._recommended_arm is not None else None
+
+    @property
+    def _inbox_ranker(self) -> str | None:
+        return "personal" if self._personal_order is not None else self._base_inbox_ranker
 
     def _parse_signal_report_ordering(self) -> list[str]:
         arm = self._recommended_arm
@@ -2800,6 +2877,17 @@ class SignalReportViewSet(
             clauses = [*clauses, "id"]
         ranking_annotations = {self._SIGNAL_REPORT_ORDERING_FIELDS[field] for field in self._RANKING_ORDERING_HEADS}
         order_by: list[str | OrderBy] = []
+        personal_order = self._personal_order
+        if personal_order is not None:
+            queryset = queryset.annotate(
+                personal_rank=Func(
+                    Value(list(personal_order.report_ids), output_field=ArrayField(UUIDField())),
+                    F("id"),
+                    function="array_position",
+                    output_field=IntegerField(),
+                )
+            )
+            order_by.append(F("personal_rank").asc(nulls_last=True))
         for clause in clauses:
             name = clause.lstrip("-")
             if name in ranking_annotations:
@@ -2988,7 +3076,12 @@ class SignalReportViewSet(
         responses={
             200: OpenApiResponse(response=SignalReportSerializer, description="Current report and assignment."),
             400: OpenApiResponse(description="The pull request URL or request shape is invalid."),
-            409: OpenApiResponse(description="The report cannot be claimed or released in its current state."),
+            409: OpenApiResponse(
+                description=(
+                    "The report cannot be claimed or released in its current state, or another person holds the "
+                    "claim and the takeover has no takeover_claim_id."
+                )
+            ),
         },
         summary="Claim or release a signal report",
         description=(
@@ -3136,11 +3229,13 @@ class SignalReportViewSet(
         if count_only:
             # A count orders nothing, so it must not record a flag exposure for the ranker.
             self._recommended_arm = None
+            self._personal_order = None
         with trial_state_errors():
             store = trial_store_for_request(request, self.team_id)
             if store is not None:
                 # Private trial reads compare against the priority order, never a flag arm.
                 self._recommended_arm = None
+                self._personal_order = None
                 return TrialInboxReads(self, store).list(
                     count_only=count_only, include_source_metadata=include_source_metadata
                 )
@@ -3209,6 +3304,7 @@ class SignalReportViewSet(
             response.data["ranking_pill"] = (
                 self._recommended_arm.ranking_pill if self._recommended_arm is not None else None
             )
+            response.data["ranking_id"] = self._personal_order.ranking_id if self._personal_order is not None else None
             return response
         return Response(data)
 
@@ -3313,7 +3409,8 @@ class SignalReportViewSet(
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
-            "inbox_ranker": self._inbox_ranker,
+            "inbox_ranker": self._base_inbox_ranker,
+            "personal_order": self._personal_order,
             "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
         }
         serializer = self.get_serializer(reports, many=True, context=context)
@@ -4743,7 +4840,9 @@ class SignalReportViewSet(
                     "the current billing period, or the report is system-marked never-billable."
                 )
             ),
+            403: OpenApiResponse(description="PR refunds are not available with usage-based pricing."),
             404: OpenApiResponse(description="Report not found, or refunds are not enabled for this organization."),
+            503: OpenApiResponse(description="Pricing could not be determined. Retry the request."),
         },
         summary="Refund a report's implementation PR",
         description=(
@@ -4761,6 +4860,20 @@ class SignalReportViewSet(
     def refund(self, request: ValidatedRequest, pk=None, **kwargs):
         if not self._signals_pr_refunds_enabled():
             raise NotFound("PR refunds are not enabled for this organization.")
+
+        org_id = str(self.organization.id)
+        usage_based_pricing = posthoganalytics.feature_enabled(
+            "self-driving-ubp",
+            org_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+        )
+        if usage_based_pricing is True:
+            raise exceptions.PermissionDenied("PR refunds are not available with usage-based pricing.")
+        if usage_based_pricing is not False:
+            return Response(
+                {"detail": "Unable to determine pricing. Please try again."}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
 
         report = cast(SignalReport, self.get_object())
         data = request.validated_data
@@ -5018,7 +5131,10 @@ class SignalReportViewSet(
                 description="The CI checks on the report's implementation pull request.",
             ),
             404: OpenApiResponse(
-                description="Report has no implementation PR, or no GitHub integration can access it."
+                description=(
+                    "Report has no implementation PR, or no GitHub integration can access it "
+                    "(code `github_repository_inaccessible`, with a `remediation_url`)."
+                )
             ),
             403: OpenApiResponse(
                 response=PullRequestChecksPermissionErrorSerializer,
@@ -5125,7 +5241,10 @@ class SignalReportViewSet(
                 description="Conversation and review comments on the report's implementation pull request.",
             ),
             404: OpenApiResponse(
-                description="Report has no implementation PR, or no GitHub integration can access it."
+                description=(
+                    "Report has no implementation PR, or no GitHub integration can access it "
+                    "(code `github_repository_inaccessible`, with a `remediation_url`)."
+                )
             ),
             502: OpenApiResponse(description="GitHub could not return the comments."),
             503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
@@ -5606,15 +5725,7 @@ class SignalReportViewSet(
                 ),
             )
         if github is None:
-            return (
-                None,
-                repository,
-                pr_number,
-                Response(
-                    {"error": f"No GitHub integration can access '{repository}'."},
-                    status=status.HTTP_404_NOT_FOUND,
-                ),
-            )
+            return None, repository, pr_number, github_repository_inaccessible_response(self.team.id, repository)
         return github, repository, pr_number, None
 
 
@@ -6442,6 +6553,8 @@ class SignalReportCheckViewSet(
     )
     @action(detail=True, methods=["post"], url_path="replace", required_scopes=["inbox:write", "query:read"])
     def replace(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        if not organization_report_monitoring_enabled(self.organization.id):
+            raise NotFound()
         check = cast(SignalReportCheck, self.get_object())
         data = request.validated_data
         try:
@@ -6452,6 +6565,9 @@ class SignalReportCheckViewSet(
                 config=data["config"],
                 attribution=resolve_request_attribution(request, self.team.id),
                 access_policy=ReportMetricAccessPolicy(request=request, team=self.team),
+                soak_minutes=data.get("soak_minutes"),
+                run_interval_minutes=data.get("run_interval_minutes"),
+                runs_remaining=data.get("runs_remaining"),
             )
         except CheckQueryAccessError as error:
             return Response({"error": str(error)}, status=status.HTTP_403_FORBIDDEN)
@@ -7005,7 +7121,12 @@ class SignalReportArtefactViewSet(
                 description="The pull request diff, or the branch diff when no pull request is linked.",
             ),
             400: OpenApiResponse(description="Artefact is not a commit, or is missing repository/branch."),
-            404: OpenApiResponse(description="Artefact not found, or no GitHub integration can access the repository."),
+            404: OpenApiResponse(
+                description=(
+                    "Artefact not found, or no GitHub integration can access the repository "
+                    "(code `github_repository_inaccessible`, with a `remediation_url`)."
+                )
+            ),
             502: OpenApiResponse(description="GitHub could not produce the diff (branch not found, fetch failed)."),
         },
         summary="Fetch the diff for a commit artefact",
@@ -7052,10 +7173,7 @@ class SignalReportArtefactViewSet(
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
         if github is None:
-            return Response(
-                {"error": f"No GitHub integration can access '{repository}'."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return github_repository_inaccessible_response(self.team.id, str(repository))
         try:
             pull_request = _pull_request_ref_for_commit(artefact, str(repository), str(branch), github)
         except GitHubRateLimitError as e:
