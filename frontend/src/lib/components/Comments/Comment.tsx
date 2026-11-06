@@ -4,7 +4,15 @@ import { router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronRight, IconEllipsis, IconEye, IconPencil, IconShare, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDialog,
+    LemonMenu,
+    LemonTag,
+    ProfilePicture,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
@@ -25,13 +33,23 @@ import { CommentType } from '~/types'
 import { CommentComposer } from './CommentComposer'
 import { CommentsLogicProps, CommentWithRepliesType, commentsLogic } from './commentsLogic'
 import {
+    LinkedSlackThreadImport,
     getCommentAuthorName,
     getCommentText,
     getRecordingLinkInfo,
+    isLinkedSlackThread,
     isViewingRecording,
     scopeSyncsToSlack,
 } from './commentUtils'
 import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
+
+// Said only while it matters; a finished import needs no word.
+const LINKED_THREAD_IMPORT_NOTES: Record<LinkedSlackThreadImport, string | null> = {
+    pending: 'Bringing in the earlier replies from Slack…',
+    done: null,
+    truncated: 'Only the earliest messages came in from Slack',
+    failed: "The earlier replies didn't come in from Slack. Unlink the thread and link it again to retry",
+}
 
 export type CommentProps = {
     commentWithReplies: CommentWithRepliesType
@@ -169,7 +187,8 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { disabledReasonFor, sendToSlackDisabledReasonFor } = useValues(commentsLogic)
-    const { deleteComment, setEditingComment, sendEmojiReaction, setReplyingComment } = useActions(commentsLogic)
+    const { deleteComment, setEditingComment, sendEmojiReaction, setReplyingComment, unlinkSlackThread } =
+        useActions(commentsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openModal } = useActions(sendCommentToSlackLogic)
 
@@ -183,6 +202,16 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
         !comment.source_comment &&
         !fromSlack &&
         !slackThread
+    const canUnlink = !!featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC] && isLinkedSlackThread(comment)
+
+    const confirmUnlink = (): void =>
+        LemonDialog.open({
+            title: 'Unlink this Slack thread?',
+            description:
+                'This discussion and its replies are removed here and stop syncing. The thread stays in Slack, and you can link it again.',
+            primaryButton: { children: 'Unlink', status: 'danger', onClick: () => unlinkSlackThread(comment) },
+            secondaryButton: { children: 'Cancel' },
+        })
 
     return (
         <div className="flex items-center justify-between gap-2">
@@ -246,6 +275,7 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                                   },
                               ]
                             : []),
+                        canUnlink && { icon: <IconSlack />, label: 'Unlink Slack thread', onClick: confirmUnlink },
                         {
                             icon: <IconPencil />,
                             label: 'Edit',
@@ -281,6 +311,9 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     const threadId = comment.source_comment ?? comment.id
     // Rendering markdown from tiptap JSON is not free - skip it on unrelated re-renders
     const text = useMemo(() => getCommentText(comment), [comment])
+    // Only a linked thread's opening comment carries an import state; PostHog sets it and nothing else can.
+    const importState: LinkedSlackThreadImport | undefined = comment.item_context?.slack_import_state
+    const importNote = importState ? LINKED_THREAD_IMPORT_NOTES[importState] : null
 
     useEffect(() => {
         if (isHighlighted) {
@@ -339,6 +372,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                                     </LemonMarkdown>
                                 </div>
                             )}
+                            {importNote ? <p className="m-0 mt-1 text-xs text-secondary">{importNote}</p> : null}
                         </div>
                     </div>
                     {!isEditing && <CommentBottomRow comment={comment} />}
