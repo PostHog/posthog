@@ -30,11 +30,11 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { Scene } from 'scenes/sceneTypes'
 
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { AnyPropertyFilter, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { INITIAL_DATE_FROM, INITIAL_DATE_TO, ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'

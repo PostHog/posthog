@@ -162,6 +162,8 @@ describe('modelPickerLogic', () => {
                 'typesafe/jev-router',
                 'example/dual-model',
             ])
+            // The playground asks decisions only through a System One connection, never through OpenRouter.
+            expect(logic.values.playgroundSystemOneModelGroups).toEqual([])
         })
 
         it('should map is_recommended correctly for both true and false values', async () => {

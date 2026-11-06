@@ -37,9 +37,9 @@ use uuid::Uuid;
 
 mod support;
 use support::{
-    behavioral_filter, empty_pinned, ensure_lease_lost, historical, insert_participation,
-    insert_person_run, insert_run, person_filter, person_pinned, pinned_condition, planned_count,
-    trailing, with_db, ACTIVE_HASH, SUPERSEDED_HASH,
+    behavioral_filter, empty_pinned, ensure_lease_lost, historical, insert_access,
+    insert_participation, insert_person_run, insert_run, person_filter, person_pinned,
+    pinned_condition, planned_count, trailing, with_db, ACTIVE_HASH, SUPERSEDED_HASH,
 };
 
 const ONE_BAND: NonZeroU16 = NonZeroU16::MIN;
@@ -59,8 +59,8 @@ fn idle(run_ids: &[RunId]) -> ClaimCandidates {
     ClaimCandidates::new(candidates).expect("every scenario claims from at least one run")
 }
 
-/// Discovery honors an `Only` allowlist (self team only) and `All` admits every eligible run
-/// regardless of team, trigger, or already-seeding status.
+/// Discovery honors an `Only` allowlist plus the teams the access record has granted for 120 s, and
+/// `All` admits every eligible run regardless of team, trigger, or already-seeding status.
 #[tokio::test]
 async fn discovery_scopes_to_the_allowlist_and_all_admits_every_run() -> Result<()> {
     with_db(|pool| async move {
@@ -93,11 +93,33 @@ async fn discovery_scopes_to_the_allowlist_and_all_admits_every_run() -> Result<
         .await?;
         let cross_team_run =
             insert_run(&pool, 5, "team_enablement", "seeding", true, empty_pinned()).await?;
+        // Grant ages sit 30 s either side of the 120 s wait, so a changed wait fails this test.
+        for (team_id, level, granted_ago) in [
+            (6, "processing", Duration::from_secs(150)),
+            (7, "serving", Duration::from_secs(150)),
+            (8, "processing", Duration::from_secs(90)),
+            (9, "off", Duration::from_secs(150)),
+        ] {
+            insert_access(&pool, team_id, level, granted_ago).await?;
+            insert_run(
+                &pool,
+                team_id,
+                "team_enablement",
+                "awaiting_boundary",
+                false,
+                empty_pinned(),
+            )
+            .await?;
+        }
 
         let only_team_two: TeamAllowlist = "2".parse().map_err(anyhow::Error::msg)?;
         let discovered = discover_runs(&pool, &only_team_two, &[RunKind::Behavioral]).await?;
-        ensure!(discovered.len() == 1);
-        ensure!(discovered[0].run_id == self_run);
+        let mut discovered_teams = discovered
+            .iter()
+            .map(|run| run.team_id.0)
+            .collect::<Vec<_>>();
+        discovered_teams.sort_unstable();
+        ensure!(discovered_teams == [2, 6, 7], "{discovered_teams:?}");
 
         let all_runs = discover_runs(&pool, &TeamAllowlist::All, &[RunKind::Behavioral]).await?;
         ensure!(all_runs.iter().any(|run| run.run_id == self_run));

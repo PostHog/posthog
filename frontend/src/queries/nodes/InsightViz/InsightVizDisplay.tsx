@@ -4,8 +4,11 @@ import { Suspense } from 'react'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
@@ -28,10 +31,9 @@ import {
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { INSIGHT_GRAPH_DATA_ATTR } from '~/queries/nodes/InsightViz/insightImageCapture'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
@@ -59,7 +61,6 @@ import { Paths } from 'products/product_analytics/frontend/insights/paths/Paths'
 import { PathCanvasLabel } from 'products/product_analytics/frontend/insights/paths/PathsLabel'
 import { RetentionContainer } from 'products/product_analytics/frontend/insights/retention/RetentionContainer'
 import { InsightAIAnalysis } from 'products/product_analytics/frontend/insights/shared/InsightAIAnalysis'
-import { INSIGHT_GRAPH_DATA_ATTR } from 'products/product_analytics/frontend/insights/shared/insightImageCapture'
 import { InsightsTable } from 'products/product_analytics/frontend/insights/shared/InsightsTable/InsightsTable'
 import { BoxPlotLegend } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotResultsTable'
@@ -73,6 +74,26 @@ import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 // tiles on every page that shows an insight.
 const WebAnalyticsInsight = lazyWithRetry(() =>
     import('scenes/web-analytics/WebAnalyticsInsight').then((m) => ({ default: m.WebAnalyticsInsight }))
+)
+const InsightExplainChart = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/explainChart/InsightExplainChart').then((m) => ({
+        default: m.InsightExplainChart,
+    }))
+)
+const ExplainChartButton = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/explainChart/ExplainChartButton').then((m) => ({
+        default: m.ExplainChartButton,
+    }))
+)
+const ExplainChartAgentBridge = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/explainChart/ExplainChartAgentBridge').then((m) => ({
+        default: m.ExplainChartAgentBridge,
+    }))
+)
+const ExplainChartAIAnalysisFallback = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/explainChart/ExplainChartAIAnalysisFallback').then((m) => ({
+        default: m.ExplainChartAIAnalysisFallback,
+    }))
 )
 
 /** When the dashboard is still streaming/refreshing tiles, prefer loading UX over "Chart data didn't load". */
@@ -224,6 +245,8 @@ export function InsightVizDisplay({
     const { exportContext, queryId, insightDataError } = useValues(insightDataLogic(insightProps))
     const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
+
+    const explainChartEnabled = useFeatureFlag('EXPLAIN_CHART')
 
     const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
@@ -382,14 +405,14 @@ export function InsightVizDisplay({
     const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend
     const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
 
-    function renderActiveView(): JSX.Element | null {
+    function renderActiveView(viewContext = context): JSX.Element | null {
         switch (activeView) {
             case InsightType.TRENDS:
                 return (
                     <TrendInsight
                         view={InsightType.TRENDS}
                         editMode={editMode}
-                        context={context}
+                        context={viewContext}
                         embedded={embedded}
                         inSharedMode={inSharedMode}
                     />
@@ -547,12 +570,29 @@ export function InsightVizDisplay({
             hasBlockingEmptyState: !!BlockingEmptyState,
             hasResults: hasResultRows(insightData),
         }) ? (
-            <InsightAIAnalysis />
+            showsExplainChart ? (
+                <Suspense fallback={null}>
+                    <ExplainChartAIAnalysisFallback insightProps={insightProps} />
+                </Suspense>
+            ) : (
+                <InsightAIAnalysis />
+            )
         ) : null
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
     const showsDataChecks = !!context?.showDataChecks && !inSharedMode
+    const showsExplainChart = explainChartEnabled && !embedded && !inSharedMode && activeView === InsightType.TRENDS
+    const chart = showsExplainChart ? (
+        <Suspense fallback={renderActiveView()}>
+            <InsightExplainChart
+                insightProps={insightProps}
+                renderChart={(overlay) => renderActiveView(overlay ? { ...context, chartOverlay: overlay } : context)}
+            />
+        </Suspense>
+    ) : (
+        renderActiveView()
+    )
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
@@ -599,6 +639,11 @@ export function InsightVizDisplay({
                                     <div className="flex items-center gap-2">
                                         {isPaths && <PathCanvasLabel />}
                                         {isFunnels && <FunnelCanvasLabel />}
+                                        {showsExplainChart && (
+                                            <Suspense fallback={null}>
+                                                <ExplainChartButton insightProps={insightProps} />
+                                            </Suspense>
+                                        )}
                                         {showsDataChecks && <InsightDataChecks insightProps={insightProps} />}
                                     </div>
                                 </div>
@@ -620,19 +665,24 @@ export function InsightVizDisplay({
                                 BlockingEmptyState
                             ) : showSideLegend ? (
                                 <>
-                                    <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
+                                    <div className="InsightVizDisplay__content__left">{chart}</div>
                                     <div className="InsightVizDisplay__content__right empty:hidden">
                                         {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
                                     </div>
                                 </>
                             ) : (
-                                <>{renderActiveView()}</>
+                                chart
                             )}
                         </div>
                     </>
                 )}
             </div>
             <ResultCustomizationsModal />
+            {showsExplainChart && (
+                <Suspense fallback={null}>
+                    <ExplainChartAgentBridge insightProps={insightProps} />
+                </Suspense>
+            )}
             {renderAIAnalysisSection()}
             {renderTable()}
         </>

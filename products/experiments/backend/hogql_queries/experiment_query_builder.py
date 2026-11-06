@@ -26,7 +26,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_actions
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import CupedQueryBuilder
@@ -41,6 +41,7 @@ from products.experiments.backend.hogql_queries.experiment_metric_values import 
     build_value_aggregation_expr,
     build_value_expr,
     get_conversion_window_seconds,
+    get_maturity_window_seconds,
 )
 from products.experiments.backend.hogql_queries.experiment_query_context import (
     ExperimentPrecomputationContext,
@@ -59,6 +60,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     resolve_filter_test_accounts,
 )
+from products.experiments.backend.hogql_queries.precompute_policy import precompute_person_resolution_enabled
 
 
 def resolve_exposure_config_for_builder(
@@ -147,7 +149,7 @@ def metric_reads_flag_call(
     action_ids = [int(source.id) for source in sources if isinstance(source, ActionsNode)]
     return bool(action_ids) and any(
         step.event == DEFAULT_EXPOSURE_EVENT
-        for action in Action.objects.filter(pk__in=action_ids, team__project_id=team.project_id)
+        for action in get_actions(action_ids=action_ids, project_id=team.project_id)
         for step in action.steps
     )
 
@@ -207,6 +209,7 @@ class ExperimentQueryBuilder:
             breakdowns=tuple(self.breakdowns),
             only_count_matured_users=self.only_count_matured_users,
             cuped_config=self.cuped_config,
+            resolve_precomputed_persons=precompute_person_resolution_enabled(team),
             activation_config=self.activation_config,
             read_exposure_copies=metric is None or not metric_reads_flag_call(team, metric),
         )
@@ -338,7 +341,7 @@ class ExperimentQueryBuilder:
         """
         if self.metric is None or isinstance(self.metric, ExperimentRetentionMetric):
             return 0
-        return self._get_conversion_window_seconds()
+        return get_maturity_window_seconds(self.metric)
 
     def _build_conversion_window_predicate(self) -> ast.Expr:
         """Uses "metric_events" as the events alias."""

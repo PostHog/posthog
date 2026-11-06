@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
     "properties": {
         "html": {
             "description": "Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`.",
@@ -24,6 +25,7 @@
             "type": "string"
         },
         "source": {
+            "additionalProperties": false,
             "description": "Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of it, keeps what is stored.",
             "properties": {
                 "path": {

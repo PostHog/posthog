@@ -72,12 +72,13 @@ export function getBIVisualizationResponse(
     query: VisualizationNode,
     response: AnyResponseType | null
 ): AnyResponseType | null {
-    if (
-        query.kind !== NodeKind.BIVisualizationNode ||
-        !response ||
-        !('results' in response) ||
-        !Array.isArray(response.results)
-    ) {
+    if (query.kind !== NodeKind.BIVisualizationNode || !response) {
+        return response
+    }
+    if (!('results' in response) && 'result' in response && Array.isArray(response.result)) {
+        response = { ...response, results: response.result }
+    }
+    if (!('results' in response) || !Array.isArray(response.results)) {
         return response
     }
     const dataConfig = getBIDataConfig(query.config)

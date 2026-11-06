@@ -59,7 +59,7 @@ class UploadedTemplate:
     template: MessageTemplateRow
 
 
-def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
+def _to_contract(row: MessageTemplate, *, with_tags: bool = True) -> MessageTemplateRow:
     return MessageTemplateRow(
         id=row.id,
         name=row.name,
@@ -80,7 +80,7 @@ def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
         source_path=row.source_path,
         source_ref=row.source_ref,
         content_hash=row.content_hash,
-        tags=tuple(sorted(current_tag_names(row))),
+        tags=tuple(sorted(current_tag_names(row))) if with_tags else (),
     )
 
 
@@ -89,9 +89,10 @@ def list_templates(team_id: int) -> Sequence[MessageTemplateRow]:
     return LazyList(templates_service.team_templates(team_id), _to_contract)
 
 
-def get_template(team_id: int, template_id: UUID | str) -> MessageTemplateRow:
+def get_template(team_id: int, template_id: UUID | str, *, with_tags: bool = True) -> MessageTemplateRow:
+    """The team's template that is not deleted. Without `with_tags`, `tags` stays empty and no tag query runs."""
     try:
-        return _to_contract(templates_service.team_template(team_id, template_id))
+        return _to_contract(templates_service.team_template(team_id, template_id), with_tags=with_tags)
     except (MessageTemplate.DoesNotExist, ValidationError, ValueError, TypeError) as e:
         raise MessageTemplateMissing() from e
 

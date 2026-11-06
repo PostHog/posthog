@@ -51,14 +51,10 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { tagsModel } from '~/models/tagsModel'
+import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from '~/queries/nodes/InsightViz/insightImageCapture'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isInsightVizNode } from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
-import {
-    isDataTableNode,
-    isDataVisualizationNode,
-    isEventsQuery,
-    isHogQLQuery,
-    isInsightVizNode,
-} from '~/queries/utils'
+import { isEventsQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -72,10 +68,6 @@ import {
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
-import {
-    INSIGHT_GRAPH_SELECTOR,
-    INSIGHT_SCREENSHOT_KEY,
-} from 'products/product_analytics/frontend/insights/shared/insightImageCapture'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import { insightModalsLogic } from '../insightModalsLogic'
