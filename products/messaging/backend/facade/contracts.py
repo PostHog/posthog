@@ -310,3 +310,8 @@ class TransactionalEmailResults:
     revenue: float
     # Hours from the send to the first conversion, for the median converted recipient. None when nobody converted.
     median_hours_to_convert: float | None
+
+
+class TemplateManagedBy(LabeledStrEnum):
+    GUI = "gui", "GUI"
+    CODE = "code", "Code"
