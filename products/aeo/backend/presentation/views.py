@@ -18,6 +18,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 from products.aeo.backend.facade.api import (
     MAX_CONSENSUS_DOMAINS,
     MAX_OVERVIEW_DOMAINS,
+    MAX_PROMPT_LENGTH,
     MAX_STATS_WORDS,
     archive_prompt,
     get_prompt,
@@ -142,6 +143,14 @@ class AEOPromptListQuerySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="Also list archived prompts. Archived prompts are left out by default.",
+    )
+    needs_improvement = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Only list prompts that the engines answered in the last 30 days without citing a target domain. "
+            "Prompts with no answered check in that window are left out."
+        ),
     )
 
 
@@ -449,7 +458,8 @@ class AEOPromptUpdateRequestSerializer(serializers.Serializer):
     prompt = serializers.CharField(
         required=False,
         default=None,
-        max_length=MAX_IMPORTED_PROMPT_CHARS,
+        # The engines' limit, so the generated client limit matches what update_prompt accepts.
+        max_length=MAX_PROMPT_LENGTH,
         help_text=(
             "New text for the prompt. A change adds the next version and makes it current; the prompt keeps its id "
             "and its check history, and each check records the version that ran. A change of case or whitespace "
@@ -585,7 +595,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=AEOPromptListQuerySerializer,
         operation_id="aeo_prompts_list",
         summary="List AEO prompts",
-        description="Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic or by on/off state. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.",
+        description="Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, or to the prompts that need improvement. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.",
         responses={200: AEOPromptSerializer(many=True)},
         tags=["web_analytics"],
     )
@@ -598,6 +608,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             topic=request.validated_query_data.get("topic"),
             active=request.validated_query_data.get("active"),
             include_archived=request.validated_query_data["include_archived"],
+            needs_improvement=request.validated_query_data["needs_improvement"],
         )
         paginator.set_count(count)
         page = self.paginate_queryset(prompts)

@@ -27,7 +27,12 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
     get_events_session_id_table_type,
 )
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
-from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
+from posthog.hogql.escape_sql import (
+    escape_clickhouse_identifier,
+    escape_clickhouse_json_path,
+    escape_clickhouse_string,
+    safe_identifier,
+)
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
@@ -1523,9 +1528,9 @@ class ClickHousePrinter(BasePrinter):
         # dot inside one key must not read as a path separator.
         keys = [key.replace(".", "%2E") for key in node.keys]
 
-        # An empty key is not a valid SQL identifier, and a `%` would break the SQL's own parameter placeholders,
-        # so those paths go to getSubcolumn as bound values.
-        if any(not key or "%" in key for key in keys):
+        # An empty key is not a valid SQL identifier, so that path goes to getSubcolumn as a bound value. Every
+        # other key prints as a direct subcolumn read: getSubcolumn() reads every subcolumn and filters afterwards.
+        if any(not key for key in keys):
             if node.access_type == "sub_object":
                 # getSubcolumn's path parser reads a backslash-escaped backtick, not SQL's doubled backtick.
                 escaped_keys = (key.replace("\\", "\\\\").replace("`", "\\`") for key in keys)
@@ -1538,5 +1543,5 @@ class ClickHousePrinter(BasePrinter):
 
         for index, key in enumerate(keys):
             separator = ".^" if node.access_type == "sub_object" and index == 0 else "."
-            expr = f"{expr}{separator}{escape_clickhouse_identifier(key)}"
+            expr = f"{expr}{separator}{escape_clickhouse_json_path(key)}"
         return expr

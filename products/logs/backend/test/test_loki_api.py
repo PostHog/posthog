@@ -5,6 +5,7 @@ from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
+from requests.auth import HTTPBasicAuth
 from rest_framework import status
 
 import posthog.api.snuffle_proxy as snuffle_proxy
@@ -67,7 +68,7 @@ class TestLokiQueryApi(APIBaseTest):
             "limit": ["100"],
         }
         assert kwargs["headers"]["X-Team-ID"] == str(self.team.pk)
-        assert kwargs["auth"] == ("reader", "secret")
+        assert kwargs["auth"] == HTTPBasicAuth("reader", "secret")
         assert kwargs["timeout"] == 12
         assert kwargs["data"] is None
 

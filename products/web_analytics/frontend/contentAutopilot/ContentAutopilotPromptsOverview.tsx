@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -9,21 +10,22 @@ import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceC
 
 import { ContentAutopilotPromptKpiCard } from './ContentAutopilotPromptKpiCard'
 import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
+import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
 import { promptSourcesContext } from './promptReportColumns'
 import { engineLabel } from './utils'
 
-export const ContentAutopilotPromptsOverview = (): JSX.Element | null => {
+export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     const { overview, overviewLoading, overviewError, overviewKpis, hasChecks, citationQuery, sourcesQuery } =
         useValues(contentAutopilotPromptsOverviewLogic)
     const { loadPromptSetOverview, selectOverviewTopic } = useActions(contentAutopilotPromptsOverviewLogic)
     const { promptsTopic } = useValues(contentAutopilotPromptsLogic)
+    const { openAddPrompts } = useActions(contentAutopilotPromptsLogic)
 
-    // The list below already explains that the feature is off, so the overview says nothing twice.
     if (overviewError === 'forbidden') {
-        return null
+        return <ContentAutopilotPromptsDisabled />
     }
     if (overviewError === 'failed') {
         return (
@@ -39,8 +41,28 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element | null => {
         return <LemonSkeleton className="h-32 w-full" />
     }
     if (!hasChecks) {
-        // Without prompts, the list below shows how to add some.
-        return overview.prompts_tracked === 0 ? null : (
+        return overview.prompts_tracked === 0 ? (
+            <LemonCard
+                hoverEffect={false}
+                className="p-6 text-center"
+                data-attr="content-autopilot-prompts-overview-no-prompts"
+            >
+                <h3 className="m-0">No prompts yet</h3>
+                <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
+                    Add the questions your customers ask AI assistants. PostHog checks them once a day and shows the
+                    results here.
+                </p>
+                <LemonButton
+                    type="primary"
+                    icon={<IconPlusSmall />}
+                    className="mt-4 mx-auto"
+                    onClick={openAddPrompts}
+                    data-attr="content-autopilot-prompts-overview-add"
+                >
+                    Add prompts
+                </LemonButton>
+            </LemonCard>
+        ) : (
             <LemonCard hoverEffect={false} className="p-4" data-attr="content-autopilot-prompts-overview-empty">
                 <h4 className="m-0">No checks yet</h4>
                 <p className="m-0 mt-1 text-muted">The daily run fills this in.</p>
@@ -74,13 +96,13 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element | null => {
                 />
                 <ContentAutopilotPromptKpiCard
                     label="Mentioned in answers"
-                    description="Share of answers that name you. An answer that cites your site always counts."
+                    description="Share of answers that name your brand, with or without a link. An answer that cites your site always counts as a mention."
                     {...overviewKpis.mentionRate}
                     data-attr="content-autopilot-prompts-overview-kpi-mentioned"
                 />
                 <ContentAutopilotPromptKpiCard
                     label="Cited as a source"
-                    description="Share of answers that link to a page on your site."
+                    description="Share of answers that link to a page on your site as a source, so people can click through to it."
                     {...overviewKpis.citationRate}
                     data-attr="content-autopilot-prompts-overview-kpi-cited"
                 />
