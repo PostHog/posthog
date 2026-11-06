@@ -41,13 +41,13 @@ describe('promptsOverview', () => {
             position: {
                 value: '#2.3',
                 note: 'Over 984\u00a0cited answers',
-                delta: { label: '-0.5', direction: 'up', tooltip: 'Against the 30 days before. Lower is better' },
+                delta: { label: '0.5 better', direction: 'up', tooltip: 'Against the 30 days before. Lower is better' },
             },
         })
     })
 
     it.each([
-        ['a worse rank reads as a loss', 2.0, 1.5, { label: '+0.5', direction: 'down' }],
+        ['a worse rank reads as a loss', 2.0, 1.5, { label: '0.5 worse', direction: 'down' }],
         ['the same rank', 2.0, 2.0, { label: 'No change', direction: 'flat' }],
         ['no rank before', 2.0, null, null],
     ])('compares the average position when %s', (_name, now, before, expected) => {

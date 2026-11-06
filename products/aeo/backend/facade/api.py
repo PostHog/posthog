@@ -714,7 +714,7 @@ def _latest_checks(team_id: int, prompt_ids: list[uuid.UUID]) -> dict[uuid.UUID,
                 engine=row["engine"],
                 cited=row["cited"],
                 check_failed=row["check_failed"],
-                position=row["target_best_position"],
+                target_best_position=row["target_best_position"],
                 checked_at=row["created_at"],
             )
         )

@@ -38,7 +38,7 @@ const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
         <ContentAutopilotCheckResultTag
             cited={check.cited}
             checkFailed={check.check_failed}
-            position={check.position}
+            position={check.target_best_position}
         />
     )
 }

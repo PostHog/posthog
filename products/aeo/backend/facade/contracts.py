@@ -69,7 +69,7 @@ class PromptEngineCheck:
     engine: str
     cited: bool
     check_failed: bool
-    position: int | None
+    target_best_position: int | None
     checked_at: dt.datetime
 
 

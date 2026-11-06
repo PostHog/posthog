@@ -18,7 +18,7 @@ export interface AEOPromptEngineCheckApi {
      * 1-based rank of the first target-domain URL among the answer's cited URLs. Null when the answer did not cite one.
      * @nullable
      */
-    position: number | null
+    target_best_position: number | null
     /** When the check ran. */
     checked_at: string
 }

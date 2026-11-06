@@ -56,13 +56,13 @@ const positionCard = ({ current, previous, days }: AEOPromptSetOverviewApi): Kpi
     const value = current.avg_position
     const before = previous.avg_position
     return {
-        value: value === null ? 'Not cited' : positionLabel(value),
+        value: value == null ? 'Not cited' : positionLabel(value),
         note:
-            value === null
+            value == null
                 ? `No cited answers in the last ${days} days`
                 : `Over ${pluralize(current.cited, 'cited answer')}`,
         delta:
-            value === null || before === null
+            value == null || before == null
                 ? null
                 : positionDelta(value - before, `Against the ${days} days before. Lower is better`),
     }

@@ -133,7 +133,7 @@ export const positionLabel = (position: number): string => `#${Math.round(positi
 export const positionDelta = (change: number, tooltip: string): KpiDelta => {
     const rounded = Math.round(change * 10) / 10
     return {
-        label: rounded === 0 ? 'No change' : `${rounded > 0 ? '+' : ''}${rounded}`,
+        label: rounded === 0 ? 'No change' : `${Math.abs(rounded)} ${rounded < 0 ? 'better' : 'worse'}`,
         direction: rounded === 0 ? 'flat' : rounded < 0 ? 'up' : 'down',
         tooltip,
     }
@@ -168,9 +168,11 @@ const positionKpi = (
 export const positionKpiCard = (kpi: PromptPositionKpi): KpiCardContent => ({
     value: kpi.average === null ? 'Not cited' : positionLabel(kpi.average),
     note:
-        kpi.latest === null || !kpi.latestDate
-            ? 'Average over the last 30 days'
-            : `Average over the last 30 days. On ${dayjs(kpi.latestDate).format('MMM D')}: ${positionLabel(kpi.latest)}`,
+        kpi.average === null
+            ? 'No cited answers in the last 30 days'
+            : kpi.latest === null || !kpi.latestDate
+              ? 'Average over the last 30 days'
+              : `Average over the last 30 days. On ${dayjs(kpi.latestDate).format('MMM D')}: ${positionLabel(kpi.latest)}`,
     delta:
         kpi.average === null || kpi.latest === null
             ? null

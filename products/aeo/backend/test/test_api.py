@@ -365,7 +365,10 @@ class TestAEOPromptAPI(APIBaseTest):
             assert len(row["latest_checks"]) == 2
             assert (latest["exa-answer"]["cited"], latest["exa-answer"]["check_failed"]) == (False, False)
             assert (latest["claude-web-search"]["cited"], latest["claude-web-search"]["check_failed"]) == (True, False)
-            assert (latest["exa-answer"]["position"], latest["claude-web-search"]["position"]) == (None, 2)
+            assert (
+                latest["exa-answer"]["target_best_position"],
+                latest["claude-web-search"]["target_best_position"],
+            ) == (None, 2)
         assert listed["never checked?"]["latest_checks"] == []
 
     def test_list_needs_improvement_keeps_answered_prompts_without_a_recent_citation(self) -> None:

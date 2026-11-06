@@ -101,7 +101,7 @@ class AEOPromptEngineCheckSerializer(DataclassSerializer):
             "check_failed": {
                 "help_text": "The engine did not answer. When true, 'cited' is false and says nothing about citations."
             },
-            "position": {
+            "target_best_position": {
                 "help_text": "1-based rank of the first target-domain URL among the answer's cited URLs. Null when the answer did not cite one."
             },
             "checked_at": {"help_text": "When the check ran."},
