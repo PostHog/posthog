@@ -106,18 +106,58 @@ export function isTodayPath(pathname: string): boolean {
     return /^\/(home(\/reports\/[^/]+)?\/?)?$/.test(removeProjectIdIfPresent(pathname))
 }
 
-export function greetingForHour(hour: number, name: string | null | undefined): string {
-    const suffix = name ? `, ${name}.` : '.'
+type Greeting = (name: string | null | undefined) => string
+
+const withName =
+    (text: string): Greeting =>
+    (name) =>
+        name ? `${text}, ${name}.` : `${text}.`
+const plain =
+    (text: string): Greeting =>
+    () =>
+        text
+
+const LATE_NIGHT: Greeting[] = [withName('You’re up late'), plain('Chat, is this real?')]
+const WEDNESDAY: Greeting[] = [plain('It’s Wednesday, my dudes.'), plain('Lemon, it’s Wednesday.')]
+const FRIDAY_AFTERNOON: Greeting[] = [plain('Ladies and gentlemen, the weekend.'), plain('It’s Friday, Friday.')]
+const WEEKEND: Greeting[] = [plain('Ladies and gentlemen, the weekend.'), withName('Working the weekend')]
+const MONDAY_MORNING: Greeting[] = [withName('We are so back')]
+const ANY_TIME: Greeting[] = [
+    withName('We are so back'),
+    plain('Chat, is this real?'),
+    withName('Let’s cook'),
+    plain('An elegant weapon for a more civilized age.'),
+    plain('Big if true.'),
+    plain('I ain’t reading all that.'),
+    plain('I’m not arguing, I’m just explaining why I’m right.'),
+    plain('Hi, welcome to Chili’s.'),
+    plain('I basically run on iced data and panic.'),
+]
+
+function greetingPool(day: number, hour: number): Greeting[] {
     if (hour < 5) {
-        return `You’re up late${suffix}`
+        return LATE_NIGHT
     }
-    if (hour < 12) {
-        return `Morning${suffix}`
+    if (day === 0 || day === 6) {
+        return WEEKEND
     }
-    if (hour < 17) {
-        return `Afternoon${suffix}`
+    if (day === 3) {
+        return WEDNESDAY
     }
-    return `Evening${suffix}`
+    if (day === 5 && hour >= 12) {
+        return FRIDAY_AFTERNOON
+    }
+    if (day === 1 && hour < 12) {
+        return MONDAY_MORNING
+    }
+    return ANY_TIME
+}
+
+/** Picks a greeting for the local day and hour. The pick holds for the whole day, so it doesn't change on every tick. */
+export function greetingFor(date: Date, name: string | null | undefined): string {
+    const pool = greetingPool(date.getDay(), date.getHours())
+    const dayIndex = Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / (24 * 60 * 60 * 1000))
+    return pool[dayIndex % pool.length](name)
 }
 
 /**
@@ -187,7 +227,6 @@ export interface todayLogicValues {
     frequentObjectsLoading: boolean
     greeting: string
     homeScrollTop: number | null
-    hour: number
     isNewProject: boolean
     listExpanded: Record<TodayList, boolean>
     loadedMoreReports: SignalReport[]
@@ -364,8 +403,7 @@ export interface todayLogicMeta {
         reportId: (location: { hash: string; pathname: string; search: string }) => string | null
         reports: (topReports: TodayReports | null) => SignalReport[]
         moreReportCount: (topReports: TodayReports | null) => number
-        hour: (now: number) => number
-        greeting: (hour: number, user: UserType | null) => string
+        greeting: (now: number, user: UserType | null) => string
         recentObjects: (recents: FileSystemEntry[], frequentObjects: FileSystemEntry[]) => JumpBackObject[]
         shownReportIds: (reports: SignalReport[]) => string[]
         currentMoreReports: (
@@ -628,10 +666,9 @@ export const todayLogic = kea<todayLogicType>([
             (topReports: TodayReports | null): number =>
                 topReports ? Math.max(topReports.count - topReports.results.length, 0) : 0,
         ],
-        hour: [(s) => [s.now], (now: number): number => new Date(now).getHours()],
         greeting: [
-            (s) => [s.hour, s.user],
-            (hour: number, user: UserType | null): string => greetingForHour(hour, user?.first_name),
+            (s) => [s.now, s.user],
+            (now: number, user: UserType | null): string => greetingFor(new Date(now), user?.first_name),
         ],
         recentObjects: [
             (s) => [s.recents, s.frequentObjects],
@@ -960,7 +997,7 @@ export const todayLogic = kea<todayLogicType>([
         }
     }),
     afterMount(({ actions, values, cache }) => {
-        // `now` defaults to the time the module loaded, so set it before anything reads the hour.
+        // `now` defaults to the time the module loaded, so set it before anything reads the time.
         actions.tick()
         const useSampleData = parseSampleParam(router.values.searchParams.sample)
         if (useSampleData !== null && useSampleData !== values.useSampleData) {
