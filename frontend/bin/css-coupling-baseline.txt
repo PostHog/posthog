@@ -22,7 +22,6 @@ frontend/src/lib/components/TileDecorations/TileDecorations.tsx -> .LemonIcon
 frontend/src/lib/lemon-ui/Spinner/Spinner.tsx -> .LemonIcon
 frontend/src/lib/monaco/CodeEditorResizable.tsx -> .CodeEditorResizeable
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> .InsightVizDisplay
-frontend/src/scenes/dashboard/items/DashboardErrorTileItem.tsx -> .InsightCard
 frontend/src/scenes/data-warehouse/editor/SQLEditor.tsx -> .EditorScene
 frontend/src/scenes/feature-flags/FeatureFlagVariantsForm.tsx -> .VariantFormList
 frontend/src/scenes/feature-flags/PercentageInput.tsx -> .LemonInput
@@ -37,12 +36,9 @@ frontend/src/scenes/project-homepage/today/TodayExplore.tsx -> .TodayJumpRow
 frontend/src/scenes/project-homepage/today/TodayFigureMark.tsx -> .TodayFigureMark
 frontend/src/scenes/project-homepage/today/TodayForYou.tsx -> .TodayRow
 frontend/src/scenes/project-homepage/today/TodayForYou.tsx -> .TodayRows
-frontend/src/scenes/project-homepage/today/TodayHomePage.tsx -> .TodayHome
-frontend/src/scenes/project-homepage/today/TodayHomePage.tsx -> .TodayPulse
 frontend/src/scenes/project-homepage/today/TodayHoverMark.tsx -> .TodayHoverMark
 frontend/src/scenes/project-homepage/today/TodayImplementMenu.tsx -> .TodayImplementMenu
 frontend/src/scenes/project-homepage/today/TodayKeyClauseMark.tsx -> .TodayKeyClauseMark
-frontend/src/scenes/project-homepage/today/TodayPulse.tsx -> .TodayPulse
 frontend/src/scenes/project-homepage/today/TodayRecents.tsx -> .TodayJumpList
 frontend/src/scenes/project-homepage/today/TodayRecents.tsx -> .TodayJumpRow
 frontend/src/scenes/project-homepage/today/TodayReportBody.tsx -> .TodayReportArticle
@@ -56,6 +52,7 @@ frontend/src/scenes/session-recordings/playlist/SessionRecordingPreviewFeed.tsx 
 frontend/src/scenes/surveys/SurveyDragHandle.tsx -> .SurveyQuestionDragHandle
 products/business_intelligence/frontend/BIPivotTable.tsx -> .DataVisualizationTable
 products/dashboards/frontend/components/ImageTile/DashboardImageTile.tsx -> .DashboardTileCard
+products/dashboards/frontend/items/DashboardErrorTileItem.tsx -> .InsightCard
 products/product_analytics/frontend/insights/funnels/Funnel.tsx -> .FunnelInsight
 products/product_analytics/frontend/insights/insightScene/InsightSkeleton.tsx -> .InsightVizDisplay
 products/product_analytics/frontend/insights/insightScene/SqlInsightFilters.tsx -> .InsightVizDisplay

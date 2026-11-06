@@ -112,7 +112,7 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False, hogql_tabl
         raise ValidationError({"hogql_predicate": "team no longer exists; cannot validate the predicate."}) from exc
     modifiers = create_default_modifiers_for_team(team)
     modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-    # The organization mode that hides posthog.flag_evaluations from queries does not apply here.
+    # A self-hosted organization on the Events mode has no posthog.flag_evaluations in its catalog.
     # The rows that table holds still have to be deletable.
     database = (
         None if on_events else Database.create_for(team=team, modifiers=modifiers, include_flag_evaluations_table=True)

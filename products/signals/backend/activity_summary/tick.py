@@ -51,8 +51,10 @@ from products.signals.backend.activity_summary.queue import (
     VIEW_TRIGGERS,
     ActivitySummaryPair,
     ActivitySummaryTierStats,
+    McpFeed,
     daily_usage,
     enrollment,
+    feed_mcp_queue,
     feed_queue,
     is_team_enrolled_for_generation,
     max_update_cost_usd,
@@ -136,6 +138,7 @@ class ActivitySummaryTickPlan:
     # The days of the MCP intent buffer each update reads. None when `mcp_render_enabled` is off.
     mcp_buffer_days: int | None = None
     emit_profile_embeddings: bool = False
+    mcp_feed: McpFeed = dataclasses.field(default_factory=McpFeed)
 
 
 @frozen
@@ -184,6 +187,7 @@ class ActivitySummaryTickResult:
     refresh_builds: int = 0
     # Due pairs at the start of the tick, per trigger.
     due_by_trigger: dict[str, int] = dataclasses.field(default_factory=dict)
+    mcp_feed: McpFeed = dataclasses.field(default_factory=McpFeed)
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickPlan:
@@ -207,6 +211,9 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
     if config.enabled:
         # The cursors move even when a cap stops the tick, so new rows do not pile up behind them.
         feed_queue(config, now, enrolled.team_ids)
+    mcp_feed = McpFeed()
+    if config.enabled and config.mcp_queue_enabled and config.mcp_render_enabled:
+        mcp_feed = feed_mcp_queue(config, now, enrolled.team_ids)
     usage = daily_usage(now) if enabled else None
     updates_left = max(0, config.max_pairs_per_day - usage.updates) if usage else 0
     cost_left = max(0.0, config.max_cost_usd_per_day - usage.cost_usd) if usage else 0.0
@@ -248,6 +255,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         rebuild_before=config.rebuild_before,
         max_versions=config.max_versions,
         mcp_buffer_days=config.mcp_buffer_days if config.mcp_render_enabled else None,
+        mcp_feed=mcp_feed,
     )
 
 
@@ -420,6 +428,7 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
         new_builds=result.new_builds,
         refresh_builds=result.refresh_builds,
         due_by_trigger=result.due_by_trigger,
+        **{f"mcp_feed_{name}": value for name, value in dataclasses.asdict(result.mcp_feed).items()},
         **dataclasses.asdict(result.enrollment),
     )
     ph_background_capture()(
@@ -436,6 +445,7 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
             "new_builds": result.new_builds,
             "refresh_builds": result.refresh_builds,
             **{f"due_{trigger}": result.due_by_trigger.get(trigger, 0) for trigger in TRIGGERS},
+            **{f"mcp_feed_{name}": value for name, value in dataclasses.asdict(result.mcp_feed).items()},
             **dataclasses.asdict(result.enrollment),
             **{
                 f"{tier.tier}_{name}": getattr(tier, name)
@@ -568,6 +578,7 @@ class ActivitySummaryTickWorkflow:
             new_builds=builds[True],
             refresh_builds=builds[False],
             due_by_trigger=plan.due_by_trigger,
+            mcp_feed=plan.mcp_feed,
         )
         await workflow.execute_activity(
             capture_activity_summary_tick_activity,

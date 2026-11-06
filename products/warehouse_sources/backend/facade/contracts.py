@@ -78,6 +78,29 @@ class UnreadableSourceInputsError(ValueError):
     value can hold credentials."""
 
 
+# Set in `job_inputs` when the store has moved the connection fields of a source to its credentials row and
+# removed them from `job_inputs`. The value is the time of the strip, as an ISO 8601 string.
+CONNECTION_FIELDS_STRIPPED_KEY = "connection_fields_stripped_at"
+# Keeps a stripped typed-in source typed-in when, without its connection fields, it would read as OAuth (Slack).
+CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY = "connection_fields_stripped_typed_in"
+STRIPPED_STORE_KEYS: frozenset[str] = frozenset(
+    {CONNECTION_FIELDS_STRIPPED_KEY, CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY}
+)
+
+SOURCE_CREDENTIALS_MISSING_ERROR = "The credentials of this source are missing or cannot be read"
+
+
+class SourceCredentialsMissingError(UnreadableSourceInputsError):
+    """The connection fields of a stripped source are not in its credentials row. `job_inputs` holds no copy,
+    so nothing can replace them: the user must enter the credentials again."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            f"{SOURCE_CREDENTIALS_MISSING_ERROR}. Enter the credentials of the source again, or reconnect its "
+            "account, then enable the sync again."
+        )
+
+
 class UndecryptedConfigError(ValueError):
     """Raised when a config value reaches conversion still Fernet-encrypted.
 
@@ -108,6 +131,23 @@ class RevenueViewSyncInput:
     source_id: UUID
     source_type: str
     schema_name: str
+
+
+@dataclass(frozen=True)
+class PersonPropertySyncProgress:
+    """One produced chunk's counts for one person-property source."""
+
+    team_id: int
+    binding_kind: str
+    binding_id: str
+    source_id: str
+    job_id: str | None
+    trigger: str
+    rows_read: int
+    changed: int
+    existing: int
+    produced: int
+    skipped_missing_person: int
 
 
 @dataclass(frozen=True)
@@ -264,6 +304,18 @@ class TableNames:
 
     row_name: str
     queryable_key: str
+
+
+@dataclass(frozen=True)
+class TableAwaitingFirstSync:
+    """A table that a synced schema will create, but whose first sync has not created yet.
+
+    ``names`` holds the names a query can write for it once it exists.
+    ``first_sync_failed`` is true when the latest sync attempt failed.
+    """
+
+    names: TableNames
+    first_sync_failed: bool
 
 
 WAREHOUSE_OBJECT_TABLE = "table"

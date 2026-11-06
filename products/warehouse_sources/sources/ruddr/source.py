@@ -44,7 +44,7 @@ class RuddrSource(ResumableSource[RuddrSourceConfig, RuddrResumeConfig]):
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Ruddr API key to pull your professional services data into the PostHog Data warehouse.
 
-You can create a workspace API key under **Settings → API Keys** in [Ruddr](https://www.ruddr.io). The key grants read access to your clients, projects, tasks, members, and time entries.
+You can create a workspace API key under **Settings → API Keys** in [Ruddr](https://www.ruddr.io). The key grants read access to your clients, projects, tasks, members, time entries, invoices, and allocations.
 """,
             iconPath="/static/services/ruddr.png",
             docsUrl="https://posthog.com/docs/cdp/sources/ruddr",
@@ -85,9 +85,6 @@ You can create a workspace API key under **Settings → API Keys** in [Ruddr](ht
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — Ruddr's list endpoints expose no reliably ordered
-        # server-side update timestamp, so there is no incremental cursor to advance (INCREMENTAL_FIELDS
-        # is empty, so build_endpoint_schemas marks each endpoint full-refresh).
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -114,5 +111,8 @@ You can create a workspace API key under **Settings → API Keys** in [Ruddr](ht
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Ruddr endpoint is full refresh
+            incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

@@ -114,6 +114,15 @@ Use a **user API key** from **Account settings > API keys** in Blueshift. Pick t
             "403 Client Error: Forbidden for url": "The Blueshift API key can't read one of the tables you sync. Use a key with access to that data, or deselect the table.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # The campaign_stats daily walk fetches with a raw `session.get`, not `rest_api_resource`,
+        # so it retries a 429/5xx itself and re-raises as "Blueshift API error (retryable): ..."
+        # once that budget is exhausted. `make_tracked_session`'s own DEFAULT_RETRY can also
+        # exhaust first on a dropped connection or read timeout, surfacing as urllib3's
+        # "Max retries exceeded with url: ...". Temporal retries the whole activity either way, so
+        # the failure is transient and self-recovering, not a bug to report.
+        return {"Max retries exceeded with url", "Blueshift API error (retryable)"}
+
     def get_schemas(
         self,
         config: BlueshiftSourceConfig,

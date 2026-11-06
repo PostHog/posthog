@@ -27,7 +27,7 @@ from posthog.schema import (
 
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
@@ -138,13 +138,13 @@ class TestSeriesCustomNameCache(BaseTest):
         assert [row["custom_name"] for row in results] == [expected_custom_name]
 
     def test_cache_hit_resolves_action_series_names_in_one_query(self) -> None:
-        signed_up = Action.objects.create(team=self.team, name="Signed up", steps_json=[{"event": "signed up"}])
-        paid = Action.objects.create(team=self.team, name="Paid", steps_json=[{"event": "paid"}])
+        signed_up = create_action(team=self.team, name="Signed up", steps_json=[{"event": "signed up"}])
+        paid = create_action(team=self.team, name="Paid", steps_json=[{"event": "paid"}])
         query = TrendsQuery(
             series=[
-                ActionsNode(id=signed_up.pk, name="Signed up"),
-                ActionsNode(id=paid.pk, name="Converted"),
-                ActionsNode(id=paid.pk, name="Revenue"),
+                ActionsNode(id=signed_up.id, name="Signed up"),
+                ActionsNode(id=paid.id, name="Converted"),
+                ActionsNode(id=paid.id, name="Revenue"),
             ]
         )
         cached_rows = [{"order": order, "custom_name": None, "data": [1]} for order in range(3)]

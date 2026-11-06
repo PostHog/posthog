@@ -1,27 +1,42 @@
+from datetime import timedelta
 from typing import Any, cast
 from uuid import UUID
 
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Exists, OuterRef, Subquery
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 
 from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.data_modeling.backend.facade.api import (
+    SCHEDULABLE_BUCKETS,
     MaterializationForbiddenError,
+    MaterializationRanRecentlyError,
     MaterializationRunDirection,
+    SavedQueryFrequencyBounds,
+    UnsatisfiableFrequencyError,
+    UnsupportedFrequencyTargetError,
+    apply_saved_query_frequency_target,
+    cadence_changes,
+    clear_legacy_sync_interval,
     delete_node,
     endpoint_link,
     get_declared_target,
+    is_declared_pin,
     run_related_node_materializations,
+    saved_query_pin_preview,
+    saved_query_target_bounds,
+    scheduled_cadences_by_node,
     suspension_state,
     unsuspend_nodes,
 )
@@ -29,6 +44,7 @@ from products.data_modeling.backend.facade.models import (
     SAVED_QUERY_NODE_TYPES,
     DataModelingJob,
     DataModelingJobEngine,
+    DataWarehouseSavedQuery,
     Edge,
     LineageIssueKind,
     Node,
@@ -40,7 +56,16 @@ from products.data_modeling.backend.presentation.views.metric_visibility import 
     EDIT_DENIED,
     MetricNodeVisibilityMixin,
 )
-from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
+from products.warehouse_sources.backend.facade.models import (
+    sync_frequency_interval_to_sync_frequency,
+    sync_frequency_to_sync_frequency_interval,
+)
+
+NEVER = "never"
+CADENCE_CHOICES = [NEVER] + [
+    sync_frequency_interval_to_sync_frequency(bucket) for bucket in sorted(SCHEDULABLE_BUCKETS)
+]
+PIN_NEEDS_A_CADENCE = "Pick how often this view refreshes before pinning it."
 
 
 class NodeSuspensionSerializer(serializers.Serializer):
@@ -95,7 +120,72 @@ class LineageIssueSerializer(serializers.Serializer):
     at = serializers.DateTimeField(allow_null=True, help_text="When the issue was recorded.")
 
 
+class DeclaredPinField(serializers.BooleanField):
+    def get_attribute(self, instance: Node) -> bool:
+        return is_declared_pin(instance.properties)
+
+
+class NodePinDelaySerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Node id of the downstream view or endpoint.")
+    name = serializers.CharField(help_text="Name of the downstream view or endpoint.")
+
+
+class NodePinBlockerSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        allow_null=True,
+        help_text="Node id of the downstream view that stops the pin, or null when the caller may not read it.",
+    )
+    name = serializers.CharField(
+        allow_null=True,
+        help_text="Name of the downstream view that stops the pin, or null when the caller may not read it.",
+    )
+
+
+class NodeFrequencyOptionSerializer(serializers.Serializer):
+    cadence = serializers.ChoiceField(choices=CADENCE_CHOICES[1:], help_text="A cadence the view could refresh at.")
+    delays_if_pinned = NodePinDelaySerializer(
+        many=True,
+        help_text="Downstream views and endpoints that refresh more often than this cadence. If this view "
+        "were pinned to it, they would read data older than their own cadence.",
+    )
+    pin_blocked_by = NodePinBlockerSerializer(
+        allow_null=True,
+        help_text="The downstream view that stops a pin at this cadence. It reads fresh data only through "
+        "this view, so a pin this slow would leave it unable to refresh as often as its own cadence. Null "
+        "when this cadence can be pinned.",
+    )
+    unpinned_cadence = serializers.ChoiceField(
+        choices=CADENCE_CHOICES[1:],
+        help_text="The cadence the view would run at if it held this cadence without a pin. Finer than this "
+        "cadence when a downstream view needs fresher data than the pin allows.",
+    )
+
+
+class NodeFrequencyBoundsSerializer(serializers.Serializer):
+    pinned = serializers.BooleanField(
+        help_text="True when the view refreshes at its own cadence instead of as often as its downstream "
+        "views and endpoints need."
+    )
+    options = NodeFrequencyOptionSerializer(
+        many=True, help_text="Every cadence a picker may show, finest first. Empty when the node has no view."
+    )
+
+
 class NodeSerializer(serializers.ModelSerializer):
+    # nosemgrep: choices-need-a-class -- the values are SCHEDULABLE_BUCKETS, and the enum is already named by ENUM_NAME_OVERRIDES
+    sync_frequency = serializers.ChoiceField(
+        choices=CADENCE_CHOICES,
+        write_only=True,
+        required=False,
+        help_text="How often this view refreshes. 'never' clears the cadence, and with it the pin. "
+        "Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.",
+    )
+    pinned = DeclaredPinField(
+        required=False,
+        help_text="Pin this view to its own cadence. A pinned view does not refresh more often when downstream "
+        "views or endpoints need fresher data, so they read data up to one pinned interval old. Requires a "
+        "cadence. Set false to refresh as often as downstream views need again.",
+    )
     suspended = serializers.SerializerMethodField(read_only=True)
     endpoint = serializers.SerializerMethodField(read_only=True)
     upstream_count = serializers.SerializerMethodField(read_only=True)
@@ -105,6 +195,12 @@ class NodeSerializer(serializers.ModelSerializer):
     last_run_error = serializers.SerializerMethodField(read_only=True)
     user_tag = serializers.SerializerMethodField(read_only=True)
     sync_interval = serializers.SerializerMethodField(read_only=True)
+    effective_sync_interval = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="How often this node actually refreshes. A downstream view can make an unpinned view "
+        "refresh more often than `sync_interval`, and a slow source can make it refresh less often. "
+        "Null when the node is not scheduled.",
+    )
     lineage_issue = serializers.SerializerMethodField(read_only=True)
     origin = serializers.SerializerMethodField(read_only=True)
     warehouse_table_id = serializers.SerializerMethodField(read_only=True)
@@ -130,6 +226,9 @@ class NodeSerializer(serializers.ModelSerializer):
             "last_run_error",
             "user_tag",
             "sync_interval",
+            "effective_sync_interval",
+            "sync_frequency",
+            "pinned",
             "suspended",
             "endpoint",
         ]
@@ -214,6 +313,14 @@ class NodeSerializer(serializers.ModelSerializer):
             return sync_frequency_interval_to_sync_frequency(node.saved_query.sync_frequency_interval)
         return None
 
+    def get_effective_sync_interval(self, node: Node) -> str | None:
+        # Built once per DAG for the whole response, not once per listed node.
+        by_dag = self.context.setdefault("_scheduled_cadences_by_dag", {})
+        if node.dag_id not in by_dag:
+            by_dag[node.dag_id] = scheduled_cadences_by_node(node.team_id, [node.dag_id])
+        cadence = by_dag[node.dag_id].get(str(node.id))
+        return sync_frequency_interval_to_sync_frequency(cadence) if cadence is not None else None
+
     @extend_schema_field(LineageIssueSerializer(allow_null=True))
     def get_lineage_issue(self, node: Node) -> dict[str, Any] | None:
         return node.lineage_issue
@@ -252,6 +359,8 @@ class NodeSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Nodes of views PostHog manages cannot be modified.")
         if self.instance is not None and self.instance.type == NodeType.METRIC:
             raise serializers.ValidationError("Metric nodes are maintained by the data catalog.")
+        if self.writes_cadence(attrs) and (self.instance is None or self.instance.saved_query_id is None):
+            raise serializers.ValidationError("Only views and endpoints have a cadence to set.")
         node_type = attrs.get("type")
         if node_type is not None and self.instance is not None:
             # A full PUT round-trips the node's own type, so a type equal to the current one is
@@ -259,6 +368,82 @@ class NodeSerializer(serializers.ModelSerializer):
             if node_type != self.instance.type:
                 raise serializers.ValidationError("A node's type cannot be changed through the API.")
         return attrs
+
+    @staticmethod
+    def writes_cadence(attrs: dict[str, Any]) -> bool:
+        return "sync_frequency" in attrs or "pinned" in attrs
+
+    def update(self, instance: Node, validated_data: dict[str, Any]) -> Node:
+        if not self.writes_cadence(validated_data):
+            return super().update(instance, validated_data)
+        visible_names: dict[str, str] = validated_data.pop("visible_names", {})
+        frequency = validated_data.pop("sync_frequency", None)
+        pinned: bool | None = validated_data.pop("pinned", None)
+        with transaction.atomic():
+            _write_cadence(self.context["request"], instance, frequency, pinned, visible_names)
+            return super().update(instance, validated_data)
+
+
+def _write_cadence(
+    request: request.Request, node: Node, frequency: str | None, pinned: bool | None, visible_names: dict[str, str]
+) -> None:
+    """Write the cadence and pin to every node of the node's view, and record it on the view's activity log."""
+    saved_query = node.saved_query
+    assert saved_query is not None
+    previous_target, previous_pinned = get_declared_target(node), is_declared_pin(node.properties)
+    keep_target = frequency is None
+    if frequency is None:
+        # A pin on its own keeps the stored cadence, which the write reads again under the row lock.
+        target = previous_target
+    else:
+        target = None if frequency == NEVER else sync_frequency_to_sync_frequency_interval(frequency)
+    if pinned and target is None:
+        raise serializers.ValidationError(PIN_NEEDS_A_CADENCE)
+    if target is not None:
+        # Scheduling a view is the same grant as materializing it directly.
+        assert_user_can_read_query(saved_query.query, saved_query.team_id, cast(User, request.user))
+    try:
+        apply_saved_query_frequency_target(
+            saved_query, target, visible_names=visible_names, pinned=pinned, keep_target=keep_target
+        )
+    except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
+        raise serializers.ValidationError(str(e))
+    except ValueError:
+        if not keep_target:
+            raise
+        # The cadence was cleared between the read above and the write, so there is nothing to pin.
+        raise serializers.ValidationError(PIN_NEEDS_A_CADENCE)
+    if frequency is not None:
+        clear_legacy_sync_interval(saved_query.team_id, saved_query.pk)
+        saved_query.sync_frequency_interval = None
+    node.refresh_from_db(fields=["properties"])
+    _log_cadence_change(
+        request,
+        saved_query,
+        (previous_target, get_declared_target(node)),
+        (previous_pinned, is_declared_pin(node.properties)),
+    )
+
+
+def _log_cadence_change(
+    request: request.Request,
+    saved_query: DataWarehouseSavedQuery,
+    targets: tuple[timedelta | None, timedelta | None],
+    pins: tuple[bool, bool],
+) -> None:
+    changes = cadence_changes(targets, pins)
+    if not changes:
+        return
+    log_activity(
+        organization_id=saved_query.team.organization_id,
+        team_id=saved_query.team_id,
+        user=cast(User, request.user),
+        was_impersonated=is_impersonated(request),
+        item_id=saved_query.id,
+        scope="DataWarehouseSavedQuery",
+        activity="updated",
+        detail=Detail(name=saved_query.name, changes=changes),
+    )
 
 
 class NodePagination(BoundedPageNumberPagination):
@@ -372,8 +557,63 @@ class NodeViewSet(
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         self._require_warehouse_access(level="editor", message=EDIT_DENIED)
-        self._require_view_edit_access(cast(Node, serializer.instance).saved_query)
-        serializer.save()
+        node = cast(Node, serializer.instance)
+        self._require_view_edit_access(node.saved_query)
+        if not NodeSerializer.writes_cadence(serializer.validated_data):
+            serializer.save()
+            return
+        # A refusal names what blocks the cadence, so it names only nodes this caller can list.
+        serializer.save(visible_names=self._visible_names_around(node))
+
+    def _visible_names_around(self, node: Node, resolved: SavedQueryFrequencyBounds | None = None) -> dict[str, str]:
+        """Names of the nodes around this view's cadence that the caller may list and read."""
+        if resolved is None and node.saved_query_id:
+            resolved = saved_query_target_bounds(self.team_id, node.saved_query_id)
+        if resolved is None:
+            return {}
+        dag_ids = Node.objects.filter(team_id=self.team_id, saved_query_id=node.saved_query_id).values("dag_id")
+        listed = self._exclude_hidden_nodes(Node.objects.filter(team_id=self.team_id, dag_id__in=dag_ids))
+        listed_ids = {str(node_id) for node_id in listed.values_list("id", flat=True)}
+        return {node_id: name for node_id, name in self._readable_node_names(resolved).items() if node_id in listed_ids}
+
+    @extend_schema(responses=NodeFrequencyBoundsSerializer)
+    @action(methods=["GET"], detail=True)
+    def frequency_bounds(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """The cadences this view could refresh at, and what pinning it to each one would delay downstream."""
+        self._require_warehouse_access(level="viewer", message=_READ_DENIED)
+        node = self.get_object()
+        resolved = saved_query_target_bounds(self.team_id, node.saved_query_id) if node.saved_query_id else None
+        if resolved is None:
+            return response.Response({"pinned": False, "options": []})
+        names = self._visible_names_around(node, resolved)
+        assert node.saved_query_id is not None
+        preview = saved_query_pin_preview(self.team_id, node.saved_query_id)
+
+        def pin_blocker(cadence: timedelta) -> dict[str, str | None] | None:
+            stranded = sorted(preview.pin_blocked_by.get(cadence, ()))
+            if not stranded:
+                return None
+            # Name a view the caller can see when there is one. Otherwise the pin is still refused, but
+            # neither the id nor the name of a view the caller may not read goes out with the refusal.
+            node_id = next((node_id for node_id in stranded if node_id in names), None)
+            return {"id": node_id, "name": names[node_id]} if node_id else {"id": None, "name": None}
+
+        options = [
+            {
+                "cadence": sync_frequency_interval_to_sync_frequency(option.value),
+                "delays_if_pinned": [
+                    {"id": node_id, "name": names[node_id]}
+                    for node_id in sorted(preview.delays_if_pinned.get(option.value, ()))
+                    if node_id in names
+                ],
+                "pin_blocked_by": pin_blocker(option.value),
+                "unpinned_cadence": sync_frequency_interval_to_sync_frequency(
+                    preview.unpinned_cadence.get(option.value, option.value)
+                ),
+            }
+            for option in resolved.bounds.options
+        ]
+        return response.Response(NodeFrequencyBoundsSerializer({"pinned": resolved.pinned, "options": options}).data)
 
     def perform_destroy(self, instance: Node) -> None:
         self._require_warehouse_access(level="editor", message=DELETE_DENIED)
@@ -455,7 +695,15 @@ class NodeViewSet(
             self.ordering
         )
 
-    @extend_schema(request=NodeRunSerializer, responses={200: NodeRunResponseSerializer})
+    @extend_schema(
+        request=NodeRunSerializer,
+        responses={
+            200: NodeRunResponseSerializer,
+            429: OpenApiResponse(
+                description="Every view this run would build ran too recently and has not changed since. The Retry-After header gives the wait in seconds."
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def run(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Run this node with its upstream dependencies or downstream dependents."""
@@ -484,6 +732,8 @@ class NodeViewSet(
             )
         except MaterializationForbiddenError as error:
             raise PermissionDenied(str(error))
+        except MaterializationRanRecentlyError as error:
+            raise Throttled(wait=error.retry_after_seconds, detail=str(error))
         return response.Response({"node_ids": node_ids}, status=status.HTTP_200_OK)
 
     def _lineage_lookup(self, req: request.Request) -> dict[str, UUID]:
@@ -561,10 +811,20 @@ class NodeViewSet(
             LineageResponseSerializer({"nodes": nodes, "edges": edges}, context=self.get_serializer_context()).data
         )
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(description="Materialization started. The response has no body."),
+            400: OpenApiResponse(description="The node is not a view, materialized view or endpoint node."),
+            429: OpenApiResponse(
+                description="The view's latest run started too recently and the query has not changed since. The Retry-After header gives the wait in seconds."
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Materialize just this single node."""
-        from products.data_modeling.backend.facade.api import start_node_materialization
+        from products.data_modeling.backend.facade.api import raise_if_ran_recently, start_node_materialization
 
         node = self.get_object()
 
@@ -580,6 +840,10 @@ class NodeViewSet(
         self._require_view_edit_access(node.saved_query)
         if node.saved_query is not None:
             assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
+            try:
+                raise_if_ran_recently(self.team_id, node.saved_query.id)
+            except MaterializationRanRecentlyError as error:
+                raise Throttled(wait=error.retry_after_seconds, detail=str(error))
 
         start_node_materialization(node, triggered_by_id=req.user.pk)
 

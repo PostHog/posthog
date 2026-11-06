@@ -3,7 +3,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import posthogIcon from 'public/posthog-icon.svg'
 
-import type { OverviewMetricGroup as OverviewMetricSource } from '../overview/overviewMetricConfiguration'
+import type { OverviewMetricSource } from '../overview/overviewMetricConfiguration'
 
 const SOURCE_DESCRIPTIONS: Record<OverviewMetricSource, string> = {
     platforms: 'Reported directly by your ad platforms and added together',

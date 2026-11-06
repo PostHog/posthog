@@ -65,34 +65,7 @@ ICON_ROOT = Path(settings.BASE_DIR) / "frontend" / "public"
 
 # Sources whose declared icon has no file, so every catalog tile for them requests an image that
 # 404s and falls back to the placeholder hedgehog. Each entry is a logo to add, not an exemption.
-SOURCES_WITHOUT_AN_ICON_FILE = {
-    "AikidoSecurity",
-    "Appwrite",
-    "Backblaze",
-    "Baseten",
-    "BrowserUse",
-    "Cohere",
-    "DenoDeploy",
-    "FlyIo",
-    "Groq",
-    "Gumloop",
-    "Hatchet",
-    "Hetzner",
-    "Kernel",
-    "Linode",
-    "Maxio",
-    "Metriport",
-    "OpenRouter",
-    "Roark",
-    "ScaleAI",
-    "Skyvern",
-    "TerraApi",
-    "TriggerDev",
-    "TwelveLabs",
-    "Upstash",
-    "Vespa",
-    "Zep",
-}
+SOURCES_WITHOUT_AN_ICON_FILE: set[str] = set()
 
 CREDENTIAL_FIELD = re.compile(r"api[_-]?key|access[_-]?key|token|secret|password|passphrase|private[_-]?key", re.I)
 
