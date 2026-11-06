@@ -106,7 +106,7 @@ function MetricNameFilterInner({
             if (value === item.name) {
                 onChange('')
             } else {
-                onChange(item.name, item.metric_type || undefined)
+                onChange(item.name, item.metric_type)
             }
         },
         [value, onChange]

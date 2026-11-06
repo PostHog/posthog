@@ -89,20 +89,23 @@ describe('editMetricsTableWidgetModalLogic', () => {
         expect(logic.values.orderByColumn).toEqual(0)
     })
 
-    it('switches a column to a percentile when the user picks a histogram metric', () => {
-        const { logic } = mountLogic({ groupBy: 'http.route' })
+    it.each(['histogram', 'exponential_histogram'])(
+        'switches a column to a percentile when the user picks a %s metric',
+        (type) => {
+            const { logic } = mountLogic({ groupBy: 'http.route' })
 
-        logic.actions.addColumn()
-        logic.actions.selectColumnMetric(0, 'http_request_duration_seconds', 'histogram')
+            logic.actions.addColumn()
+            logic.actions.selectColumnMetric(0, 'http_request_duration_seconds', type)
 
-        expect(logic.values.columns[0]).toEqual({
-            label: 'Value',
-            metricName: 'http_request_duration_seconds',
-            aggregation: 'histogram_quantile',
-            quantile: 0.95,
-        })
-        expect(logic.values.columnMetricTypes).toEqual(['histogram'])
-    })
+            expect(logic.values.columns[0]).toEqual({
+                label: 'Value',
+                metricName: 'http_request_duration_seconds',
+                aggregation: 'histogram_quantile',
+                quantile: 0.95,
+            })
+            expect(logic.values.columnMetricTypes).toEqual([type])
+        }
+    )
 
     it.each([
         ['sum', 'rate'],
@@ -140,6 +143,8 @@ describe('editMetricsTableWidgetModalLogic', () => {
         ['histogram', 'avg', true],
         ['histogram', 'rate', true],
         ['histogram', 'histogram_quantile', false],
+        ['exponential_histogram', 'avg', true],
+        ['exponential_histogram', 'histogram_quantile', false],
         ['sum', 'histogram_quantile', true],
         ['gauge', 'histogram_quantile', true],
         ['sum', 'rate', false],

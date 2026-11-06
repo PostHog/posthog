@@ -78,6 +78,9 @@ export type editMetricsTableWidgetModalLogicType = MakeLogicType<
     EditMetricsTableWidgetModalLogicProps
 >
 
+// Ingestion flattens an exponential histogram into explicit buckets, so a percentile works on both.
+const HISTOGRAM_METRIC_TYPES = new Set(['histogram', 'exponential_histogram'])
+
 /** Why a calculation does not fit a metric of this type. Only a histogram has buckets for a percentile. */
 export function metricsTableAggregationDisabledReason(
     metricType: string | null | undefined,
@@ -86,7 +89,7 @@ export function metricsTableAggregationDisabledReason(
     if (!metricType) {
         return undefined
     }
-    if (metricType === 'histogram') {
+    if (HISTOGRAM_METRIC_TYPES.has(metricType)) {
         return aggregation === 'histogram_quantile' ? undefined : 'A histogram metric needs a percentile'
     }
     return aggregation === 'histogram_quantile' ? 'A percentile needs a histogram metric' : undefined
@@ -96,7 +99,7 @@ function fittingAggregation(aggregation: MetricsTableAggregation, metricType: st
     if (!metricsTableAggregationDisabledReason(metricType, aggregation)) {
         return aggregation
     }
-    if (metricType === 'histogram') {
+    if (HISTOGRAM_METRIC_TYPES.has(metricType)) {
         return 'histogram_quantile'
     }
     return metricType === 'sum' ? 'rate' : 'avg'
