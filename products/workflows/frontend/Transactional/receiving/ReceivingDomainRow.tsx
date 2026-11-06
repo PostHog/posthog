@@ -24,6 +24,8 @@ function checkMessage(check: InboundDomainCheckApi | undefined, mxHost: string):
                 : `This domain's mail goes elsewhere: ${check.found.join(', ')}. Replace those records with the one above.`
         case 'taken':
             return 'Another project already receives mail on this domain.'
+        case 'no_sending_domain':
+            return 'This project has no verified sending domain that covers this domain. Verify one, then check again.'
         case 'lookup_failed':
             return "DNS didn't answer. We'll try again."
         default:

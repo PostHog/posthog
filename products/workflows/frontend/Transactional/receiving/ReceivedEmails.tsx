@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 
 import type { ReceivedEmailApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { urlForNewWorkflowWithTrigger, WorkflowTriggerConfig } from '../../Workflows/workflowTriggerPrefill'
 import { EmailAddress } from '../log/EmailAddress'
 import { inboundEmailDomainsLogic } from './inboundEmailDomainsLogic'
 import { FILTER_REASON_DESCRIPTION, FILTER_REASON_LABEL, senderLabel } from './receivedEmailLabels'
@@ -28,6 +29,15 @@ import { ReceivingDomainsModal } from './ReceivingDomainsModal'
 import { ReceivingSetup } from './ReceivingSetup'
 
 // The Webhooks tab reaches users through its own flag, so the link appears when that tab does.
+// A stranger can write any From, so a new workflow starts with only the senders whose address was proved.
+const VERIFIED_EMAIL_RECEIVED_TRIGGER: WorkflowTriggerConfig = {
+    type: 'event',
+    filters: {
+        events: [{ id: '$email_received', name: 'Email received', type: 'events', order: 0 }],
+        properties: [{ key: '$email_sender_verified', type: 'event', value: ['true'], operator: 'exact' }],
+    },
+}
+
 const DELIVERY_WEBHOOKS_FLAG = 'workflows-email-delivery-webhooks'
 
 const STATUS_OPTIONS: { value: ReceivedStatusFilter; label: string }[] = [
@@ -83,8 +93,8 @@ export function ReceivedEmails(): JSX.Element {
                             )}
                             <LemonButton
                                 size="small"
-                                to={urls.workflowNew()}
-                                tooltip='Start a workflow from the "Email received" event'
+                                to={urlForNewWorkflowWithTrigger(VERIFIED_EMAIL_RECEIVED_TRIGGER)}
+                                tooltip='Start a workflow from the "Email received" event, for senders whose address was proved'
                                 data-attr="received-email-create-workflow"
                             >
                                 Create workflow

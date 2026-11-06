@@ -79,7 +79,16 @@ export function ReceivedEmailScene(): JSX.Element {
                     )}
                     {email.content_status === 'parse_failed' && (
                         <LemonBanner type="info">
-                            We couldn't read this email, but the raw message is kept. Download it from the Raw tab.
+                            We couldn't read this email, but the raw message is kept.{' '}
+                            {email.verdicts.virus === 'pass' ? 'Download it from the Raw tab.' : null}
+                        </LemonBanner>
+                    )}
+                    {email.content_status === 'not_stored' && (
+                        <LemonBanner type="info">This email was filtered, so only its details were kept.</LemonBanner>
+                    )}
+                    {email.verdicts.virus !== 'pass' && email.content_status !== 'not_stored' && (
+                        <LemonBanner type="warning" data-attr="received-email-scan-not-passed">
+                            The virus scan didn't pass for this email, so its files can't be downloaded.
                         </LemonBanner>
                     )}
                     <div className="grid gap-3 grid-cols-1 @3xl/main-content:grid-cols-[minmax(0,1fr)_18rem] min-[1200px]:grid-cols-[minmax(0,1fr)_18rem] items-start">
@@ -130,17 +139,20 @@ export function ReceivedEmailScene(): JSX.Element {
                                                     {formatBytes(attachment.size)}
                                                 </span>
                                             </span>
-                                            {attachment.download_url && (
+                                            {attachment.download_url ? (
                                                 <LemonButton
                                                     size="xsmall"
                                                     type="secondary"
                                                     icon={<IconDownload />}
                                                     to={attachment.download_url}
                                                     targetBlank
+                                                    className="ph-no-capture"
                                                     data-attr="received-email-download-attachment"
                                                 >
                                                     Download
                                                 </LemonButton>
+                                            ) : (
+                                                <span className="text-secondary shrink-0">Not available</span>
                                             )}
                                         </div>
                                     ))}

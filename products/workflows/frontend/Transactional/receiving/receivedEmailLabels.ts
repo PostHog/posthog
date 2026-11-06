@@ -9,11 +9,11 @@ export const FILTER_REASON_LABEL: Record<string, string> = {
 }
 
 export const FILTER_REASON_DESCRIPTION: Record<string, string> = {
-    spam: "The spam scan flagged this email, so it didn't fire an event. It doesn't count against anything.",
+    spam: "The spam scan flagged this email, so it didn't fire an event and only its details were kept.",
     auto_reply:
         "A machine wrote this, such as an out-of-office or a bounce, so it didn't fire an event. This keeps workflows from answering each other in a loop.",
     rate_limited:
-        "This sender wrote too many emails in the past hour, so this one didn't fire an event. This keeps workflows from answering each other in a loop.",
+        "This sender wrote too many emails in the past hour, so this one didn't fire an event and only its details were kept. This keeps workflows from answering each other in a loop.",
 }
 
 export const VERDICT_LABEL: Record<string, string> = {

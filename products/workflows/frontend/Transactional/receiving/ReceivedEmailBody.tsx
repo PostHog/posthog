@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconDownload } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs, LemonTable } from '@posthog/lemon-ui'
@@ -19,7 +20,11 @@ function Plain({ value, empty }: { value: string; empty: string }): JSX.Element 
 export function ReceivedEmailBody({ email }: { email: ReceivedEmailDetailApi }): JSX.Element {
     const { bodyTab, remoteImagesLoaded } = useValues(receivedEmailLogic)
     const { setBodyTab, loadRemoteImages } = useActions(receivedEmailLogic)
-    const remoteImages = hasRemoteImages(email.html)
+    const remoteImages = useMemo(() => hasRemoteImages(email.html), [email.html])
+    const previewDocument = useMemo(
+        () => buildReceivedEmailDocument(email.html, { allowRemoteImages: remoteImagesLoaded }),
+        [email.html, remoteImagesLoaded]
+    )
 
     const tabs: { key: ReceivedEmailBodyTab; label: string; content: JSX.Element }[] = [
         {
@@ -46,7 +51,7 @@ export function ReceivedEmailBody({ email }: { email: ReceivedEmailDetailApi }):
                     <iframe
                         title="Email preview"
                         sandbox="allow-popups allow-popups-to-escape-sandbox"
-                        srcDoc={buildReceivedEmailDocument(email.html, { allowRemoteImages: remoteImagesLoaded })}
+                        srcDoc={previewDocument}
                         className="ph-no-capture w-full h-[60vh] bg-white block"
                         data-attr="received-email-preview"
                     />
@@ -79,13 +84,18 @@ export function ReceivedEmailBody({ email }: { email: ReceivedEmailDetailApi }):
                                 icon={<IconDownload />}
                                 to={email.raw.download_url}
                                 targetBlank
+                                className="ph-no-capture"
                                 data-attr="received-email-download-raw"
                             >
                                 Download raw email
                             </LemonButton>
                         </div>
                     ) : (
-                        <p className="m-0 text-secondary">The raw email wasn't kept.</p>
+                        <p className="m-0 text-secondary">
+                            {email.verdicts.virus === 'pass'
+                                ? "The raw email wasn't kept."
+                                : "The raw email can't be downloaded, because the virus scan didn't pass."}
+                        </p>
                     )}
                     <LemonTable
                         size="small"

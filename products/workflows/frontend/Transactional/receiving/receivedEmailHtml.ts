@@ -8,7 +8,48 @@ export function buildReceivedEmailDocument(
     return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><base target="_blank"></head><body>${html}</body></html>`
 }
 
-/** True when the HTML loads an image from the internet, so the "Load remote images" button has something to do. */
+const REMOTE_URL_START = /^(?:https?:)?\/\//i
+const LONGEST_URL_START = 'https://'.length
+const WHITESPACE = /\s/
+
+/** Whether a remote URL starts at `start`, after any whitespace and one quote. */
+function remoteUrlStartsAt(html: string, start: number): boolean {
+    let index = start
+    const skipWhitespace = (): void => {
+        while (index < html.length && WHITESPACE.test(html[index])) {
+            index++
+        }
+    }
+    skipWhitespace()
+    if (html[index] === '"' || html[index] === "'") {
+        index++
+        skipWhitespace()
+    }
+    return REMOTE_URL_START.test(html.slice(index, index + LONGEST_URL_START))
+}
+
+/**
+ * True when the HTML loads an image from the internet, so the "Load remote images" button has something to do.
+ *
+ * A stranger writes this HTML and it can be long, so this scans forward only, which keeps the time linear in its size.
+ */
 export function hasRemoteImages(html: string): boolean {
-    return /<img\b[^>]*\bsrc\s*=\s*["']?\s*(https?:)?\/\//i.test(html) || /url\(\s*["']?\s*(https?:)?\/\//i.test(html)
+    for (const urlMatch of html.matchAll(/url\(/gi)) {
+        if (remoteUrlStartsAt(html, urlMatch.index + urlMatch[0].length)) {
+            return true
+        }
+    }
+    const lowered = html.toLowerCase()
+    let tagStart = lowered.indexOf('<img')
+    while (tagStart !== -1) {
+        const closing = lowered.indexOf('>', tagStart)
+        const tagEnd = closing === -1 ? lowered.length : closing
+        for (const srcMatch of lowered.slice(tagStart, tagEnd).matchAll(/\bsrc\s*=/g)) {
+            if (remoteUrlStartsAt(html, tagStart + srcMatch.index + srcMatch[0].length)) {
+                return true
+            }
+        }
+        tagStart = lowered.indexOf('<img', tagEnd)
+    }
+    return false
 }
