@@ -15,6 +15,7 @@ from .facade import api as tasks_facade
 from .facade.access import analytics_context_reader
 from .logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from .models import Task, TaskRun
+from .task_profiles import USER
 from .temporal.client import execute_task_processing_workflow_async
 from .visibility import task_control_q, task_visibility_q
 
@@ -87,6 +88,7 @@ By default, the task will be created and immediately executed. Set run=false to 
                 title=title,
                 description=description,
                 origin_product=Task.OriginProduct.USER_CREATED,
+                profile=USER.key,
                 repository=repository,
                 github_integration_id=github_integration.id if github_integration is not None else None,
             )
