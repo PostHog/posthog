@@ -31,9 +31,11 @@ export function emailSenderWarning(
     destination: MessageAudienceDestination
 ): string | null {
     const emailIntegrations = integrations.filter((integration) => integration.kind === 'email')
-    const senders = sandboxSenderEnabled
-        ? emailIntegrations.filter((integration) => !isSandboxEmailSender(integration))
-        : emailIntegrations
+    // Broadcasts reject the sandbox sender whatever the flag says.
+    const senders =
+        sandboxSenderEnabled || destination === 'broadcast'
+            ? emailIntegrations.filter((integration) => !isSandboxEmailSender(integration))
+            : emailIntegrations
     if (senders.length === 0) {
         if (emailIntegrations.length === 0) {
             return NO_EMAIL_SENDER_MESSAGE
