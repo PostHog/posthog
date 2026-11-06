@@ -166,6 +166,7 @@ async fn shadow_mode_writes_node_outputs_to_shadow_topics_only() {
     let conn = match client.get_multiplexed_async_connection().await {
         Ok(c) => c,
         Err(e) => {
+            assert!(std::env::var_os("CI").is_none(), "no Redis: {e}");
             eprintln!("skipping: no Redis: {e}");
             return;
         }

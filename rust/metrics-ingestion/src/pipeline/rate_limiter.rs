@@ -100,14 +100,14 @@ impl MetricsRateLimiter {
         js_math_round((self.clock)() / 1000.0)
     }
 
-    /// The first `created_at` header, as `getHeaderValue` reads it. An empty or unparsable value falls back to now.
+    /// The first `created_at` header with a value, as `getHeaderValue` reads it. An empty or unparsable value falls back to now.
     fn timestamp_seconds(&self, message: &MetricsIngestionMessage) -> f64 {
         let raw = message
             .message
             .headers
             .iter()
-            .find(|(key, _)| key == "created_at")
-            .and_then(|(_, value)| value.as_deref());
+            .filter(|(key, _)| key == "created_at")
+            .find_map(|(_, value)| value.as_deref());
         if let Some(raw) = raw.filter(|raw| !raw.is_empty()) {
             if let Some(ms) = date_parse(&String::from_utf8_lossy(raw)) {
                 return js_math_round(ms / 1000.0);

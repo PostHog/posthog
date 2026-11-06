@@ -67,6 +67,12 @@ globs = [
 ]
 mark-changed = ["replay-core-v4"]
 
+# metrics-ingestion's parity test replays the fixtures the Node consumer records.
+# Must come BEFORE the catch-all rule below.
+[[path-rule]]
+globs = ["../nodejs/src/ingestion/pipelines/metrics/parity/fixtures/**"]
+mark-changed = ["metrics-ingestion"]
+
 # Django migrations and test environment setup — needed for Rust integration tests.
 [[path-rule]]
 globs = [
