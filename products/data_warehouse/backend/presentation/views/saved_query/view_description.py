@@ -6,9 +6,10 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.presentation.views.column_annotation_base import DESCRIPTION_HELP_TEXT
 
 VIEW_DESCRIPTION_HELP_TEXT = (
-    "Semantic description of what this view represents, surfaced to AI agents. Set it to describe the "
-    "view; send an empty string to clear it. Per-column descriptions are read back in `columns` and set "
-    "via the saved-query column annotation endpoints. " + DESCRIPTION_HELP_TEXT
+    "What this view represents. Agents may use it to decide when to use this data and how to query it, so "
+    "state what one row represents, what the view includes or leaves out, and when to use it. Send an empty "
+    "string to clear it. Per-column descriptions are read back in `columns` and set via the saved-query "
+    "column annotation endpoints. " + DESCRIPTION_HELP_TEXT
 )
 
 
