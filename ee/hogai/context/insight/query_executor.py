@@ -522,7 +522,7 @@ class AssistantQueryExecutor:
                         )
 
                     # Poll async query until completion
-                    # Total wait time: 5 minutes with linear increments
+                    # Total wait time: 5 minutes with increments growing up to MAX_POLL_INTERVAL_S
                     while total_wait_s <= 60 * 5:
                         poll_count += 1
                         total_wait_s += poll_interval_s
