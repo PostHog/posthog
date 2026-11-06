@@ -3385,6 +3385,7 @@ class TestUpdateExternalDataSchema:
                     "cdc_mode": "streaming",
                     "cdc_last_log_position": "0/16B3748",
                     "cdc_snapshot_lane": "buffer",
+                    "cdc_snapshot_position": 23803368,
                 },
                 "posthog",
                 id="left_over_from_earlier_cdc_period",
@@ -3420,6 +3421,7 @@ class TestUpdateExternalDataSchema:
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
         assert "cdc_last_log_position" not in schema.sync_type_config
         assert "cdc_snapshot_lane" not in schema.sync_type_config
+        assert "cdc_snapshot_position" not in schema.sync_type_config
         assert schema.initial_sync_complete is False
 
     @pytest.mark.parametrize(

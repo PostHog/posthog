@@ -157,12 +157,12 @@ def _run_option_violations(
 
 
 def validate_run_options(
-    profile: TaskProfile | None,
+    profile: TaskProfile,
     options: TaskRunOptions | None,
     *,
     caller: RunOptionsCaller = RunOptionsCaller.SERVER,
 ) -> None:
-    if profile is None or options is None:
+    if options is None:
         return
     enforced = _ALWAYS_ENFORCED_FOR_PUBLIC if caller == RunOptionsCaller.PUBLIC else frozenset()
     refusals = [
