@@ -270,6 +270,10 @@ When authorizing an application, users can scope access to:
 
 This is configured during the authorization step, not in the application settings.
 
+OAuth bearer requests, including provisioning requests, must satisfy the IP restrictions of every organization the user belongs to. Token access scopes do not narrow this policy. Staff impersonation retains its existing exemption.
+
+The native `/oauth/userinfo/` endpoint verifies the access token and `openid` scope before applying the same IP policy to the token's user. This applies to both GET and POST requests. A policy denial returns HTTP 403 with `error: access_denied` and `code: ip_not_allowed`; invalid or expired tokens retain the OAuth provider's error responses.
+
 If you would like to force the user to pick a single team or an organization you can use the `required_access_level=project` or `required_access_level=organization` query parameter in the authorization url.
 
 ## Testing Your OAuth Application

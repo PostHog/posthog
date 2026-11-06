@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import type { LegendItem } from '../components/Legend/Legend'
+import type { LegendItem, LegendTableConfig } from '../components/Legend/Legend'
 import type { LegendItemControls } from '../components/Legend/useChartLegend'
 import type { DefaultTooltipProps } from '../overlays/DefaultTooltip'
 
@@ -381,6 +381,9 @@ export interface ChartLegendConfig {
      *  while keeping the default swatch/label/toggle rendering. Return `defaultNode` to leave a row
      *  untouched. */
     renderItem?: (defaultNode: ReactNode, item: LegendItem, controls: LegendItemControls) => ReactNode
+    /** Renders the legend as a table with one column per summary (`{ values: ['mean', 'max', 'last'] }`).
+     *  Rows still isolate and toggle on click, and a header click sorts by that column. */
+    table?: LegendTableConfig
 }
 
 export interface TooltipConfig extends Pick<DefaultTooltipProps, 'labelRenderer' | 'showHeader' | 'hideZeroRows'> {

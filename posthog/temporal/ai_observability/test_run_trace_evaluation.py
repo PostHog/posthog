@@ -20,7 +20,7 @@ from posthog.api.capture import CaptureInternalError
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
-from posthog.models import Organization, PropertyDefinition, Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
@@ -36,6 +36,7 @@ from products.ai_observability.backend.models.evaluation_config import Evaluatio
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.cdp.backend.validation import compile_hog
+from products.event_definitions.backend.models import PropertyDefinition
 
 from .eval_reports.report_agent.tools import _execute_hogql, get_trace_detail
 from .evaluation_hog import execute_hog_eval_bytecode
