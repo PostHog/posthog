@@ -222,11 +222,24 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(data["installation_status"], "unavailable")
         self.assertEqual(data["repositories"], [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}])
 
-    @parameterized.expand([("GET", "repos/"), ("POST", "repos/refresh/")])
+    @parameterized.expand(
+        [
+            ("GET", "repos/", False),
+            ("GET", "repos/", True),
+            ("POST", "repos/refresh/", False),
+            ("POST", "repos/refresh/", True),
+        ]
+    )
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.sync_repository_cache")
-    def test_github_repos_ask_to_reconnect_when_the_user_token_is_unusable(self, method, path, mock_sync):
+    def test_github_repos_ask_to_reconnect_when_the_user_token_is_unusable(
+        self, method, path, has_stale_snapshot, mock_sync
+    ):
         mock_sync.side_effect = ReauthorizationRequired("GitHub rejected the stored user token.")
-        _create_user_integration(self.user)
+        integration = _create_user_integration(self.user)
+        if has_stale_snapshot:
+            integration.repository_cache = [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}]
+            integration.repository_cache_updated_at = timezone.now() - timedelta(days=1)
+            integration.save()
 
         response = self.client.generic(method, f"/api/users/@me/integrations/github/12345/{path}")
 

@@ -237,6 +237,10 @@ class GitHubIntegrationError(Exception):
         self.status_code = status_code
 
 
+class ReauthorizationRequired(Exception):
+    """The stored GitHub tokens cannot produce a usable access token; user must re-authorize."""
+
+
 def _jsonb_merge(column: str, patch: dict[str, Any]) -> Func:
     """Postgres ``column || patch``: a top-level key merge performed by the database.
 
@@ -3018,6 +3022,8 @@ class GitHubIntegrationBase:
         if should_refresh:
             try:
                 cached_repositories = self.sync_repository_cache()
+            except ReauthorizationRequired:
+                raise
             except Exception:
                 logger.warning(
                     "GitHubIntegration: failed to refresh repository cache",

@@ -16,6 +16,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import (
     GitHubIntegrationBase,
     GitHubIntegrationError,
+    ReauthorizationRequired,
     github_app_oauth_credentials,
 )
 from posthog.models.integration import github_account_type, invalidate_github_repository_caches_for_installation
@@ -44,6 +45,7 @@ NEEDS_REAUTHORIZATION_Q = models.Q(config__has_key=NEEDS_REAUTHORIZATION_AT_CONF
 USER_SCOPED_ACCESS_TOKEN_CACHE_TTL_SECONDS = 10 * 60
 MAX_SCOPED_TOKEN_REPOSITORIES = 500
 _USER_REPOSITORIES_PAGE_SIZE = 100
+_TRANSIENT_STATUS_CODES = {502, 503, 504}
 
 
 def user_integration_kind_choices() -> list[tuple[str, str | Promise]]:
@@ -178,10 +180,6 @@ class GitHubInstallRequest(UUIDModel):
         indexes = [
             models.Index(fields=["github_user_id", "status"], name="github_install_req_ghuser_idx"),
         ]
-
-
-class ReauthorizationRequired(Exception):
-    """The stored GitHub tokens cannot produce a usable access token; user must re-authorize."""
 
 
 class UserGitHubIntegration(GitHubIntegrationBase):
@@ -388,11 +386,32 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         return f"github_user_integration:scoped_access_token:{self.integration.id}:{credential_version}"
 
     def get_access_token(self) -> str:
-        cached = cache.get(self._scoped_access_token_cache_key())
-        if isinstance(cached, str) and cached:
-            return cached
+        return self._scoped_access()[0]
 
-        listing = self._user_installation_repositories(self.get_usable_user_access_token())
+    def user_can_open_repository(self, repository: str) -> bool:
+        repositories = self._scoped_access()[1]
+        if repositories is None:
+            return True
+        name = repository.rsplit("/", 1)[-1].casefold()
+        return any(name == allowed.casefold() for allowed in repositories)
+
+    def list_cached_branches(
+        self, repo: str, *, search: str = "", limit: int = 100, offset: int = 0
+    ) -> tuple[list[str], str | None, bool]:
+        if not self.user_can_open_repository(repo):
+            return [], None, False
+        return super().list_cached_branches(repo, search=search, limit=limit, offset=offset)
+
+    def refresh_access_token(self) -> None:
+        super().refresh_access_token()
+        cache.delete(self._scoped_access_token_cache_key())
+
+    def _scoped_access(self) -> tuple[str, list[str] | None]:
+        cached = cache.get(self._scoped_access_token_cache_key())
+        if isinstance(cached, dict) and isinstance(cached.get("token"), str) and cached["token"]:
+            return cached["token"], cached.get("repositories")
+
+        listing = self._user_installation_repositories(self._unexpired_user_access_token())
         if listing is None:
             self.refresh_user_access_token()
             listing = self._user_installation_repositories(self.get_usable_user_access_token())
@@ -400,35 +419,66 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             self._mark_needs_reauthorization("user token rejected by GitHub")
             raise ReauthorizationRequired("GitHub rejected the stored user token.")
 
-        repositories, total_count = listing
+        names, total_count = listing
+        repositories: list[str] | None
         if total_count == 0:
             raise GitHubIntegrationError("The GitHub user cannot access any repository in this installation.")
         if total_count > MAX_SCOPED_TOKEN_REPOSITORIES:
             token = self._installation_token_if_user_sees_every_repository(total_count)
+            repositories = None
         else:
-            token = self.mint_scoped_installation_token(None, repositories=repositories)
-        cache.set(self._scoped_access_token_cache_key(), token, timeout=USER_SCOPED_ACCESS_TOKEN_CACHE_TTL_SECONDS)
-        return token
+            token = self.mint_scoped_installation_token(None, repositories=names)
+            repositories = names
+        cache.set(
+            self._scoped_access_token_cache_key(),
+            {"token": token, "repositories": repositories},
+            timeout=USER_SCOPED_ACCESS_TOKEN_CACHE_TTL_SECONDS,
+        )
+        return token, repositories
 
-    def refresh_access_token(self) -> None:
-        super().refresh_access_token()
-        cache.delete(self._scoped_access_token_cache_key())
+    def _unexpired_user_access_token(self) -> str:
+        token = self.user_access_token
+        expires_at = (self.integration.config or {}).get("user_access_token_expires_at")
+        if token and not self.user_refresh_token_expired() and (not expires_at or time.time() < expires_at):
+            return token
+        return self.get_usable_user_access_token()
+
+    def _github_get(
+        self, url: str, *, token: str, endpoint: str, params: dict[str, int], installation_id: str | None = None
+    ) -> requests.Response:
+        for attempt in range(2):
+            try:
+                response = github_request(
+                    "GET",
+                    url,
+                    source=self.source,
+                    headers={"Authorization": f"Bearer {token}"},
+                    installation_id=installation_id,
+                    endpoint=endpoint,
+                    params=params,
+                    timeout=10,
+                    priority=self.priority,
+                )
+            except requests.RequestException as exc:
+                if attempt == 0:
+                    continue
+                raise GitHubIntegrationError(f"Network error on {endpoint}") from exc
+            raise_if_github_rate_limited(response)
+            if response.status_code in _TRANSIENT_STATUS_CODES and attempt == 0:
+                continue
+            return response
+        raise GitHubIntegrationError(f"Retries exhausted on {endpoint}")
 
     def _user_installation_repositories(self, user_access_token: str) -> tuple[list[str], int] | None:
         names: list[str] = []
         total_count = 0
         for page in range(1, MAX_SCOPED_TOKEN_REPOSITORIES // _USER_REPOSITORIES_PAGE_SIZE + 2):
-            response = github_request(
-                "GET",
+            response = self._github_get(
                 f"https://api.github.com/user/installations/{self.github_installation_id}/repositories",
-                source=self.source,
-                headers={"Authorization": f"Bearer {user_access_token}"},
+                token=user_access_token,
                 endpoint="/user/installations/{installation_id}/repositories",
                 params={"per_page": _USER_REPOSITORIES_PAGE_SIZE, "page": page},
-                timeout=10,
-                priority=self.priority,
             )
-            raise_if_github_rate_limited(response)
             if response.status_code == 401:
                 return None
             if response.status_code != 200:
@@ -448,18 +498,13 @@ class UserGitHubIntegration(GitHubIntegrationBase):
 
     def _installation_token_if_user_sees_every_repository(self, user_repository_count: int) -> str:
         token = super().get_access_token()
-        response = github_request(
-            "GET",
+        response = self._github_get(
             "https://api.github.com/installation/repositories",
-            source=self.source,
-            headers={"Authorization": f"Bearer {token}"},
+            token=token,
             installation_id=self.github_installation_id,
             endpoint="/installation/repositories",
             params={"per_page": 1},
-            timeout=10,
-            priority=self.priority,
         )
-        raise_if_github_rate_limited(response)
         if response.status_code != 200:
             raise GitHubIntegrationError(
                 f"Failed to count the installation repositories: HTTP {response.status_code}",
