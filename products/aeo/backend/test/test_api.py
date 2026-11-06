@@ -812,14 +812,14 @@ class TestAEOPromptAPI(APIBaseTest):
             "exa-answer",
             minutes_ago=day,
             answer_text="Example works well.",
-            cited_urls=["https://www.reddit.com/r/a", "https://blog.rival.io/y"],
+            cited_urls=["https://www.reddit.com/r/a", "https://blog.rival.io/y", "https://www.example.com/pricing"],
         )
         self._record_check(
             ids["funnels?"],
             "openai-web-search",
             minutes_ago=2 * day,
             answer_text="Nothing to see.",
-            cited_urls=["https://acme.co.uk/z"],
+            cited_urls=["https://acme.co.uk/z", "https://example.de/q", "https://[bad/x"],
         )
         self._record_check(
             ids["funnels?"], "openai-web-search", minutes_ago=10, check_failed=True, cited_urls=["https://rival.io/x"]
@@ -856,16 +856,19 @@ class TestAEOPromptAPI(APIBaseTest):
             (row["domain"], row["answers"], row["urls"], row["is_target"], row["is_competitor"])
             for row in rankings["top_domains"]
         ] == [
+            ("example.com", 2, 2, True, False),
             ("rival.io", 2, 2, False, True),
             ("acme.co.uk", 1, 1, False, True),
-            ("example.com", 1, 1, True, False),
+            ("example.de", 1, 1, False, False),
             ("reddit.com", 1, 1, False, False),
         ]
         assert {row["url"]: row["is_target"] for row in rankings["top_pages"]} == {
             "https://acme.co.uk/z": False,
             "https://blog.rival.io/y": False,
             "https://docs.example.com/a": True,
+            "https://example.de/q": False,
             "https://rival.io/x": False,
+            "https://www.example.com/pricing": True,
             "https://www.reddit.com/r/a": False,
         }
 

@@ -10,6 +10,7 @@ import re
 import datetime as dt
 from collections import Counter, defaultdict
 from collections.abc import Iterable
+from functools import lru_cache
 from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -23,7 +24,6 @@ import tldextract
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.aeo.backend.brand import brand_names, brand_regex
-from products.aeo.backend.engines import is_target_host
 from products.aeo.backend.facade.contracts import (
     PromptSetRankings,
     RankedBrand,
@@ -46,19 +46,18 @@ NON_BRAND_NAMES = frozenset(
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 
 # One row per brand and day: answered checks that day, and how many of them named the brand. An
-# answer names a brand when its text has the brand's name as a word, or it cites the brand's domain;
-# for the project's own brand any cited answer counts, the same rule as the mention rate.
+# answer names a brand when its text has the brand's name as a word, or it cites a host on the brand's
+# registrable domain; for the project's own brand any cited answer also counts, as in the mention rate.
 _BRAND_DAYS_SQL = """
     SELECT brand.domain, (check_row.created_at AT TIME ZONE %s)::date AS day, count(*),
         count(*) FILTER (
             WHERE check_row.answer_text ~* brand.pattern
                 OR (brand.is_target AND check_row.cited)
                 OR (
-                    NOT brand.is_target
-                    AND jsonb_typeof(check_row.top_cited_domains) = 'array'
+                    jsonb_typeof(check_row.top_cited_domains) = 'array'
                     AND EXISTS (
                         SELECT 1 FROM jsonb_array_elements_text(check_row.top_cited_domains) AS host
-                        WHERE host = brand.domain OR host LIKE '%%.' || brand.domain
+                        WHERE host = brand.domain OR right(host, length(brand.domain) + 1) = '.' || brand.domain
                     )
                 )
         )
@@ -69,6 +68,7 @@ _BRAND_DAYS_SQL = """
 """
 
 
+@lru_cache(maxsize=4096)
 def registrable_domain(host: str) -> str:
     parts = _DOMAIN_PARTS(host)
     return parts.top_domain_under_public_suffix or host
@@ -87,7 +87,7 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
 
     # A target like docs.example.com stands for the whole example.com brand.
     targets = {registrable_domain(domain.lower()) for domain in target_domains}
-    competitors = citations.competitors(targets)
+    competitors = citations.competitors(targets, brand_names(target_domains))
     target_domain = registrable_domain(target_domains[0].lower()) if target_domains else None
     brands = ([(target_domain, brand_regex(target_domains), True)] if target_domain else []) + [
         (domain, rf"\m{re.escape(_brand_name(domain))}\M", False) for domain in competitors
@@ -139,7 +139,7 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
                 url=url,
                 answers=count,
                 share_of_answers=count / answers,
-                is_target=is_target_host(urlparse(url).hostname or "", target_domains),
+                is_target=citations.page_domains[url] in targets,
             )
             for url, count in _ranked(citations.pages, MAX_RANKED_PAGES)
         ),
@@ -154,6 +154,7 @@ class _Citations:
         self.pages: Counter[str] = Counter()
         self.domains: Counter[str] = Counter()
         self.domain_urls: defaultdict[str, set[str]] = defaultdict(set)
+        self.page_domains: dict[str, str] = {}
 
     @classmethod
     def from_checks(cls, cited_urls_per_check: Iterable[Any]) -> _Citations:
@@ -164,10 +165,10 @@ class _Citations:
 
     def add(self, cited_urls: list[object]) -> None:
         self.answers += 1
-        urls = {url for url in cited_urls if isinstance(url, str) and url}
-        self.pages.update(urls)
         domains: set[str] = set()
-        for url in urls:
+        pages: set[str] = set()
+        for url in {url for url in cited_urls if isinstance(url, str) and url}:
+            # Engines return the URLs, and one that doesn't parse would break every later read of it.
             try:
                 host = (urlparse(url).hostname or "").lower()
             except ValueError:
@@ -175,15 +176,20 @@ class _Citations:
             if host:
                 domain = registrable_domain(host)
                 domains.add(domain)
+                pages.add(url)
                 self.domain_urls[domain].add(url)
+                self.page_domains[url] = domain
+        self.pages.update(pages)
         self.domains.update(domains)
 
-    def competitors(self, targets: set[str]) -> list[str]:
+    def competitors(self, targets: set[str], target_names: tuple[str, ...]) -> list[str]:
+        # The project's own brand on another domain (example.de for example.com) is not a competitor.
+        excluded = NON_BRAND_NAMES | set(target_names)
         competitors: list[str] = []
         for domain, _ in _ranked(self.domains, len(self.domains)):
             if len(competitors) == MAX_RANKED_COMPETITORS:
                 break
-            if domain not in targets and _brand_name(domain) not in NON_BRAND_NAMES:
+            if domain not in targets and _brand_name(domain) not in excluded:
                 competitors.append(domain)
         return competitors
 

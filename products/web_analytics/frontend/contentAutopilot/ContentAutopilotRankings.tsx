@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBanner, LemonCard, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
@@ -17,6 +17,7 @@ import type {
     AEORankedPageApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { RANKINGS_DAYS, contentAutopilotRankingsLogic } from './contentAutopilotRankingsLogic'
 import { visibilityChange } from './rankingsReport'
@@ -61,6 +62,7 @@ const VisibilityChart = (): JSX.Element | null => {
 export const ContentAutopilotRankings = (): JSX.Element => {
     const { rankings, rankingsLoading, rankingsError } = useValues(contentAutopilotRankingsLogic)
     const { loadRankings } = useActions(contentAutopilotRankingsLogic)
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
 
     if (rankingsError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -82,7 +84,18 @@ export const ContentAutopilotRankings = (): JSX.Element => {
         return (
             <LemonCard hoverEffect={false} className="p-4" data-attr="content-autopilot-rankings-empty">
                 <h4 className="m-0">No answers yet</h4>
-                <p className="m-0 mt-1 text-muted">The daily run fills this in.</p>
+                <p className="m-0 mt-1 text-muted">
+                    Rankings compare the answers to your prompts. Once you track prompts, the daily run fills this in.
+                </p>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    className="mt-3"
+                    onClick={() => setWorkspaceTab('prompts')}
+                    data-attr="content-autopilot-rankings-empty-prompts"
+                >
+                    Go to prompts
+                </LemonButton>
             </LemonCard>
         )
     }
@@ -93,7 +106,8 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                 <h4 className="m-0">Last {RANKINGS_DAYS} days, all engines</h4>
                 <p className="m-0 text-xs text-muted">
                     Visibility is the share of {pluralize(rankings.answers, 'answer')} that name a brand or cite its
-                    site. Competitors are the brands behind the sites the engines cite most.
+                    site. Competitors are the brands behind the sites the engines cite most, matched by the name in
+                    their domain, so a name that is also a common word can count extra answers.
                 </p>
             </div>
             <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 gap-4">
@@ -145,7 +159,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     title: 'Change',
                                     key: 'previous_visibility',
                                     align: 'right',
-                                    tooltip: `Percentage points against the ${RANKINGS_DAYS} days before.`,
+                                    tooltip: `Compared with the ${RANKINGS_DAYS} days before, in percentage points.`,
                                     render: (_, brand) => {
                                         const change = visibilityChange(brand.visibility, brand.previous_visibility)
                                         if (change === null) {
@@ -163,7 +177,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     },
                                 },
                                 {
-                                    title: 'Positive',
+                                    title: 'Positive sentiment',
                                     key: 'positive_share',
                                     align: 'right',
                                     tooltip:
@@ -212,6 +226,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     title: 'Pages',
                                     key: 'urls',
                                     align: 'right',
+                                    tooltip: 'Different pages on the site that answers cited.',
                                     render: (_, domain) => <span className="tabular-nums">{domain.urls}</span>,
                                 },
                             ]}
@@ -231,8 +246,8 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     title: 'Page',
                                     key: 'url',
                                     render: (_, page) => (
-                                        <span className="flex items-center gap-2 min-w-0">
-                                            <Link to={page.url} target="_blank" className="truncate">
+                                        <span className="flex items-center gap-2 min-w-0 max-w-120">
+                                            <Link to={page.url} target="_blank" className="truncate" title={page.url}>
                                                 {page.url.replace(/^https?:\/\//, '')}
                                             </Link>
                                             <SiteTag isTarget={page.is_target} isCompetitor={false} />

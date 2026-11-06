@@ -509,9 +509,13 @@ class AEORankedBrandSerializer(DataclassSerializer):
         ref_name = "AEORankedBrand"
         extra_kwargs = {
             "domain": {"help_text": "Registrable domain of the brand, for example 'example.com'."},
-            "name": {"help_text": "The word an answer must contain to count as naming the brand."},
+            "name": {
+                "help_text": "The word an answer must contain to count as naming the brand. For the project's own brand, a comma-separated list where any name counts."
+            },
             "is_target": {"help_text": "Whether this is the project's own brand. The others are competitors."},
-            "answers_mentioning": {"help_text": "Answered checks in the current window that named the brand."},
+            "answers_mentioning": {
+                "help_text": "Answered checks in the current window that named the brand or cited its domain: the numerator of 'visibility'."
+            },
             "visibility": {
                 "help_text": "Share (0-1) of answered checks in the current window that named the brand or cited its domain. Null without answers."
             },
@@ -530,7 +534,7 @@ class AEORankedBrandDaySerializer(DataclassSerializer):
             "date": {"help_text": "Day, in the project's timezone."},
             "domain": {"help_text": "The brand's registrable domain, matching a row in 'brands'."},
             "answers": {"help_text": "Answered checks that day."},
-            "visibility": {"help_text": "Share (0-1) of that day's answers that named the brand."},
+            "visibility": {"help_text": "Share (0-1) of that day's answers that named the brand or cited its domain."},
         }
 
 
@@ -563,7 +567,7 @@ class AEORankedPageSerializer(DataclassSerializer):
 class AEOPromptSetRankingsSerializer(DataclassSerializer):
     brands = AEORankedBrandSerializer(
         many=True,
-        help_text=f"The project's brand and up to {MAX_RANKED_COMPETITORS} competitors, most visible first. Competitors are the brands behind the domains the engines cite most, leaving out review sites, forums and social networks.",
+        help_text=f"The project's brand and up to {MAX_RANKED_COMPETITORS} competitors, most visible first. Competitors are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks. A competitor counts as named when its domain's name appears as a word, so a common-word name can over-count.",
     )
     daily = AEORankedBrandDaySerializer(
         many=True, help_text="Visibility per brand and day in the current window, ordered by day then domain."
@@ -820,6 +824,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "stats",
         "versions",
         "overview",
+        "rankings",
         "suggestion",
     ]
     # suggest saves nothing, but it spends model credits, so it needs write access.
