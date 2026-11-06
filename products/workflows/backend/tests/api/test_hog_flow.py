@@ -3609,6 +3609,18 @@ class TestHogFlowAPI(APIBaseTest):
                 },
                 ["https://hooks.example.com", "http://[::1]:8080"],
             ),
+            (
+                "reply_origins_hold_stored_secrets",
+                True,
+                False,
+                {
+                    "request_origins": [
+                        "https://STORED-SECRET.one.example.com",
+                        "https://xoxb-fake-workspace-token.two.example.com",
+                    ]
+                },
+                ["https://***REDACTED***.one.example.com", "https://***REDACTED***.two.example.com"],
+            ),
         ]
     )
     def test_test_invocation_with_real_requests_is_logged_without_input_values(
@@ -3619,7 +3631,13 @@ class TestHogFlowAPI(APIBaseTest):
         reply: Optional[dict[str, Any]],
         expected_origins: Optional[list[str]],
     ):
-        workspace = Integration.objects.create(team=self.team, kind="slack", config={}, created_by=self.user)
+        workspace = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={},
+            sensitive_config={"access_token": "xoxb-fake-workspace-token"},
+            created_by=self.user,
+        )
         hog_flow, _ = self._create_hog_flow_with_action(
             {
                 "template_id": "template-slack",

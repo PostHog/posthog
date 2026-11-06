@@ -120,5 +120,7 @@ def log_workflow_test_run(
     )
 
 
-def record_workflow_test_run_origins(row: Optional[ActivityLog], response: requests.Response) -> None:
-    record_test_run_request_origins(row, response)
+def record_workflow_test_run_origins(
+    row: Optional[ActivityLog], response: requests.Response, *, secret_inputs: Any = None
+) -> None:
+    record_test_run_request_origins(row, response, secret_inputs=secret_inputs)

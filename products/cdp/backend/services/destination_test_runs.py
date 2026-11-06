@@ -8,7 +8,7 @@ secrets, and the test resolves secret inputs to plaintext before it runs.
 
 import re
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 from urllib.parse import urlsplit
 
 import requests
@@ -18,7 +18,13 @@ from prometheus_client import Counter
 from posthog.hogql.parser import parse_string_template
 
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, update_activity_context
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    ActivityLog,
+    Detail,
+    update_activity_context,
+)
+from posthog.models.integration import Integration
 
 from products.cdp.backend.validation import collect_inputs
 
@@ -35,6 +41,9 @@ TEST_RUN_REQUEST_ORIGINS_MISSING = Counter(
 
 _MAX_REQUEST_ORIGINS = 100
 _DEFAULT_PORTS = {"http": 80, "https": 443}
+_REDACTED = "***REDACTED***"
+# A shorter value matches ordinary host fragments, so it would hide where requests went, and is no credential.
+_MIN_SECRET_LENGTH = 8
 
 _CONTEXT_FIELDS = ("hog", "inputs", "inputs_schema", "mappings")
 # The worker runs these templates with their own executors, which send real requests even when the test mocks.
@@ -179,8 +188,55 @@ def _as_origin(value: str) -> Optional[str]:
     return f"{scheme}://{host}:{port}"
 
 
-def record_test_run_request_origins(row: Optional[ActivityLog], response: requests.Response) -> None:
-    """Add the origins the worker reports for a test run to the run's `tested` row."""
+def _string_values(value: Any) -> Iterable[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _string_values(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _string_values(item)
+
+
+def _host_forms(secret: str) -> set[str]:
+    # A URL parser lowercases a host and writes a non-ASCII host in punycode, so a secret in a host
+    # reaches the origin in those forms.
+    forms = {secret.lower()}
+    try:
+        forms.add(secret.encode("idna").decode("ascii").lower())
+    except UnicodeError:
+        pass
+    return {form for form in forms if len(form) >= _MIN_SECRET_LENGTH}
+
+
+def redact_secrets_in_origins(origins: list[str], secrets: Iterable[str]) -> list[str]:
+    forms = set().union(*(_host_forms(secret) for secret in secrets))
+    if not forms:
+        return origins
+    # One pass, longest first, so a secret inside a longer one cannot leave part of the longer one behind.
+    pattern = re.compile("|".join(re.escape(form) for form in sorted(forms, key=len, reverse=True)), re.IGNORECASE)
+    return [pattern.sub(_REDACTED, origin) for origin in origins]
+
+
+def _stored_secrets(row: ActivityLog, secret_inputs: Any) -> list[str]:
+    # Only stored secrets are redacted. A secret the caller submits with the test is under the caller's
+    # control, so redacting it would let the caller hide the host they sent requests to.
+    context = cast(Detail, row.detail).context
+    integration_ids = getattr(context, "integration_ids", None) or []
+    configs = Integration.objects.filter(team_id=row.team_id, id__in=integration_ids).values_list(
+        "sensitive_config", flat=True
+    )
+    return [*_string_values(secret_inputs), *_string_values(list(configs))]
+
+
+def record_test_run_request_origins(
+    row: Optional[ActivityLog], response: requests.Response, *, secret_inputs: Any = None
+) -> None:
+    """Add the origins the worker reports for a test run to the run's `tested` row.
+
+    `secret_inputs` holds the stored secret inputs of the tested function or flow, in any nesting.
+    """
     if row is None:
         return
     try:
@@ -202,4 +258,5 @@ def record_test_run_request_origins(row: Optional[ActivityLog], response: reques
         return
     # The worker already sends origins. Normalizing again keeps that guarantee in the audit row itself.
     normalized = [origin for origin in (_as_origin(value) for value in origins) if origin is not None]
-    update_activity_context(row, request_origins=list(dict.fromkeys(normalized))[:_MAX_REQUEST_ORIGINS])
+    redacted = redact_secrets_in_origins(normalized, _stored_secrets(row, secret_inputs))
+    update_activity_context(row, request_origins=list(dict.fromkeys(redacted))[:_MAX_REQUEST_ORIGINS])

@@ -1,6 +1,8 @@
 from django.test import SimpleTestCase
 
-from products.cdp.backend.services.destination_test_runs import destination_test_run_context
+from parameterized import parameterized
+
+from products.cdp.backend.services.destination_test_runs import destination_test_run_context, redact_secrets_in_origins
 
 
 class TestDestinationTestRunContext(SimpleTestCase):
@@ -20,3 +22,25 @@ class TestDestinationTestRunContext(SimpleTestCase):
         context = destination_test_run_context(configuration, stored=None, mock_async_functions=False)
 
         assert context.integration_ids == [9]
+
+    @parameterized.expand(
+        [
+            (
+                "secret_in_another_case",
+                "Fake-Host-Secret",
+                "https://fake-host-secret.example.com",
+                "https://***REDACTED***.example.com",
+            ),
+            (
+                "non_ascii_secret_in_punycode",
+                "bücher-geheimnis",
+                "https://xn--bcher-geheimnis-zvb.example.com",
+                "https://***REDACTED***.example.com",
+            ),
+            ("secret_too_short_to_be_a_credential", "eu", "https://eu.example.com", "https://eu.example.com"),
+        ]
+    )
+    def test_redacts_a_stored_secret_in_the_form_a_url_parser_writes_the_host(
+        self, _name: str, secret: str, origin: str, expected: str
+    ) -> None:
+        assert redact_secrets_in_origins([origin], [secret]) == [expected]

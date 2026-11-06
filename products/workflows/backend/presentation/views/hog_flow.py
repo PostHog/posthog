@@ -6664,7 +6664,11 @@ class HogFlowViewSet(
             hog_flow_id=str(hog_flow.id) if hog_flow else "new",
             payload=payload,
         )
-        record_workflow_test_run_origins(test_run_row, res)
+        record_workflow_test_run_origins(
+            test_run_row,
+            res,
+            secret_inputs=[hog_flow.encrypted_inputs, hog_flow.draft_encrypted_inputs] if hog_flow else None,
+        )
 
         if res.status_code != 200:
             return Response({"status": "error", "message": res.json()["error"]}, status=res.status_code)

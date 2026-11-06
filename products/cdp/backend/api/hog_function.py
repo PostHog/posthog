@@ -1481,7 +1481,13 @@ class HogFunctionViewSet(
             hog_function_id=str(hog_function.id) if hog_function else "new",
             payload=serializer.validated_data,
         )
-        record_test_run_request_origins(test_run_row, res)
+        record_test_run_request_origins(
+            test_run_row,
+            res,
+            secret_inputs=[hog_function.encrypted_inputs, hog_function.draft_encrypted_inputs]
+            if hog_function
+            else None,
+        )
 
         if res.status_code != 200:
             # The worker's own message is the only description of the failure. Dropping it leaves the
