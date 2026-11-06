@@ -2713,8 +2713,17 @@ class TestSignalReportListAPI(APIBaseTest):
         }
         assert "checkout" not in {str(value).lower() for value in attributes.values()}
 
-    @parameterized.expand([("plain", {}), ("search", {"search": "checkout"})])
-    def test_page_sort_selects_ids_without_joining_one_to_one_rows(self, _name: str, params: dict[str, str]) -> None:
+    @parameterized.expand(
+        [
+            # name, params, sorts_on_the_bare_column
+            ("plain", {}, True),
+            ("search", {"search": "checkout"}, False),
+            ("search_too_short_for_trigrams", {"search": "ch"}, True),
+        ]
+    )
+    def test_page_sort_selects_ids_without_joining_one_to_one_rows(
+        self, _name: str, params: dict[str, str], sorts_on_the_bare_column: bool
+    ) -> None:
         for i in range(3):
             self._create_report(title=f"Checkout failure {i}")
 
@@ -2729,6 +2738,7 @@ class TestSignalReportListAPI(APIBaseTest):
         assert len(sort_queries) == 1
         assert "signals_signalreporttrackerissue" not in sort_queries[0]
         assert "signals_signalreportrefund" not in sort_queries[0]
+        assert ('ORDER BY "signals_signalreport"."created_at" DESC' in sort_queries[0]) == sorts_on_the_bare_column
 
     def test_filter_actionability_absent_returns_all(self):
         a = self._create_report(title="A")

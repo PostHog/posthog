@@ -17,7 +17,9 @@ from django.db.models import (
     BooleanField,
     Case,
     Count,
+    DateTimeField,
     Exists,
+    ExpressionWrapper,
     F,
     FloatField,
     Func,
@@ -1839,6 +1841,7 @@ class SignalReportViewSet(
         "ranking_fixed": "inbox_ranking_fix_score",
     }
     _RANKING_ORDERING_HEADS: dict[str, str] = RANKING_ORDERING_HEADS
+    _INDEXED_TIME_ORDERINGS = frozenset({"updated_at", "created_at"})
 
     @extend_schema(
         responses={200: RankingOutcomesResponseSerializer},
@@ -2889,9 +2892,19 @@ class SignalReportViewSet(
                 )
             )
             order_by.append(F("personal_rank").asc(nulls_last=True))
+        search = self.request.query_params.get("search")
+        hide_time_indexes = bool(search) and bool(TRIGRAM_INDEXABLE_TEXT.search(search))
         for clause in clauses:
             name = clause.lstrip("-")
-            if name in ranking_annotations:
+            if hide_time_indexes and name in self._INDEXED_TIME_ORDERINGS:
+                # The (team, updated_at) and (team, created_at) btree indexes give rows in this order, so
+                # with a LIMIT the planner walks one of them and rechecks the search text on each row
+                # until the page fills. A term with few matches in the team reads every report that way. Adding a
+                # zero interval keeps the order but no index serves it, so Postgres reads the matches
+                # from the trigram indexes and sorts only them.
+                shifted = ExpressionWrapper(F(name) + Value(timedelta(0)), output_field=DateTimeField())
+                order_by.append(shifted.desc() if clause.startswith("-") else shifted.asc())
+            elif name in ranking_annotations:
                 # Unscored reports sort after every scored report, in both directions.
                 order_by.append(
                     F(name).desc(nulls_last=True) if clause.startswith("-") else F(name).asc(nulls_last=True)
