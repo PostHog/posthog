@@ -55,6 +55,13 @@ def is_sandbox_sender_domain(domain: str) -> bool:
     return bool(sandbox_domain) and (domain == sandbox_domain or domain.endswith(f".{sandbox_domain}"))
 
 
+def sandbox_sender_configured() -> bool:
+    # The domain guard only covers WORKFLOWS_SANDBOX_SENDER_DOMAIN, so a from address elsewhere would
+    # send from a domain that teams can still claim as their own sender.
+    from_domain = settings.SES_SANDBOX_FROM_ADDRESS.rpartition("@")[2]
+    return bool(settings.SES_SANDBOX_TENANT_NAME) and is_sandbox_sender_domain(from_domain)
+
+
 class EmailIntegration:
     integration: model.Integration
 
