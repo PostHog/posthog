@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { ExternalLink } from 'lucide-react'
 import posthog from 'posthog-js'
-import type { ReactNode } from 'react'
+import { type ReactNode, useMemo } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
@@ -22,7 +22,6 @@ const EVIDENCE_CHARTS: StoryEvidenceCharts = {
     canShow: (item) => !!item.chart || !!item.queryTool,
     prefetch: () => {},
     render: (item) => <ExplainChartEvidenceChart item={item} />,
-    onShow: () => posthog.capture('explain chart evidence chart shown'),
 }
 
 export interface InsightExplainChartProps {
@@ -40,9 +39,17 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
         storyVisible,
         storyOutdated,
         storySeriesKey,
+        storyEventProperties,
         formatValue,
     } = useValues(explainChartLogic(insightProps))
     const { askFollowUp } = useActions(explainChartLogic(insightProps))
+    const evidenceCharts = useMemo<StoryEvidenceCharts>(
+        () => ({
+            ...EVIDENCE_CHARTS,
+            onShow: () => posthog.capture('explain chart evidence chart shown', storyEventProperties),
+        }),
+        [storyEventProperties]
+    )
 
     if (storyAvailable && storyShown && storyOutdated) {
         return (
@@ -76,7 +83,7 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
                         </>
                     }
                     formatValue={formatValue}
-                    evidenceCharts={EVIDENCE_CHARTS}
+                    evidenceCharts={evidenceCharts}
                     seriesKey={storySeriesKey ?? undefined}
                     chapterAction={
                         explainAvailable
@@ -89,6 +96,7 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
                             from_page_index: fromIndex,
                             page_count: story.chapters.length + 1,
                             source,
+                            ...storyEventProperties,
                         })
                     }
                 />
