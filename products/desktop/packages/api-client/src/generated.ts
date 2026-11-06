@@ -18828,11 +18828,7 @@ export namespace Endpoints {
                 name: string;
                 offset: number;
                 optimization_enabled: boolean;
-                origin_product:
-                    | "broadcasts"
-                    | "loops"
-                    | "transactional_email_keys"
-                    | "transactional_emails";
+                origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
                 source_record: string;
                 status: "active" | "archived" | "draft";
