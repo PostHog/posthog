@@ -1,5 +1,7 @@
 from contextlib import AbstractContextManager
 from datetime import timedelta
+from decimal import Decimal
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
@@ -12,10 +14,11 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig
+from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalSpend
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy
+from products.signals.backend.usage import trial_usage
 from products.skills.backend.models.skills import LLMSkill
 
 
@@ -29,6 +32,40 @@ class TestTrialAPI(APIBaseTest):
         self.flag = patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True)
         self.flag_mock = self.flag.start()
         self.addCleanup(self.flag.stop)
+        self.grant_task = patch("products.signals.backend.trial.service.report_signals_trial_grant.delay")
+        self.enqueue_grant = self.grant_task.start()
+        self.addCleanup(self.grant_task.stop)
+
+    @parameterized.expand(
+        [
+            ("running_below_allowance", "950", True, TrialContinuation.LIMIT, False),
+            ("running_at_allowance", "1000", False, TrialContinuation.LIMIT, True),
+            ("paid_continuation", "1000", True, TrialContinuation.PAID, False),
+        ]
+    )
+    def test_status_uses_known_running_costs_and_shared_limits(
+        self, _name: str, spend: str, failed: bool, continuation: TrialContinuation, paused: bool
+    ) -> None:
+        grant = TrialPolicy(self.team).claim(user_id=self.user.pk)
+        SignalSpend.objects.for_team(self.team.pk).create(
+            team=self.team,
+            kind=SignalSpend.Kind.AD_HOC,
+            signal_id=uuid4(),
+            trial_grant=grant,
+            spend=Decimal(spend),
+            accounting_failed=failed,
+        )
+        with (
+            patch(
+                "products.signals.backend.trial.billing.TrialBilling.status",
+                return_value=TrialBillingStatus(ready=True, continuation=continuation),
+            ),
+            patch("products.signals.backend.trial.billing.is_team_limited", return_value=False),
+        ):
+            response = self.client.get(self.url)
+        assert response.status_code == 200, response.content
+        assert response.json()["used_microusd"] == int(Decimal(spend) * 10_000)
+        assert response.json()["new_work_paused"] == paused
 
     @parameterized.expand(
         [
@@ -171,12 +208,22 @@ class TestTrialAPI(APIBaseTest):
                 "products.signals.backend.views.SignalSourceConfigViewSet._trigger_error_tracking_backfill",
                 side_effect=assert_enrolled,
             ),
+            self.captureOnCommitCallbacks(execute=True),
         ):
             response = (self.client.patch if existing else self.client.post)(url, data, format="json")
+            self.enqueue_grant.assert_not_called()
         assert response.status_code == (200 if existing else 201), response.content
         grant = SignalTrialGrant.objects.for_team(self.team.pk).get()
+        self.enqueue_grant.assert_called_once_with(str(grant.id))
         assert grant.claimed_by_id == self.user.pk
-        SignalTrialGrant.objects.for_team(self.team.pk).update(settled_microusd=123)
+        SignalSpend.objects.for_team(self.team.pk).create(
+            team=self.team,
+            kind=SignalSpend.Kind.AD_HOC,
+            signal_id=uuid4(),
+            trial_grant=grant,
+            spend=Decimal("0.0123"),
+            finalized_at=timezone.now(),
+        )
         with patch("products.signals.backend.trial.billing.TrialBilling.status", side_effect=TimeoutError()):
             retry = self.client.patch(
                 f"/api/projects/{self.team.pk}/signals/source_configs/{response.json()['id']}/",
@@ -185,7 +232,7 @@ class TestTrialAPI(APIBaseTest):
             )
         assert retry.status_code == 200, retry.content
         grant.refresh_from_db()
-        assert grant.settled_microusd == 123
+        assert trial_usage(grant).settled_microusd == 123
         assert SignalTrialGrant.objects.for_team(self.team.pk).count() == 1
 
     @parameterized.expand([("billing", 402), ("flag_unavailable", 402)])
@@ -283,6 +330,7 @@ class TestTrialAPI(APIBaseTest):
                 format="json",
             )
         assert response.status_code == 400, response.content
+        self.enqueue_grant.assert_not_called()
         assert [call.kwargs["properties"]["outcome"] for call in capture.call_args_list] == ["attempted", "failed"]
         assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
         assert (
@@ -356,7 +404,14 @@ class TestTrialAPI(APIBaseTest):
             assert started.json()["allowance_microusd"] == allowance
             assert started.json()["report_limit"] == reports
             grant_id = started.json()["grant_id"]
-            SignalTrialGrant.objects.for_team(self.team.pk).update(settled_microusd=3_000_000)
+            SignalSpend.objects.for_team(self.team.pk).create(
+                team=self.team,
+                kind=SignalSpend.Kind.AD_HOC,
+                signal_id=uuid4(),
+                trial_grant_id=grant_id,
+                spend=Decimal("300"),
+                finalized_at=timezone.now(),
+            )
             customer["available_product_features"] = [
                 {"key": "self_driving_trial_allowance_microusd", "limit": next_allowance},
                 {"key": "self_driving_trial_reports", "limit": next_reports},
@@ -424,6 +479,7 @@ class TestTrialAPI(APIBaseTest):
             with self.captureOnCommitCallbacks(execute=True):
                 response = self.client.post(self.url, {}, format="json")
                 assert response.status_code == (200 if ready else 400), response.content
+                self.enqueue_grant.assert_not_called()
                 assert [call.kwargs["properties"]["outcome"] for call in capture.call_args_list] == (
                     ["attempted"] if ready else ["attempted", "refused"]
                 )
@@ -431,6 +487,10 @@ class TestTrialAPI(APIBaseTest):
             assert outcomes[-1]["outcome"] == ("activated" if ready else "refused")
             assert outcomes[-1]["reason"] == (None if ready else "billing_not_ready")
             assert outcomes[-1]["grant_id"] == (response.json()["grant_id"] if ready else None)
+            if ready:
+                self.enqueue_grant.assert_called_once_with(response.json()["grant_id"])
+            else:
+                self.enqueue_grant.assert_not_called()
 
     def test_failed_billing_read_does_not_consume_grant(self) -> None:
         with patch("products.signals.backend.trial.billing.TrialBilling.status", side_effect=TimeoutError()):

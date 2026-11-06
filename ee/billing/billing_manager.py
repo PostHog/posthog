@@ -41,7 +41,7 @@ from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
 from ee.billing.access_token import mint_billing_access_token
-from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
+from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo, RatedUsageItem
 from ee.billing.grants import EffectiveBillingGrants
 from ee.billing.quota_limiting import BILLING_STATUS_STAMP_KEYS, set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
@@ -1145,7 +1145,19 @@ class BillingManager:
 
         return res.json()
 
-    def record_rated_usage(self, organization: Organization, items: list[dict[str, str | int]]) -> None:
+    def open_external_credit_pool(self, organization: Organization, *, grant_id: str, cents: int, day: str) -> None:
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/rated-usage/external-credit-pools",
+            headers=self.get_auth_headers(organization, service_action="rated_usage"),
+            json={"grant_id": grant_id, "cents": cents, "day": day},
+            timeout=30,
+        )
+        handle_billing_service_error(res, valid_codes=(200,))
+        body = res.json()
+        if not isinstance(body, dict) or body.get("result") not in ("created", "replayed"):
+            raise ValueError("Billing did not accept the external credit pool")
+
+    def record_rated_usage(self, organization: Organization, items: list[RatedUsageItem]) -> None:
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/rated-usage",
             headers=self.get_auth_headers(organization, service_action="rated_usage"),

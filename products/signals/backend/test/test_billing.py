@@ -721,8 +721,8 @@ class TestSpendBasedBilling(BaseTest):
         assert dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END)) == {self.team.id: 1500}
         assert self._day(11) == {self.team.id: 20}
 
-    @parameterized.expand([("settling", False, 20), ("failed", True, 0)])
-    def test_only_settling_spend_in_current_billing_period_counts_towards_quota(
+    @parameterized.expand([("settling", False, 20), ("failed", True, 20)])
+    def test_known_running_spend_in_current_billing_period_counts_towards_quota(
         self, _name: str, failed: bool, expected_credits: int
     ) -> None:
         with time_machine.travel(_at(10), tick=False):

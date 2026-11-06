@@ -7,6 +7,19 @@ class BillingProvider(StrEnum):
     VERCEL = "vercel"
 
 
+class RatedUsageGrant(TypedDict):
+    grant_id: str
+    cents: int
+
+
+class RatedUsageItem(TypedDict):
+    team_id: int
+    product: str
+    day: str
+    cents: int
+    grants: NotRequired[list[RatedUsageGrant]]
+
+
 # Mirror of `billing/billing/types/usage.py::SupportedUsageType` in the billing repo.
 # These identifiers are accepted by the billing service's /api/v2/usage/ and
 # /api/v2/spend/ endpoints through the `usage_types` query param.

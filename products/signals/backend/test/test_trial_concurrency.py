@@ -1,14 +1,18 @@
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from datetime import date
+from decimal import Decimal
 from threading import Barrier, Event
 from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.db import OperationalError, close_old_connections, connection, transaction
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models import OrganizationMembership, Team
@@ -17,23 +21,68 @@ from products.signals.backend import spend as spend_module
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.facade.trial import TaskTrialAdmission
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalSpend
+from products.signals.backend.rated_usage_models import SignalRatedUsage
 from products.signals.backend.report_generation.research import ReportLayer
 from products.signals.backend.scout_harness.skill_loader import REPORT_CHANNEL_TOOLS
 from products.signals.backend.spend import record_llm_spend
 from products.signals.backend.stack_plan import create_layer_reports
-from products.signals.backend.trial.models import SignalTrialGrant
-from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
-from products.signals.backend.usage import trial_usage
+from products.signals.backend.test.test_billing import _at
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
 from products.signals.backend.trial.limits import STANDARD_TRIAL_LIMITS, TrialLimits
+from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.trial.rated_usage import snapshot_rated_usage, trial_pool_id
 from products.signals.backend.trial.service import TrialService
+from products.signals.backend.usage import trial_usage
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task
 
 
 class TestTrialConcurrency(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand([(10, 1), (11, 2)])
+    def test_concurrent_child_usage_does_not_overdraw_the_shared_trial_pool(
+        self, second_day: int, expected_deliveries: int
+    ) -> None:
+        with time_machine.travel(_at(9), tick=False):
+            grant = SignalTrialGrant.objects.for_team(self.team.id).create(
+                team_id=self.team.id, organization_id=self.organization.id, claimed_by_id=self.user.id
+            )
+        child = Team.objects.create(organization=self.organization, project=self.team.project, parent_team=self.team)
+        for team, day in ((self.team, 10), (child, second_day)):
+            SignalSpend.objects.for_team(team.id).create(
+                team=team,
+                signal_id=uuid4(),
+                kind=SignalSpend.Kind.AD_HOC,
+                spend=Decimal("600"),
+                finalized_at=_at(day),
+                billing_exempt=True,
+                trial_grant=grant,
+            )
+        barrier = Barrier(2)
+
+        def report(day: int) -> None:
+            close_old_connections()
+            try:
+                barrier.wait(timeout=10)
+                snapshot_rated_usage(self.organization.id, date(2026, 6, day))
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first, second = pool.submit(report, 10), pool.submit(report, second_day)
+            first.result(timeout=30)
+            second.result(timeout=30)
+        deliveries = list(SignalRatedUsage.objects.unscoped().filter(organization_id=self.organization.id))
+        assert len(deliveries) == expected_deliveries
+        assert {delivery.team_id for delivery in deliveries} == {self.team.id}
+        assert sum(delivery.cents for delivery in deliveries) == 1200
+        shares = [share for delivery in deliveries for share in delivery.grants]
+        assert sum(share["cents"] for share in shares if share["grant_id"] == trial_pool_id(grant)) == 1000
+        assert sum(share["cents"] for share in shares if share["grant_id"] != trial_pool_id(grant)) == 200
+        grant.refresh_from_db()
+        assert grant.billing_pool_allocated_cents == 1000
 
     def test_custom_activation_resolves_remote_inputs_before_skill_and_grant_locks(self) -> None:
         OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(

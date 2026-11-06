@@ -24,6 +24,8 @@ from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_tea
 if TYPE_CHECKING:
     from posthog.models import Team
 
+    from products.signals.backend.trial.billing import TrialBillingStatus
+
 logger = structlog.get_logger(__name__)
 
 # Enforcement kill switch for new report/scout pipelines and manual work.
@@ -121,7 +123,9 @@ class SelfDrivingAdmission:
         )
 
 
-def prepare_self_driving_admission(team: "Team", *, parent: TrialFunding | None = None) -> SelfDrivingAdmission:
+def prepare_self_driving_admission(
+    team: "Team", *, parent: TrialFunding | None = None, billing_status: "TrialBillingStatus | None" = None
+) -> SelfDrivingAdmission:
     """Resolve funding and limits before callers acquire admission locks.
 
     Accepted pipelines keep their funding. New trial work uses the project allowance; paid
@@ -142,7 +146,9 @@ def prepare_self_driving_admission(team: "Team", *, parent: TrialFunding | None 
         reason = trial_usage(grant).exhaustion_reason(grant)
         if not reason:
             return SelfDrivingAdmission(team=team, gate=allowed)
-        paid_authorized = paid_trial_continuation_authorized(team)
+        paid_authorized = (
+            billing_status.paid_authorized if billing_status is not None else paid_trial_continuation_authorized(team)
+        )
         return SelfDrivingAdmission(
             team=team,
             gate=SelfDrivingQuotaGate(limited=not paid_authorized, enforced=not paid_authorized),

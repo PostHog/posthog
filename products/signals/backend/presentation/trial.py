@@ -52,13 +52,19 @@ class SelfDrivingTrialStatusSerializer(serializers.Serializer):
         allow_blank=True, help_text="Why the trial completed: cost_limit or report_limit."
     )
     reports_delivered = serializers.IntegerField(
-        help_text="Consumed report slots, including dismissed or deleted reports."
+        help_text="Qualifying reports delivered since the claim, including hidden or deleted reports."
     )
-    reports_reserved = serializers.IntegerField(help_text="Report slots held by admitted work.")
-    report_limit = serializers.IntegerField(help_text="Maximum reports delivered by this trial.")
+    reports_in_progress = serializers.IntegerField(
+        help_text="Admitted reports that have not yet qualified as delivered."
+    )
+    report_limit = serializers.IntegerField(
+        help_text="Report limit for admitting new work; accepted pipelines may finish beyond it."
+    )
     allowance_microusd = serializers.IntegerField(help_text="One-time allowance in millionths of a US dollar.")
-    used_microusd = serializers.IntegerField(help_text="Allowance used, capped at the trial allowance.")
-    accounting_pending = serializers.BooleanField(help_text="Whether some costs are still being finalized.")
+    used_microusd = serializers.IntegerField(
+        help_text="Settled and known running costs, capped at the trial allowance."
+    )
+    new_work_paused = serializers.BooleanField(help_text="Whether the shared trial and billing limits block new work.")
     enabled_scouts = serializers.IntegerField(help_text="Enabled scouts across this project's environments.")
     scout_limit = serializers.IntegerField(help_text="Maximum enabled scouts during the trial.")
     scouts_to_pause = serializers.IntegerField(

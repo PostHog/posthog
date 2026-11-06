@@ -1,5 +1,5 @@
-from collections.abc import Collection
-from datetime import UTC, datetime
+from collections.abc import Collection, Iterator
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -68,17 +68,26 @@ def trial_usage(grant: SignalTrialGrant) -> TrialUsage:
     )
 
 
-def spend_credits_by_team(
+@frozen
+class DailySpend:
+    team_id: int
+    day: date
+    trial_grant_id: UUID | None
+    spend: Decimal
+
+
+def daily_spend(
     begin: datetime,
     end: datetime,
     *,
     organization_id: str | UUID | None = None,
     organization_ids: Collection[str | UUID] | None = None,
     include_running: bool,
-) -> dict[int, int]:
+) -> Iterator[DailySpend]:
     if end <= begin:
-        return {}
-    eligible = Q(usage_billing=True, billing_exempt=False, trial_grant__isnull=True)
+        return
+    # Trial receipts remain funded before Billing's cutover reaches the local usage JSON.
+    eligible = Q(usage_billing=True, billing_exempt=False) | Q(trial_grant__isnull=False)
     if organization_id is not None:
         eligible &= Q(team__organization_id=organization_id)
     if organization_ids is not None:
@@ -93,7 +102,6 @@ def spend_credits_by_team(
             LessThanOrEqual(period_start, Value(now)),
             GreaterThan(period_end, Value(now)),
             finalized_at__isnull=True,
-            accounting_failed=False,
             created_at__gte=period_start,
         )
     usage_at = Coalesce("finalized_at", Value(now)) if include_running else F("finalized_at")
@@ -102,12 +110,32 @@ def spend_credits_by_team(
         SignalSpend.objects.unscoped()
         .alias(usage_at=usage_at)
         .filter(eligible, period)
-        .values("team_id", day=TruncDate("usage_at", tzinfo=UTC))
+        .values("team_id", "trial_grant_id", day=TruncDate("usage_at", tzinfo=UTC))
         .annotate(total_spend=Sum("spend"))
+        .order_by("team_id", "day", "trial_grant_id")
     )
+    for total in totals.iterator(chunk_size=1000):
+        yield DailySpend(
+            team_id=total["team_id"],
+            day=total["day"],
+            trial_grant_id=total["trial_grant_id"],
+            spend=total["total_spend"],
+        )
+
+
+def spend_credits_by_team(
+    begin: datetime,
+    end: datetime,
+    *,
+    organization_id: str | UUID | None = None,
+    organization_ids: Collection[str | UUID] | None = None,
+    include_running: bool,
+) -> dict[int, int]:
     credits: dict[int, int] = {}
     # Round once per team/day, so a period recount equals the daily reports billing sums.
-    for total in totals.iterator(chunk_size=1000):
-        team_id = total["team_id"]
-        credits[team_id] = credits.get(team_id, 0) + round(total["total_spend"])
+    for total in daily_spend(
+        begin, end, organization_id=organization_id, organization_ids=organization_ids, include_running=include_running
+    ):
+        if total.trial_grant_id is None:
+            credits[total.team_id] = credits.get(total.team_id, 0) + round(total.spend)
     return {team_id: amount for team_id, amount in credits.items() if amount}

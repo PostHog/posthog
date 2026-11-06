@@ -39,12 +39,11 @@ export function SelfDrivingTrialUsage(): JSX.Element | null {
 
     const exhausted = trial.grant_status === 'exhausted'
     const continuation = {
-        continue_paid: 'After the trial, new work continues under your existing paid Self-driving limit.',
-        add_payment_method:
-            'After the trial, new work pauses until you add a payment method and enable paid Self-driving.',
+        continue_paid: 'New work continues under your existing paid Self-driving limit.',
+        add_payment_method: 'New work pauses until you add a payment method and enable paid Self-driving.',
         increase_limit:
-            'After the trial, new work pauses until your Self-driving spending limit permits it. You can increase the limit in billing.',
-        enable_self_driving: 'After the trial, new work pauses until you enable paid Self-driving.',
+            'New work pauses until your Self-driving spending limit permits it. You can increase the limit in billing.',
+        enable_self_driving: 'New work pauses until you enable paid Self-driving.',
         unavailable: 'Billing status is unavailable. New work will pause if paid authorization cannot be confirmed.',
     }[trial.paid_continuation]
 
@@ -52,9 +51,10 @@ export function SelfDrivingTrialUsage(): JSX.Element | null {
         <section className="min-w-0" aria-label="Self-driving free trial">
             <LemonBanner type={exhausted ? 'warning' : 'info'}>
                 <div className="flex flex-col gap-2 min-w-0 font-normal">
-                    <strong>{exhausted ? 'Your free trial is complete' : 'Your Self-driving free trial'}</strong>
+                    <strong>{exhausted ? 'Trial limit reached' : 'Your Self-driving free trial'}</strong>
                     <p className="m-0">
                         <span>{`${trial.reports_delivered} of ${trial.report_limit} reports delivered`}</span>
+                        {!!trial.reports_in_progress && <span>{` · ${trial.reports_in_progress} in progress`}</span>}
                         {' · '}
                         <span>{`${trial.enabled_scouts}${!exhausted ? ` of ${trial.scout_limit}` : ''} scouts enabled`}</span>
                     </p>
@@ -65,22 +65,17 @@ export function SelfDrivingTrialUsage(): JSX.Element | null {
                     <p className="m-0">
                         {`$${(trial.used_microusd / 1_000_000).toFixed(2)} of $${trial.allowance_microusd / 1_000_000} trial allowance used.`}
                     </p>
-                    {trial.accounting_pending && (
-                        <p className="m-0">
-                            Some costs are still being finalized. New work may pause until they arrive.
-                        </p>
-                    )}
                     {exhausted && (
                         <p className="m-0">
                             <span>
                                 {trial.exhaustion_reason === 'report_limit'
-                                    ? `All ${trial.report_limit} trial reports have been delivered.`
+                                    ? 'The trial report limit has been reached, including reports still in progress.'
                                     : 'The trial allowance is exhausted.'}
                             </span>{' '}
-                            <span>Research already running can finish and publish its report. {continuation}</span>
+                            <span>Work already underway can finish at no additional charge. {continuation}</span>
                         </p>
                     )}
-                    {exhausted && trial.paid_continuation !== 'continue_paid' && (
+                    {exhausted && trial.new_work_paused && (
                         <LemonButton className="self-start" type="primary" to={urls.organizationBilling()}>
                             {trial.paid_continuation === 'increase_limit'
                                 ? 'Increase Self-driving limit'

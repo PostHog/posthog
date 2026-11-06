@@ -107310,18 +107310,18 @@ export namespace Schemas {
       grant_status: TrialGrantStatusEnum;
       /** Why the trial completed: cost_limit or report_limit. */
       exhaustion_reason: string;
-      /** Consumed report slots, including dismissed or deleted reports. */
+      /** Qualifying reports delivered since the claim, including hidden or deleted reports. */
       reports_delivered: number;
-      /** Report slots held by admitted work. */
-      reports_reserved: number;
-      /** Maximum reports delivered by this trial. */
+      /** Admitted reports that have not yet qualified as delivered. */
+      reports_in_progress: number;
+      /** Report limit for admitting new work; accepted pipelines may finish beyond it. */
       report_limit: number;
       /** One-time allowance in millionths of a US dollar. */
       allowance_microusd: number;
-      /** Allowance used, capped at the trial allowance. */
+      /** Settled and known running costs, capped at the trial allowance. */
       used_microusd: number;
-      /** Whether some costs are still being finalized. */
-      accounting_pending: boolean;
+      /** Whether the shared trial and billing limits block new work. */
+      new_work_paused: boolean;
       /** Enabled scouts across this project's environments. */
       enabled_scouts: number;
       /** Maximum enabled scouts during the trial. */
