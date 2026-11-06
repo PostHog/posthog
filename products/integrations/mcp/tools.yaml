@@ -59,6 +59,34 @@ tools:
             to find a channel_id when wiring up Slack delivery for an alert — pass the channel id into the
             cdp-functions-create inputs.channel.value field. Requires the Slack integration's id; use integrations-list
             (filter by kind=slack) to find it.
+    integrations-email-sandbox-sender-create:
+        operation: integrations_email_sandbox_sender_create
+        enabled: true
+        scopes:
+            - integration:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set up the sandbox email sender
+        description: >
+            Give the project a ready-made email sender for workflows, so a new team can send its first workflow email
+            before it has its own sending domain. It sends from a PostHog-owned address, with the organization's name as
+            the From name, for example "Acme via PostHog". It only delivers to verified members of the project's
+            organization: when any To, CC or BCC address is someone else, the whole email is skipped. Tell the user this
+            before they rely on it. It works in workflow email steps and test sends, not in broadcasts or transactional
+            email, and sends are capped per day. For real recipients, the user needs their own sending domain: set it up
+            with integrations-email-create, or in PostHog under Workflows > Channels when that tool is not available.
+            Calling it again returns the same sender. Returns the integration id to use as the email step's sender, with
+            its From address and name. A 404 means the sandbox sender is not available for this project.
+        feature_flag: workflows-sandbox-sender
+        response:
+            include:
+                - id
+                - kind
+                - display_name
+                - config.email
+                - config.name
     integrations-email-status-retrieve:
         operation: integrations_email_status_retrieve
         enabled: true
@@ -91,34 +119,6 @@ tools:
             integrations-email-status-retrieve reports status verified. It asks SES to check the domain again and
             returns status success when SES has verified it. Needs a project admin.
         feature_flag: workflows-email-domain-agent-setup
-    integrations-email-sandbox-sender-create:
-        operation: integrations_email_sandbox_sender_create
-        enabled: true
-        scopes:
-            - integration:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Set up the sandbox email sender
-        description: >
-            Give the project a ready-made email sender for workflows, so a new team can send its first workflow email
-            before it has its own sending domain. It sends from a PostHog-owned address, with the organization's name as
-            the From name, for example "Acme via PostHog". It only delivers to verified members of the project's
-            organization: when any To, CC or BCC address is someone else, the whole email is skipped. Tell the user this
-            before they rely on it. It works in workflow email steps and test sends, not in broadcasts or transactional
-            email, and sends are capped per day. For real recipients, the user needs their own sending domain: set it up
-            with integrations-email-create, or in PostHog under Workflows > Channels when that tool is not available.
-            Calling it again returns the same sender. Returns the integration id to use as the email step's sender, with
-            its From address and name. A 404 means the sandbox sender is not available for this project.
-        response:
-            include:
-                - id
-                - kind
-                - display_name
-                - config.email
-                - config.name
-        feature_flag: workflows-sandbox-sender
     integrations-github-repos-retrieve:
         operation: integrations_github_repos_retrieve
         enabled: true
