@@ -654,7 +654,7 @@ export interface mcpDashboardOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         dashboardLoading: (
             kpisLoading: boolean,
-            periodTotalsLoading: any,
+            periodTotalsLoading: boolean,
             toolRowsLoading: boolean,
             sessionRowsLoading: boolean,
             harnessRowsLoading: boolean,
@@ -677,7 +677,7 @@ export interface mcpDashboardOverviewLogicMeta {
         interval: (dateFilter: DateFilter) => IntervalType
         bucketKeys: (dateFilter: DateFilter, timezone: string, interval: IntervalType) => string[]
         activityIncompleteTail: (bucketKeys: string[], timezone: string, interval: IntervalType) => boolean
-        headlineKpis: (kpis: KPIData, periodTotals: any) => KPIData
+        headlineKpis: (kpis: KPIData, periodTotals: PeriodTotals) => KPIData
         kpiIncompleteTail: (kpis: KPIData, timezone: string, interval: IntervalType) => boolean
         dailyActivity: (activityRows: ActivityRow[], bucketKeys: string[]) => DailyActivity
         toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries

@@ -70,7 +70,7 @@ export interface mcpFirstLookLogicMeta {
             isOnboarded: boolean,
             user: UserType | null,
             currentTeam: TeamPublicType | TeamType | null,
-            headlineKpis: any,
+            headlineKpis: KPIData,
             toolRows: ToolRow[]
         ) => boolean
         topTool: (toolRows: ToolRow[]) => ToolRow | null
@@ -81,7 +81,7 @@ export interface mcpFirstLookLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             topTool: ToolRow | null,
             dominantClient: string | null,
-            headlineKpis: any
+            headlineKpis: KPIData
         ) => string
         maxPrompt: (worstErrorTool: ToolRow | null, topTool: ToolRow | null) => string
         editorPrompt: (dominantClient: string | null) => {
@@ -91,7 +91,7 @@ export interface mcpFirstLookLogicMeta {
         chips: (
             topTool: ToolRow | null,
             worstErrorTool: ToolRow | null,
-            headlineKpis: any,
+            headlineKpis: KPIData,
             dominantClient: string | null
         ) => FirstLookChip[]
         eventProperties: (
