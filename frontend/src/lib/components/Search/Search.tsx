@@ -30,6 +30,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger }
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
@@ -82,7 +83,8 @@ const useRotatingPlaceholder = (isActive: boolean): { text: string; isVisible: b
     const [isVisible, setIsVisible] = useState(true)
 
     useEffect(() => {
-        if (!isActive) {
+        // The rotation runs on an interval, so a snapshot would catch a random word or the fade between two.
+        if (!isActive || inStorybookTestRunner()) {
             setIndex(0)
             setIsVisible(true)
             return
