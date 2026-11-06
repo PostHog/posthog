@@ -34,13 +34,13 @@ describe('setupMode', () => {
     it.each([
         {
             case: 'a listed and a called tool',
-            row: [['["search_docs","create_issue"]', 'docs'], [['docs', 'search_docs']]],
+            row: [[['search_docs', 'create_issue'], 'docs'], [['docs', 'search_docs']]],
             expected: { listed: ['search_docs', 'create_issue'], called: ['search_docs'] },
         },
         {
             case: 'calls to another server',
             row: [
-                ['["search_docs"]', 'docs'],
+                [['search_docs'], 'docs'],
                 [
                     ['billing', 'refund'],
                     ['docs', 'search_docs'],
@@ -51,7 +51,7 @@ describe('setupMode', () => {
         {
             case: 'a listing without a server name',
             row: [
-                ['["search_docs","refund"]', null],
+                [['search_docs', 'refund'], null],
                 [
                     ['billing', 'refund'],
                     ['docs', 'search_docs'],
@@ -70,12 +70,20 @@ describe('setupMode', () => {
             ],
             expected: { listed: null, called: ['create_issue', 'search_docs'] },
         },
-        { case: 'a list that is not JSON', row: [['search_docs', null], []], expected: { listed: null, called: [] } },
-        { case: 'JSON that is not a list', row: [['{"tool":"a"}', null], []], expected: { listed: null, called: [] } },
+        {
+            case: 'no tools/list as ClickHouse returns it',
+            row: [[[], null], [['docs', 'search_docs']]],
+            expected: { listed: null, called: ['search_docs'] },
+        },
+        {
+            case: 'a listing that is not a list',
+            row: [['search_docs', null], []],
+            expected: { listed: null, called: [] },
+        },
         {
             case: 'blank and repeated tool names',
             row: [
-                ['["a","","a"]', null],
+                [['a', '', 'a'], null],
                 [
                     [null, ''],
                     [null, 'a'],

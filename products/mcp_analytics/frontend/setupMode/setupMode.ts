@@ -56,17 +56,11 @@ function toolNames(value: unknown): string[] {
     return [...new Set(value.filter((name): name is string => typeof name === 'string' && name !== ''))]
 }
 
-// `$mcp_listed_tool_names` is an array property, which HogQL returns as its JSON text.
+// The query decodes `$mcp_listed_tool_names` into an array. ClickHouse fills an empty one when no
+// listing matched, and the SDKs never send an empty listing, so empty means none yet.
 function listedToolNames(value: unknown): string[] | null {
-    if (typeof value !== 'string') {
-        return null
-    }
-    try {
-        const parsed: unknown = JSON.parse(value)
-        return Array.isArray(parsed) ? toolNames(parsed) : null
-    } catch {
-        return null
-    }
+    const names = toolNames(value)
+    return names.length > 0 ? names : null
 }
 
 /**

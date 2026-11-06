@@ -50,10 +50,11 @@ const SERVER_TOOLS_POLL_MS = 10000
 // The SDKs omit the names on an empty or failed tools/list, which must not hide an earlier good one.
 // The names and the server come from one event as a tuple, because argMax skips a null server alone.
 // Setup mode polls this, so the result is capped in the query: a server can send any number of tool
-// names of any length, and the panel shows only a handful.
+// names of any length, and the panel shows only a handful. The listing is capped after decoding, so a
+// large catalog keeps its first names instead of turning into JSON that no longer parses.
 const SERVER_TOOLS_QUERY = `
 SELECT
-    argMaxIf(tuple(substring(properties.$mcp_listed_tool_names, 1, 65536), substring(properties.$mcp_server_name, 1, 200)), timestamp, event = '$mcp_tools_list' AND isNotNull(properties.$mcp_listed_tool_names)) AS listing,
+    argMaxIf(tuple(arrayMap(name -> substring(name, 1, 200), arraySlice(JSONExtract(properties.$mcp_listed_tool_names, 'Array(String)'), 1, 500)), substring(properties.$mcp_server_name, 1, 200)), timestamp, event = '$mcp_tools_list' AND isNotNull(properties.$mcp_listed_tool_names)) AS listing,
     groupUniqArrayIf(500)(tuple(substring(properties.$mcp_server_name, 1, 200), substring(properties.$mcp_tool_name, 1, 200)), event = '$mcp_tool_call') AS called
 FROM events
 WHERE event IN ('$mcp_tools_list', '$mcp_tool_call') AND timestamp >= now() - INTERVAL 30 DAY
