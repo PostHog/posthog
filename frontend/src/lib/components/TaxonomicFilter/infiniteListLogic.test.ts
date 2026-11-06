@@ -1768,7 +1768,7 @@ describe('infiniteListLogic', () => {
                 .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
-                    keywordShortcutItems: partial([
+                    leadingSearchItems: partial([
                         partial({
                             _type: 'quick_filter',
                             name: 'Click (autocapture)',
@@ -1811,7 +1811,7 @@ describe('infiniteListLogic', () => {
                 .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
-                    keywordShortcutItems: [],
+                    leadingSearchItems: [],
                 })
         })
 
@@ -1822,7 +1822,7 @@ describe('infiniteListLogic', () => {
                 .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
-                    keywordShortcutItems: [],
+                    leadingSearchItems: [],
                 })
         })
     })

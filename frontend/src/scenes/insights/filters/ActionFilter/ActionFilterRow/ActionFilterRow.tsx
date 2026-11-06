@@ -35,6 +35,7 @@ import {
     FEATURE_FLAG_CALLED_EVENT,
     FLAG_EVALUATIONS_TABLE,
     readsFlagEvaluationsTable,
+    storesFlagCallsOutsideEvents,
 } from 'scenes/feature-flags/flagEvaluationsTable'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -499,6 +500,7 @@ export function ActionFilterRow({
             excludedProperties={excludedProperties}
             // The hidden flag-call event shows again, because picking it builds the flag_evaluations series.
             includeHiddenEvents={includeHiddenEvents || flagCallsFromFlagEvaluations}
+            offerHiddenEventStandIns={buildsFlagCallsSeries && storesFlagCallsOutsideEvents(currentTeam)}
             allowNonCapturedEvents={allowNonCapturedEvents}
             definitionPopoverRenderer={rowDefinitionPopoverRenderer}
         />

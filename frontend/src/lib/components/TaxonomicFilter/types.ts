@@ -47,6 +47,13 @@ export interface QuickFilterItem {
     isContainsShortcut?: boolean
 }
 
+export interface HiddenEventStandIn {
+    name: string
+    value: string
+}
+
+export type LeadingSearchItem = HiddenEventStandIn | QuickFilterItem
+
 export function isQuickFilterItem(item: unknown): item is QuickFilterItem {
     return item != null && typeof item === 'object' && '_type' in item && item._type === 'quick_filter'
 }
@@ -152,6 +159,14 @@ export interface TaxonomicFilterProps {
      * return nothing once the data moves.
      */
     includeHiddenEvents?: boolean
+    /**
+     * A search that starts to spell a hidden event offers a stand-in row for it, and the event's own row stays out of
+     * the list, whatever `includeHiddenEvents` says. Picking the stand-in commits the event's name.
+     * Set it only where the host turns that pick into a query on the table that now holds the event, and only for a
+     * team whose `events` table no longer receives the event. Such a team may have no definition to list, or one that
+     * drops out of searches once it is 30 days stale.
+     */
+    offerHiddenEventStandIns?: boolean
     /** use to indicate if a result in a group is selected */
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
@@ -298,6 +313,7 @@ export interface TaxonomicFilterGroup {
      *  Returned items are QuickFilterItems and flow through existing isQuickFilterItem
      *  handling in consumer onChange handlers. */
     keywordShortcuts?: (searchQuery: string) => QuickFilterItem[]
+    hiddenEventStandIns?: (searchQuery: string) => HiddenEventStandIn[]
     /**
      * Pre-fetch the first page (empty-query) once, cache it, and filter
      * subsequent typed queries client-side via Fuse rather than firing a
@@ -474,3 +490,4 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | QuickFilterItem
+    | HiddenEventStandIn

@@ -34,6 +34,7 @@ import {
     ExcludedOperators,
     ExcludedProperties,
     InfiniteListLogicProps,
+    LeadingSearchItem,
     META_GROUP_TYPES,
     QuickFilterItem,
     SelectingKeyOnly,
@@ -313,7 +314,7 @@ export interface infiniteListLogicValues {
         searchQuery: string | undefined
         syntheticSelectedCount: number
     }
-    keywordShortcutItems: QuickFilterItem[]
+    leadingSearchItems: LeadingSearchItem[]
     limit: number
     listGroupType: TaxonomicFilterGroupType
     localItems: ListStorage
@@ -695,7 +696,7 @@ export interface infiniteListLogicMeta {
             remoteItems: ListStorage,
             searchQuery: string,
             hasRemoteDataSource: boolean,
-            keywordShortcutItems: QuickFilterItem[],
+            leadingSearchItems: LeadingSearchItem[],
             listGroupType: TaxonomicFilterGroupType,
             arg: boolean | undefined
         ) => TaxonomicDefinitionTypes[]
@@ -711,11 +712,11 @@ export interface infiniteListLogicMeta {
             listGroupType: TaxonomicFilterGroupType,
             taxonomicGroups: TaxonomicFilterGroup[]
         ) => TaxonomicDefinitionTypes[]
-        keywordShortcutItems: (
+        leadingSearchItems: (
             group: TaxonomicFilterGroup | undefined,
             searchQuery: string,
             arg: any
-        ) => QuickFilterItem[]
+        ) => LeadingSearchItem[]
         dedupedTopMatches: (
             topMatchItemsWithSkeletons: (SkeletonItem | TopMatchItem)[],
             listGroupType: TaxonomicFilterGroupType,
@@ -745,7 +746,7 @@ export interface infiniteListLogicMeta {
             contextFilteredPinnedItems: TaxonomicDefinitionTypes[],
             suggestedPinnedMatches: TaxonomicDefinitionTypes[],
             suggestedRecentMatches: TaxonomicDefinitionTypes[],
-            keywordShortcutItems: QuickFilterItem[],
+            leadingSearchItems: LeadingSearchItem[],
             isSoleSubstantiveGroup: boolean,
             soleGroupHasGetValue: boolean,
             taxonomicGroups: TaxonomicFilterGroup[],
@@ -1659,7 +1660,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.remoteItems,
                 s.searchQuery,
                 s.hasRemoteDataSource,
-                s.keywordShortcutItems,
+                s.leadingSearchItems,
                 s.listGroupType,
                 (_, props: InfiniteListLogicProps) => props.collapseUrlsToContainsRow,
             ],
@@ -1668,7 +1669,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 remoteItems: ListStorage,
                 searchQuery: string,
                 hasRemoteDataSource: boolean,
-                keywordShortcutItems: QuickFilterItem[],
+                leadingSearchItems: LeadingSearchItem[],
                 listGroupType: TaxonomicFilterGroupType,
                 collapseUrlsToContainsRow: boolean | undefined
             ): TaxonomicDefinitionTypes[] => {
@@ -1692,7 +1693,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const realMatches = promoteMatchingProperties(results, searchQuery).slice(0, MAX_TOP_MATCHES_PER_GROUP)
                 // Shortcuts lead the group's top-match contribution so the aggregated SuggestedFilters
                 // tab surfaces them above real events with the same name.
-                return [...keywordShortcutItems, ...realMatches]
+                return [...leadingSearchItems, ...realMatches]
             },
         ],
         suggestedPinnedMatches: [
@@ -1729,14 +1730,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 )
             },
         ],
-        keywordShortcutItems: [
+        leadingSearchItems: [
             (s) => [s.group, s.searchQuery, (_, props) => props.enableKeywordShortcuts],
             (
                 group: TaxonomicFilterGroup | undefined,
                 searchQuery: string,
                 enableKeywordShortcuts: boolean | undefined
-            ): QuickFilterItem[] =>
-                enableKeywordShortcuts && searchQuery.trim() ? (group?.keywordShortcuts?.(searchQuery) ?? []) : [],
+            ): LeadingSearchItem[] =>
+                searchQuery.trim()
+                    ? [
+                          ...(group?.hiddenEventStandIns?.(searchQuery) ?? []),
+                          ...((enableKeywordShortcuts && group?.keywordShortcuts?.(searchQuery)) || []),
+                      ]
+                    : [],
         ],
         // Deduped per-group top matches for the SuggestedFilters tab: when a search surfaces the
         // same `{ groupType, value }` from a per-group top-match AND from a recent/pinned row,
@@ -1842,7 +1848,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.contextFilteredPinnedItems,
                 s.suggestedPinnedMatches,
                 s.suggestedRecentMatches,
-                s.keywordShortcutItems,
+                s.leadingSearchItems,
                 s.isSoleSubstantiveGroup,
                 s.soleGroupHasGetValue,
                 s.taxonomicGroups,
@@ -1860,7 +1866,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 contextFilteredPinnedItems: TaxonomicDefinitionTypes[],
                 suggestedPinnedMatches: TaxonomicDefinitionTypes[],
                 suggestedRecentMatches: TaxonomicDefinitionTypes[],
-                keywordShortcutItems: QuickFilterItem[],
+                leadingSearchItems: LeadingSearchItem[],
                 isSoleSubstantiveGroup: boolean,
                 soleGroupHasGetValue: boolean,
                 taxonomicGroups: TaxonomicFilterGroup[],
@@ -1911,7 +1917,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 // so the user sees something useful while remote groups are still loading behind
                 // the reveal barrier.
                 const combinedResults = [
-                    ...keywordShortcutItems,
+                    ...leadingSearchItems,
                     ...recentPrefix,
                     ...pinnedPrefix,
                     ...suggestedRecentMatches,
@@ -2074,7 +2080,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     syntheticSelectedCount,
                     count:
                         syntheticSelectedCount +
-                        keywordShortcutItems.length +
+                        leadingSearchItems.length +
                         recentPrefix.length +
                         pinnedPrefix.length +
                         suggestedRecentMatches.length +

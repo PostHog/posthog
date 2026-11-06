@@ -875,22 +875,132 @@ describe('ActionFilterRow', () => {
     })
 
     describe('feature flag calls series', () => {
+        let teamHasFlagCalledDefinition: boolean
+        let appendSettledRow: boolean
+
         beforeEach(() => {
+            // Recent picks persist to localStorage, and a recent Feature flag called row would lead the next test's list.
+            localStorage.clear()
+            teamHasFlagCalledDefinition = true
+            appendSettledRow = false
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': ({ request }: { request: Request }) => {
-                        const search = new URL(request.url).searchParams.get('search') ?? ''
+                        const params = new URL(request.url).searchParams
+                        const search = params.get('search') ?? ''
+                        const excluded: string[] = JSON.parse(params.get('excluded_properties') ?? '[]')
                         const flagCalled = {
                             ...eventDefinitions[0],
                             id: 'flag-called',
                             name: '$feature_flag_called',
                             description: '',
                         }
-                        const results = [...eventDefinitions, flagCalled].filter((d) => d.name.includes(search))
+                        // The last row tells a test that the list has rendered the response for this search.
+                        const settled = { ...eventDefinitions[0], id: 'settled', name: `settled: ${search}` }
+                        const results = [
+                            ...[...eventDefinitions, ...(teamHasFlagCalledDefinition ? [flagCalled] : [])]
+                                .filter((d) => d.name.includes(search))
+                                .filter((d) => !excluded.includes(d.name)),
+                            ...(appendSettledRow ? [settled] : []),
+                        ]
                         return [200, { results, count: results.length }]
                     },
                 },
             })
+        })
+
+        // An all-events series opens the picker on the aggregated tab.
+        const ALL_EVENTS_NODE: SeriesNode = { kind: NodeKind.EventsNode, event: null, name: 'All events' }
+
+        function renderFlagCallsRow(mode: FlagEvaluationsModeEnumApi, node: SeriesNode = DEFAULT_NODE): jest.Mock {
+            appendSettledRow = true
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+            const { logic, onChange } = setup([node])
+            renderRow(logic, {
+                ...INLINE_CONTEXT,
+                node,
+                flagCallsFromFlagEvaluations: true,
+                actionsTaxonomicGroupTypes: [
+                    ...(node === ALL_EVENTS_NODE ? [TaxonomicFilterGroupType.SuggestedFilters] : []),
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.DataWarehouse,
+                ],
+            })
+            return onChange
+        }
+
+        async function flagCalledRowsAfterSearching(searchQuery: string): Promise<HTMLElement[]> {
+            await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+            await userEvent.type(await screen.findByTestId('taxonomic-filter-searchfield'), searchQuery)
+            // The wait covers the search debounce and the mock round trip, which outrun the default 1s on a loaded runner.
+            await screen.findAllByText(`settled: ${searchQuery}`, undefined, { timeout: 5000 })
+            const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-attr^="prop-filter-"]')).filter(
+                (row) => row.textContent?.startsWith('Feature flag called') && !row.closest('.hidden')
+            )
+            // The aggregated tab renders its list twice in jsdom, so one row can appear under the same data-attr twice.
+            return rows.filter((row, index) => rows.findIndex((r) => r.dataset.attr === row.dataset.attr) === index)
+        }
+
+        it.each([
+            ['$feature_flag_called', false, false],
+            ['feature_flag_called', false, false],
+            ['Feature flag called', false, false],
+            ['feature flag', false, false],
+            ['$feature_flag_called', true, false],
+            ['$feature_flag_called', true, true],
+        ])(
+            'offers one Feature flag called row on mode 2 for "%s" (definition: %s, All tab: %s)',
+            async (searchQuery, hasDefinition, onAllTab) => {
+                teamHasFlagCalledDefinition = hasDefinition
+                const onChange = renderFlagCallsRow(
+                    FlagEvaluationsModeEnumApi.Number2,
+                    onAllTab ? ALL_EVENTS_NODE : DEFAULT_NODE
+                )
+
+                const rows = await flagCalledRowsAfterSearching(searchQuery)
+                expect(rows).toHaveLength(1)
+                await userEvent.click(rows[0])
+
+                await waitFor(() => {
+                    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+                    expect(lastCall?.[0]).toEqual(
+                        expect.objectContaining({
+                            kind: NodeKind.DataWarehouseNode,
+                            table_name: 'posthog.flag_evaluations',
+                        })
+                    )
+                })
+            }
+        )
+
+        // The real row stays out of a mode 2 list, so a saved series reopens on the synthetic selected row.
+        it('reopens a saved flag calls series on mode 2 without a definition', async () => {
+            teamHasFlagCalledDefinition = false
+            renderFlagCallsRow(FlagEvaluationsModeEnumApi.Number2, {
+                kind: NodeKind.DataWarehouseNode,
+                id: 'posthog.flag_evaluations',
+                table_name: 'posthog.flag_evaluations',
+                name: 'Feature flag called',
+                timestamp_field: 'timestamp',
+                id_field: 'uuid',
+                distinct_id_field: 'distinct_id',
+            })
+
+            await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0').textContent).toContain('Feature flag called')
+            })
+        })
+
+        it.each([
+            ['a team on mode 0', FlagEvaluationsModeEnumApi.Number0],
+            ['a team on mode 1', FlagEvaluationsModeEnumApi.Number1],
+        ])('offers no stand-in row to %s without a definition', async (_label, mode) => {
+            teamHasFlagCalledDefinition = false
+            renderFlagCallsRow(mode)
+
+            expect(await flagCalledRowsAfterSearching('feature_flag_called')).toHaveLength(0)
         })
 
         // entityFilterLogic copies only the warehouse fields named in its own popover fields. Each case
