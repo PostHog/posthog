@@ -21436,6 +21436,25 @@ export namespace Schemas {
       results: BulkObserveResult[];
     }
 
+    export interface BulkRemoveSuppressionsRequest {
+      /**
+         * The email addresses to remove, at most 100 per request.
+         * @minItems 1
+         * @maxItems 100
+         * @items.maxLength 512
+         */
+      identifiers: string[];
+      /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+      confirm_complaints?: boolean;
+    }
+
+    export interface BulkRemoveSuppressionsResponse {
+      /** Addresses removed from the suppression list. */
+      removed: string[];
+      /** Addresses that were not on the suppression list. */
+      not_found: string[];
+    }
+
     /**
      * * `new` - New
      * * `open` - Open
@@ -99319,6 +99338,16 @@ export namespace Schemas {
       identifier: string;
       /** Optional message category key. If omitted, the recipient is opted back in to all marketing messages. */
       category_key?: string;
+    }
+
+    export interface RemoveSuppressionRequest {
+      /**
+         * The email address to remove.
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+      confirm_complaints?: boolean;
     }
 
     export interface ReorderTilesRequest {
