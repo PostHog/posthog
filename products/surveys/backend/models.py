@@ -9,6 +9,7 @@ from django.db import models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 from dateutil.rrule import DAILY, rrule
 
@@ -259,6 +260,14 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     )
     current_iteration = models.PositiveIntegerField(null=True)
     current_iteration_start_date = models.DateTimeField(null=True)
+    repeat_until_stopped = models.BooleanField(
+        default=False,
+        null=True,
+        help_text=(
+            "For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. "
+            "When true, iteration_count is ignored and the survey never closes on its own after a final repeat."
+        ),
+    )
     schedule = models.CharField(
         max_length=40,
         choices=Schedule,
@@ -303,6 +312,10 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     # survey_set would silently drop the survey link from Action-rooted duplications
     # (test_relation_fields_Action locks the field list).
     actions = models.ManyToManyField("actions.Action")
+
+    @property
+    def repeats_on_schedule(self) -> bool:
+        return bool(self.iteration_frequency_days) and bool(self.iteration_count or self.repeat_until_stopped)
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Survey"]:
@@ -437,15 +450,7 @@ def ensure_question_ids(instance):
 
 
 def update_survey_iterations(sender, instance, *args, **kwargs):
-    iteration_count = 0 if instance.iteration_count is None else instance.iteration_count
-    iteration_frequency_dates = 0 if instance.iteration_frequency_days is None else instance.iteration_frequency_days
-
-    if (
-        instance.iteration_count is None
-        or instance.iteration_frequency_days is None
-        or instance.iteration_count == 0
-        or instance.iteration_frequency_days == 0
-    ):
+    if not instance.repeats_on_schedule:
         instance.iteration_start_dates = []
         instance.current_iteration = None
         instance.current_iteration_start_date = None
@@ -458,15 +463,24 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
     instance.iteration_start_dates = list(
         rrule(
             DAILY,
-            count=min(iteration_count, MAX_ITERATION_COUNT),
-            interval=iteration_frequency_dates,
+            count=_iteration_window_count(instance),
+            interval=instance.iteration_frequency_days,
             dtstart=instance.start_date,
         )
     )
 
-    if iteration_count > 0 and (instance.current_iteration is None or instance.current_iteration == 0):
+    if instance.current_iteration is None or instance.current_iteration == 0:
         instance.current_iteration = 1
         instance.current_iteration_start_date = instance.start_date
+
+
+def _iteration_window_count(survey: "Survey") -> int:
+    if not survey.repeat_until_stopped:
+        return min(survey.iteration_count or 0, MAX_ITERATION_COUNT)
+    # An open-ended schedule has no last window, so keep a rolling list that ends one window past today.
+    # update_survey_iteration saves on every iteration change, which extends it.
+    iterations_started = (timezone.now() - survey.start_date).days // survey.iteration_frequency_days + 1
+    return max(iterations_started, 1) + 1
 
 
 def _get_surveys_response(team: "Team") -> dict:

@@ -1090,6 +1090,7 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
             "feature_flag_keys",
             "iteration_count",
             "iteration_frequency_days",
+            "repeat_until_stopped",
             "iteration_start_dates",
             "current_iteration",
             "current_iteration_start_date",
@@ -1243,6 +1244,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "responses_limit",
             "iteration_count",
             "iteration_frequency_days",
+            "repeat_until_stopped",
             "iteration_start_dates",
             "current_iteration",
             "current_iteration_start_date",
@@ -1918,7 +1920,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         schedule = validated_data.get("schedule")
         if (
             schedule is None
-            and validated_data.get("iteration_count")
+            and (validated_data.get("iteration_count") or validated_data.get("repeat_until_stopped"))
             and validated_data.get("iteration_frequency_days")
         ):
             # Iteration fields alone have always configured repeats, so keep the caller's values.
@@ -1927,6 +1929,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             # An explicit null counts as non-recurring: the edit form reads it as "Once".
             validated_data["iteration_count"] = None
             validated_data["iteration_frequency_days"] = None
+            validated_data["repeat_until_stopped"] = False
+        if validated_data.get("repeat_until_stopped"):
+            validated_data["iteration_count"] = None
 
     def create(self, validated_data):
         if "remove_targeting_flag" in validated_data:
@@ -2213,7 +2218,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         should_flag_be_active = self._should_survey_flags_be_active(instance)
 
         survey_key = f"{instance.id}"
-        if instance.iteration_count is not None and instance.iteration_count > 0:
+        if instance.repeats_on_schedule:
             survey_key = f"{instance.id}/{instance.current_iteration or 1}"
 
         base_properties = [
@@ -2397,7 +2402,8 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
         allow_null=True,
         help_text=(
             "Survey scheduling behavior: 'once' = show once per user (default), "
-            "'recurring' = repeat based on iteration_count and iteration_frequency_days settings, "
+            "'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped "
+            "(repeat_until_stopped), "
             "'always' = show every time conditions are met (mainly for widget surveys)"
         ),
     )
@@ -2411,7 +2417,7 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
         allow_null=True,
         max_value=MAX_ITERATION_COUNT,
         min_value=1,
-        help_text="For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.",
+        help_text="For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Ignored when repeat_until_stopped is true.",
     )
     iteration_frequency_days = serializers.IntegerField(
         required=False,
@@ -3596,6 +3602,7 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
                         "responses_limit": source_survey.responses_limit,
                         "iteration_count": source_survey.iteration_count,
                         "iteration_frequency_days": source_survey.iteration_frequency_days,
+                        "repeat_until_stopped": source_survey.repeat_until_stopped,
                         "schedule": source_survey.schedule,
                         "enable_partial_responses": source_survey.enable_partial_responses,
                     }

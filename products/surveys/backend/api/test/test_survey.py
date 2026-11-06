@@ -5458,15 +5458,18 @@ class TestSurveysRecurringIterations(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("once", "once"),
-            ("null", None),
+            ("once", "once", {"iteration_count": 2}),
+            ("null", None, {"iteration_count": 2}),
+            ("once_from_open_ended", "once", {"repeat_until_stopped": True}),
         ]
     )
-    def test_switching_schedule_to_non_recurring_clears_iteration_fields(self, _name: str, schedule: Optional[str]):
+    def test_switching_schedule_to_non_recurring_clears_iteration_fields(
+        self, _name: str, schedule: Optional[str], repeat_payload: dict
+    ):
         survey = self._create_recurring_survey()
         self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
-            data={"start_date": datetime.now(), "iteration_count": 2, "iteration_frequency_days": 30},
+            data={"start_date": datetime.now(), "iteration_frequency_days": 30, **repeat_payload},
         )
 
         response = self.client.patch(
@@ -5481,14 +5484,19 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert response_data["iteration_frequency_days"] is None
         assert response_data["iteration_start_dates"] == []
         assert response_data["current_iteration"] is None
+        assert response_data["repeat_until_stopped"] is False
 
     @parameterized.expand(
         [
-            ("schedule_omitted", {}),
-            ("schedule_null", {"schedule": None}),
+            ("schedule_omitted", {}, {"iteration_count": 2}, 2),
+            ("schedule_null", {"schedule": None}, {"iteration_count": 2}, 2),
+            # Open-ended keeps the current and the next window; the count the caller sent is dropped.
+            ("open_ended", {}, {"iteration_count": 5, "repeat_until_stopped": True}, None),
         ]
     )
-    def test_setting_iterations_without_a_schedule_marks_the_survey_recurring(self, _name: str, schedule_payload: dict):
+    def test_setting_iterations_without_a_schedule_marks_the_survey_recurring(
+        self, _name: str, schedule_payload: dict, repeat_payload: dict, expected_iteration_count: Optional[int]
+    ):
         survey = self._create_non_recurring_survey()
         assert survey.schedule == Survey.Schedule.ONCE
 
@@ -5496,8 +5504,8 @@ class TestSurveysRecurringIterations(APIBaseTest):
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             data={
                 "start_date": datetime.now(),
-                "iteration_count": 2,
                 "iteration_frequency_days": 30,
+                **repeat_payload,
                 **schedule_payload,
             },
         )
@@ -5505,7 +5513,7 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
         assert response_data["schedule"] == "recurring"
-        assert response_data["iteration_count"] == 2
+        assert response_data["iteration_count"] == expected_iteration_count
         assert response_data["iteration_frequency_days"] == 30
         assert len(response_data["iteration_start_dates"]) == 2
 
