@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { urls } from 'scenes/urls'
 
@@ -11,19 +12,22 @@ import { DELIVERY_WEBHOOK_LIST_PROPS, deliveryWebhooksLogic } from './deliveryWe
 export function TransactionalWebhooks(): JSX.Element {
     const { engagementEventsEnabled, currentTeamLoading } = useValues(deliveryWebhooksLogic)
     const { openAddModal, enableEngagementEvents } = useActions(deliveryWebhooksLogic)
+    const receivingEnabled = useFeatureFlag('WORKFLOWS_INBOUND_EMAIL')
 
     return (
         <div className="flex flex-col gap-4">
             <p className="m-0 text-secondary">
                 Get a signed request on your endpoint when a transactional email is sent, delivered, opened, clicked,
-                bounced, or fails. Each request carries the message ID the send API returned.
+                bounced, or fails{receivingEnabled ? ', or when an email is received' : ''}. Each request carries the
+                message ID the send API returned.
             </p>
             {!engagementEventsEnabled ? (
                 <LemonBanner type="info">
                     <div className="flex flex-col gap-2">
                         <span>
                             Webhooks are sent from email engagement events, which are off for this project. Turn them on
-                            to add a webhook. Engagement events count toward your event usage.
+                            to add a webhook{receivingEnabled ? ' for delivery updates' : ''}. Engagement events count
+                            toward your event usage.
                         </span>
                         <div className="flex flex-wrap gap-2">
                             <LemonButton
@@ -57,7 +61,11 @@ export function TransactionalWebhooks(): JSX.Element {
                         type="primary"
                         size="small"
                         onClick={openAddModal}
-                        disabledReason={!engagementEventsEnabled ? 'Turn on engagement events first' : undefined}
+                        disabledReason={
+                            !engagementEventsEnabled && !receivingEnabled
+                                ? 'Turn on engagement events first'
+                                : undefined
+                        }
                         data-attr="transactional-webhook-add"
                     >
                         Add webhook

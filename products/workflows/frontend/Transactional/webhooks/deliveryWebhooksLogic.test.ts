@@ -69,6 +69,22 @@ describe('deliveryWebhooksLogic', () => {
         expect(logic.values.createdSecret).toBeNull()
     })
 
+    it('limits received email to one recipient without limiting the delivery events beside it', async () => {
+        logic.actions.setWebhookFormValues({
+            url: 'https://example.com/hooks',
+            events: ['$workflows_email_delivered', '$email_received'],
+            receivedRecipient: ' Support@ ',
+        })
+        logic.actions.submitWebhookForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const [delivered, received] = created[0].filters.events
+        expect(delivered.properties).toBeUndefined()
+        expect(received.properties).toEqual([
+            expect.objectContaining({ key: '$email_recipients', operator: 'icontains', value: 'support@' }),
+        ])
+    })
+
     it.each([
         ['a URL without a scheme', { url: 'example.com/hooks' }],
         ['a plain http URL', { url: 'http://example.com/hooks' }],

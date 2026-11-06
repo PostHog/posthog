@@ -4,14 +4,17 @@ import { Form } from 'kea-forms'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { DELIVERY_WEBHOOK_EVENTS } from './deliveryWebhookPayload'
+import { DELIVERY_WEBHOOK_EVENTS, RECEIVED_EMAIL_EVENT } from './deliveryWebhookPayload'
 import { deliveryWebhooksLogic } from './deliveryWebhooksLogic'
 
 export function AddDeliveryWebhookModal(): JSX.Element {
-    const { isAddModalOpen, createdSecret, webhookForm, isWebhookFormSubmitting } = useValues(deliveryWebhooksLogic)
+    const { isAddModalOpen, createdSecret, webhookForm, isWebhookFormSubmitting, engagementEventsEnabled } =
+        useValues(deliveryWebhooksLogic)
     const { closeAddModal, submitWebhookForm, setWebhookFormValue } = useActions(deliveryWebhooksLogic)
+    const receivingEnabled = useFeatureFlag('WORKFLOWS_INBOUND_EMAIL')
 
     if (createdSecret) {
         return (
@@ -50,7 +53,11 @@ export function AddDeliveryWebhookModal(): JSX.Element {
             // Closing mid-request would hide the secret of a webhook the request still creates.
             onClose={isWebhookFormSubmitting ? undefined : closeAddModal}
             title="Add webhook"
-            description="Send a request to your endpoint when a transactional email is sent, delivered, opened, or fails."
+            description={
+                receivingEnabled
+                    ? 'Send a request to your endpoint when a transactional email is sent, delivered, opened, or fails, or when an email is received.'
+                    : 'Send a request to your endpoint when a transactional email is sent, delivered, opened, or fails.'
+            }
             width={560}
             footer={
                 <>
@@ -82,6 +89,9 @@ export function AddDeliveryWebhookModal(): JSX.Element {
                             <LemonCheckbox
                                 key={event}
                                 label={label}
+                                disabledReason={
+                                    engagementEventsEnabled ? undefined : 'Turn on engagement events to use this event'
+                                }
                                 checked={webhookForm.events.includes(event)}
                                 onChange={(checked) =>
                                     setWebhookFormValue(
@@ -95,8 +105,36 @@ export function AddDeliveryWebhookModal(): JSX.Element {
                                 }
                             />
                         ))}
+                        {receivingEnabled && (
+                            <LemonCheckbox
+                                label="Received"
+                                data-attr="transactional-webhook-received"
+                                checked={webhookForm.events.includes(RECEIVED_EMAIL_EVENT)}
+                                onChange={(checked) =>
+                                    setWebhookFormValue(
+                                        'events',
+                                        checked
+                                            ? [...webhookForm.events, RECEIVED_EMAIL_EVENT]
+                                            : webhookForm.events.filter((e) => e !== RECEIVED_EMAIL_EVENT)
+                                    )
+                                }
+                            />
+                        )}
                     </div>
                 </LemonField>
+                {webhookForm.events.includes(RECEIVED_EMAIL_EVENT) && (
+                    <LemonField
+                        name="receivedRecipient"
+                        label="Only for mail to"
+                        info="Leave this empty to send every received email here. Otherwise, use part of an address, such as support@ or a domain."
+                        showOptional
+                    >
+                        <LemonInput
+                            placeholder="support@inbound.example.com"
+                            data-attr="transactional-webhook-recipient"
+                        />
+                    </LemonField>
+                )}
             </Form>
         </LemonModal>
     )

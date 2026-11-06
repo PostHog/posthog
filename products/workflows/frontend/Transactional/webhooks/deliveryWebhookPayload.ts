@@ -19,9 +19,13 @@ export const DELIVERY_WEBHOOK_EVENTS = [
     { event: '$workflows_email_link_clicked', label: 'Link clicked' },
 ] as const
 
-export type DeliveryWebhookEventName = (typeof DELIVERY_WEBHOOK_EVENTS)[number]['event']
+// pinned: the event email receiving captures. Renaming it stops its webhooks.
+export const RECEIVED_EMAIL_EVENT = '$email_received'
 
-// Only a transactional send carries the message id, so this property tells its events apart from workflow emails.
+export type DeliveryWebhookEventName = (typeof DELIVERY_WEBHOOK_EVENTS)[number]['event'] | typeof RECEIVED_EMAIL_EVENT
+
+// Only a transactional send or a received email carries the message id, so this property tells their events apart
+// from workflow emails.
 const TRANSACTIONAL_EMAIL_PROPERTY: EventPropertyFilter = {
     key: '$email_message_id',
     type: PropertyFilterType.Event,
@@ -36,12 +40,12 @@ export const DELIVERY_WEBHOOK_LIST_FILTER_GROUPS: CyclotronJobFiltersType[] = [
 // Resend's event names, fields and bounce types, so a Resend receiver reads it. It has no `from`, because these
 // events do not carry the sender. Resend names a spam complaint "complained" and a link click "clicked".
 const DELIVERY_WEBHOOK_BODY = {
-    type: "{event.event == '$workflows_email_blocked' ? 'email.complained' : event.event == '$workflows_email_link_clicked' ? 'email.clicked' : replaceOne(event.event, '$workflows_email_', 'email.')}",
+    type: "{event.event == '$email_received' ? 'email.received' : event.event == '$workflows_email_blocked' ? 'email.complained' : event.event == '$workflows_email_link_clicked' ? 'email.clicked' : replaceOne(event.event, '$workflows_email_', 'email.')}",
     created_at: '{event.timestamp}',
     data: {
         created_at: '{event.timestamp}',
         email_id: '{event.properties.$email_message_id}',
-        to: ['{event.properties.$email_to}'],
+        to: '{event.properties.$email_to_addresses ?? [event.properties.$email_to]}',
         subject: '{event.properties.$email_subject}',
         distinct_id: '{event.distinct_id}',
         bounce: {
@@ -49,6 +53,21 @@ const DELIVERY_WEBHOOK_BODY = {
             subType: '{event.properties.$bounce_sub_type}',
         },
         click: { link: '{event.properties.$link_url}' },
+        // Only `email.received` fills these. The body stays out of the payload: `body_included` says so, and
+        // `content_url` is where a handler reads it, so nobody builds on a body that was never there.
+        from: '{event.properties.$email_from}',
+        recipients: '{event.properties.$email_recipients}',
+        body_included: '{event.properties.$email_body_included}',
+        content_url: '{event.properties.$email_content_url}',
+        is_reply: '{event.properties.$email_is_reply}',
+        original_email_id: '{event.properties.$email_original_message_id}',
+        sender_verified: '{event.properties.$email_sender_verified}',
+        authentication: {
+            spf: '{event.properties.$email_spf}',
+            dkim: '{event.properties.$email_dkim}',
+            dmarc: '{event.properties.$email_dmarc}',
+        },
+        attachment_count: '{event.properties.$email_attachment_count}',
     },
 }
 
@@ -77,11 +96,14 @@ function hostOf(url: string): string {
 export function buildDeliveryWebhookPayload({
     url,
     events,
+    receivedRecipient = '',
     signingSecret,
     template,
 }: {
     url: string
     events: DeliveryWebhookEventName[]
+    /** Sends received email to this webhook only when it was delivered to an address containing this. */
+    receivedRecipient?: string
     signingSecret: string
     template: Pick<HogFunctionTemplateApi, 'code' | 'inputs_schema' | 'icon_url'>
 }): DeliveryWebhookCreateBody {
@@ -101,7 +123,23 @@ export function buildDeliveryWebhookPayload({
         },
         filters: {
             source: 'events',
-            events: events.map((event) => ({ id: event, name: event, type: 'events' })),
+            events: events.map((event) => ({
+                id: event,
+                name: event,
+                type: 'events',
+                ...(event === RECEIVED_EMAIL_EVENT && receivedRecipient.trim()
+                    ? {
+                          properties: [
+                              {
+                                  key: '$email_recipients',
+                                  type: PropertyFilterType.Event,
+                                  operator: PropertyOperator.IContains,
+                                  value: receivedRecipient.trim().toLowerCase(),
+                              },
+                          ],
+                      }
+                    : {}),
+            })),
             properties: [TRANSACTIONAL_EMAIL_PROPERTY],
         },
         icon_url: template.icon_url,
