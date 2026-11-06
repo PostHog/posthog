@@ -1,7 +1,6 @@
 import { pluralize } from 'lib/utils/strings'
 import { NewSurvey } from 'scenes/surveys/constants'
 import { positionDisplayNames } from 'scenes/surveys/survey-appearance/SurveyAppearanceSections'
-import { SurveyEditSection } from 'scenes/surveys/surveyLogic'
 import {
     doesSurveyRepeatOnEveryEvent,
     getRecurringSurveyScheduleInfo,
@@ -11,7 +10,6 @@ import {
     getSurveyTargetingFilters,
     isSimpleSurveyAudienceTargeting,
 } from 'scenes/surveys/utils'
-import type { EditableWizardStep } from 'scenes/surveys/wizard/surveyWizardLogic'
 
 import { Survey, SurveyMatchType, SurveyPosition, SurveySchedule, SurveyType, SurveyWidgetType } from '~/types'
 
@@ -28,8 +26,6 @@ export interface SurveyReviewSection {
     status: SurveyReviewStatus
     summary: SurveyReviewSummaryPart[]
     warning?: string
-    editSection: SurveyEditSection
-    wizardStep: EditableWizardStep
     previewArea: SurveyPreviewArea | null
 }
 
@@ -89,8 +85,6 @@ interface SectionContent {
 interface SectionDefinition {
     key: SurveyReviewSectionKey
     title: string
-    editSection: SurveyEditSection
-    wizardStep: EditableWizardStep
     previewArea: SurveyPreviewArea | null
     build: (survey: ReviewedSurvey) => SectionContent
 }
@@ -326,32 +320,24 @@ const SECTIONS: SectionDefinition[] = [
     {
         key: 'audience',
         title: 'Who sees it',
-        editSection: SurveyEditSection.DisplayConditions,
-        wizardStep: 'where',
         previewArea: null,
         build: buildAudience,
     },
     {
         key: 'when',
         title: 'Where and when',
-        editSection: SurveyEditSection.DisplayConditions,
-        wizardStep: 'where',
         previewArea: 'page',
         build: buildWhen,
     },
     {
         key: 'frequency',
         title: 'How often',
-        editSection: SurveyEditSection.CompletionConditions,
-        wizardStep: 'when',
         previewArea: null,
         build: buildFrequency,
     },
     {
         key: 'questions',
         title: 'What they see',
-        editSection: SurveyEditSection.Steps,
-        wizardStep: 'questions',
         previewArea: 'survey',
         build: buildQuestions,
     },
