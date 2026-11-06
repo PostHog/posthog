@@ -33,12 +33,10 @@ from products.workflows.backend.services.email_sending_tier import (
 from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.utils.email_sending_tiers import get_email_sending_tier_limits
 
-TIER_HOURLY_CAPS = [200, 600, 2000, 6000, 20000, 60000, 200000]
 TIER_DAILY_CAPS = [1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 TIER_BATCH_CAPS = [1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 
 TIER_SETTINGS = {
-    "WORKFLOWS_EMAIL_TIER_HOURLY_CAPS": TIER_HOURLY_CAPS,
     "WORKFLOWS_EMAIL_TIER_DAILY_CAPS": TIER_DAILY_CAPS,
     "WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS": TIER_BATCH_CAPS,
     "WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER": [3],
@@ -84,10 +82,10 @@ def clean_days(count: int, sent_per_day: int, *, days_ago: int = 0) -> dict[str,
 
 @override_settings(**TIER_SETTINGS)
 class TestEmailSendingTierDecision(SimpleTestCase):
-    @parameterized.expand([(tier, caps) for tier, caps in enumerate(zip(TIER_HOURLY_CAPS, TIER_DAILY_CAPS))])
-    def test_tier_maps_to_its_caps(self, tier: int, caps: tuple[int, int]) -> None:
+    @parameterized.expand([(tier, cap) for tier, cap in enumerate(TIER_DAILY_CAPS)])
+    def test_tier_maps_to_its_caps(self, tier: int, cap: int) -> None:
         limits = get_email_sending_tier_limits(tier)
-        assert (limits.per_hour, limits.per_day) == caps
+        assert limits.per_day == cap
 
     @parameterized.expand([(tier,) for tier in range(len(TIER_DAILY_CAPS) - 1)])
     def test_promotes_one_tier_when_every_criterion_is_met(self, tier: int) -> None:
@@ -546,33 +544,37 @@ class TestOwnSendsAtTheWindowStart(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("own_send_before_the_cutoff", [("email_sent", -70, "step-1"), ("email_sent", -10, "step-1")], 1, 2),
-            ("full_pair", [("email_sent", -40, "step-1"), ("email_sandbox_sent", -40, "step-1")], 0, 0),
-            ("pair_split_sent_inside", [("email_sandbox_sent", -70, "step-1"), ("email_sent", -50, "step-1")], 0, 0),
+            ("own_send_before_the_cutoff", [("email_sent", -1450, "step-1"), ("email_sent", -1390, "step-1")], 1),
+            ("full_pair", [("email_sent", -1420, "step-1"), ("email_sandbox_sent", -1420, "step-1")], 0),
+            ("pair_split_sent_inside", [("email_sandbox_sent", -1450, "step-1"), ("email_sent", -1430, "step-1")], 0),
             (
                 "pair_split_sandbox_inside_beside_own_send",
-                [("email_sent", -70, "step-1"), ("email_sandbox_sent", -50, "step-1"), ("email_sent", -50, "step-2")],
-                1,
+                [
+                    ("email_sent", -1450, "step-1"),
+                    ("email_sandbox_sent", -1430, "step-1"),
+                    ("email_sent", -1430, "step-2"),
+                ],
                 1,
             ),
             (
                 "own_send_outside_beside_pair_on_another_step",
-                [("email_sent", -70, "step-1"), ("email_sent", -50, "step-2"), ("email_sandbox_sent", -50, "step-2")],
+                [
+                    ("email_sent", -1450, "step-1"),
+                    ("email_sent", -1430, "step-2"),
+                    ("email_sandbox_sent", -1430, "step-2"),
+                ],
                 0,
-                1,
             ),
         ]
     )
-    def test_sending_allowance(
-        self, _name: str, records: list[tuple[str, int, str]], last_hour: int, last_day: int
-    ) -> None:
+    def test_sending_allowance(self, _name: str, records: list[tuple[str, int, str]], last_day: int) -> None:
         with time_machine.travel(self.NOW, tick=False):
             for metric_name, minutes, instance in records:
                 self._record(metric_name, self.NOW + timedelta(minutes=minutes), instance=instance)
             cache.clear()
             allowance = team_email_sending_allowance(self.team.id)
 
-        assert (allowance.emails_sent_last_hour, allowance.emails_sent_last_day) == (last_hour, last_day)
+        assert allowance.emails_sent_last_day == last_day
 
     @parameterized.expand(
         [

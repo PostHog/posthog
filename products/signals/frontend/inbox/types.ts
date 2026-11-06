@@ -256,12 +256,14 @@ export const SOURCE_ALERT_SCOPE_KEY = 'alert_scope'
 export enum SignalAlertScope {
     InvestigatedOnly = 'investigated_only',
     AllFiringAlerts = 'all_firing_alerts',
+    Off = 'off',
 }
 
 // Anything unknown reads as investigated only, matching the backend's fallback.
 export function alertScopeFromConfig(config: Record<string, any> | null | undefined): SignalAlertScope {
-    return config?.[SOURCE_ALERT_SCOPE_KEY] === SignalAlertScope.AllFiringAlerts
-        ? SignalAlertScope.AllFiringAlerts
+    const scope = config?.[SOURCE_ALERT_SCOPE_KEY]
+    return scope === SignalAlertScope.AllFiringAlerts || scope === SignalAlertScope.Off
+        ? scope
         : SignalAlertScope.InvestigatedOnly
 }
 
