@@ -233,6 +233,8 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                             kind: 'email',
                             config,
                         })
+                        // The server can store a different MAIL FROM than the one typed, and Save sends it back to SES.
+                        actions.setEmailSenderValues(getEmailSenderFromIntegration(integration))
                     }
                     actions.loadIntegrations()
                     actions.setSavedIntegration(integration)
