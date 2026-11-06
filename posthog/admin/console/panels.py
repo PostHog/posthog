@@ -85,7 +85,6 @@ class Gate:
 
     @staticmethod
     def owner() -> "Gate":
-        """Members of the staff group of the team that owns the panel or tool."""
         return Gate(label="members of the owning team's staff group", check=_unresolved_owner_gate, from_owner=True)
 
     def resolve(self, owner: Owner) -> "Gate":
