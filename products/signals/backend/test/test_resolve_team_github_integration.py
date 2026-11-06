@@ -11,7 +11,12 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.report_generation.select_repo import resolve_team_github_integration, select_repository
+from products.signals.backend.models import SignalTeamConfig
+from products.signals.backend.report_generation.select_repo import (
+    resolve_signals_github_integration,
+    resolve_team_github_integration,
+    select_repository,
+)
 from products.tasks.backend.facade import api as tasks_facade
 
 
@@ -385,3 +390,27 @@ def test_prefers_oldest_among_same_account_type(organization, team):
 
     assert isinstance(resolved, GitHubIntegration)
     assert resolved.integration.id == older.id
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "base_branches, expected",
+    [
+        ({"acme/app": "main"}, "org"),
+        ({"other/repo": "main"}, "personal"),
+        ({}, "personal"),
+    ],
+)
+def test_signals_prefers_installation_reaching_a_configured_repository(team, base_branches, expected):
+    personal = _create_team_integration(
+        team, integration_id="personal", repository_cache=[{"full_name": "someone/app", "id": 1, "name": "app"}]
+    )
+    org = _create_team_integration(
+        team, integration_id="org", repository_cache=[{"full_name": "Acme/app", "id": 2, "name": "app"}]
+    )
+    SignalTeamConfig.objects.create(team=team, autostart_base_branches=base_branches)
+
+    resolved = resolve_signals_github_integration(team.id)
+
+    assert resolved is not None
+    assert resolved.integration.id == {"org": org.id, "personal": personal.id}[expected]
