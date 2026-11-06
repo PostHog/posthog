@@ -6,16 +6,17 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.schema import RevenueAnalyticsEventItem
+
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
-
-from posthog.models import PropertyDefinition
 
 from products.data_modeling.backend.logic import view_column_refresh
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.logic.view_column_refresh import refresh_view_columns
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestViewColumnRefresh(ClickhouseTestMixin, BaseTest):
@@ -67,6 +68,26 @@ class TestViewColumnRefresh(ClickhouseTestMixin, BaseTest):
             response = execute_hogql_query("SELECT * FROM downstream_view", team=self.team, user=self.user)
 
         assert response.columns == ["new_id"]
+        downstream.refresh_from_db()
+        assert downstream.column_order == ["new_id"]
+
+    def test_query_that_also_reads_an_event_revenue_view_refreshes_the_user_view(self) -> None:
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(eventName="purchase", revenueProperty="amount")
+        ]
+        self.team.revenue_analytics_config.save()
+        upstream = self._create_view("upstream_view", "SELECT 1 AS old_id")
+        downstream = self._create_view("downstream_view", "SELECT * FROM upstream_view")
+        self._edit_view(upstream, "SELECT 1 AS new_id")
+
+        response = execute_hogql_query(
+            "SELECT new_id, (SELECT count() FROM revenue_analytics.events.purchase.charge_events_revenue_view) "
+            "FROM downstream_view",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results == [(1, 0)]
         downstream.refresh_from_db()
         assert downstream.column_order == ["new_id"]
 

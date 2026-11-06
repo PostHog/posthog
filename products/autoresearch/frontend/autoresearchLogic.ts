@@ -290,7 +290,11 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                 lemonToast.success(`Started training "${pipeline.name}"`)
                 actions.loadPipelines()
             } catch (error: any) {
-                posthog.capture('autoresearch model action failed', { action: 'train', pipeline_id: pipeline.id })
+                posthog.capture('autoresearch model action failed', {
+                    action: 'train',
+                    pipeline_id: pipeline.id,
+                    status: error?.status,
+                })
                 lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to start training')
             } finally {
                 actions.setPipelineMutating(pipeline.id, false)

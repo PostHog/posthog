@@ -38,6 +38,7 @@ import { SupportMarkdown } from '../../components/Editor'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { MacroPicker } from '../../components/Macros/MacroPicker'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
+import { SupportTicketSidebarWidgets } from '../../components/SupportTicketSidebarWidgets/SupportTicketSidebarWidgets'
 import { TicketTags } from '../../components/TicketTags'
 import {
     type Ticket,
@@ -46,18 +47,10 @@ import {
     priorityOptions,
     statusOptionsWithoutAll,
 } from '../../types'
-import { AIPanel } from './AIPanel'
-import { ExceptionsPanel } from './ExceptionsPanel'
-import { PreviousTicketsPanel } from './PreviousTicketsPanel'
-import { RecentEventsPanel } from './RecentEventsPanel'
-import { RelatedGroupsPanel } from './RelatedGroupsPanel'
-import { SessionRecordingPanel } from './SessionRecordingPanel'
-import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { SupportTicketSceneMenuBar } from './SupportTicketSceneMenuBar'
 import { useDiscussionTimelineExtras } from './ThreadDiscussions'
 import { reportTimelineExtras } from './ThreadReports'
-import { TicketActivityPanel } from './TicketActivityPanel'
 
 // The list's filters / saved view ride along in the ticket page's query string
 // (the ticket row carries them through on navigation). Rebuild the list URL from
@@ -108,7 +101,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
         ticket,
-        person,
         ticketLoading,
         status,
         priority,
@@ -120,11 +112,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         messageSending,
         hasMoreMessages,
         olderMessagesLoading,
-        eventsQuery,
-        previousTickets,
-        previousTicketsLoading,
         linkedReports,
-        exceptionsQuery,
         chatPanelWidth,
         hasUnsavedChanges,
         unsavedTicketChanges,
@@ -672,54 +660,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         </div>
                     </LemonCard>
 
-                    {/* Related Groups Panel */}
-                    {(person?.uuid || ticket?.organization_id) && (
-                        <RelatedGroupsPanel
-                            personUuid={person?.uuid}
-                            organizationId={ticket?.organization_id}
-                            organizationIdSource={ticket?.organization_id_source}
-                        />
-                    )}
-
-                    {/* Staff Actions Panel */}
-                    {user?.is_staff && ticket && <StaffActionsPanel />}
-
-                    {/* AI Triage Panel */}
-                    {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}
-
-                    {ticket?.channel_source === 'widget' && (
-                        <>
-                            {/* Session Recording Panel */}
-                            <SessionRecordingPanel
-                                sessionContext={ticket?.session_context}
-                                distinctId={ticket?.distinct_id}
-                            />
-
-                            {/* Recent Events Panel */}
-                            <RecentEventsPanel
-                                eventsQuery={eventsQuery}
-                                distinctId={ticket?.distinct_id}
-                                sessionId={ticket?.session_id}
-                            />
-
-                            {/* Exceptions Panel */}
-                            <ExceptionsPanel
-                                exceptionsQuery={exceptionsQuery}
-                                sessionId={ticket?.session_id}
-                                distinctId={ticket?.distinct_id}
-                            />
-
-                            {/* Previous Tickets Panel */}
-                            <PreviousTicketsPanel
-                                previousTickets={previousTickets}
-                                previousTicketsLoading={previousTicketsLoading}
-                                personDistinctIds={person?.distinct_ids}
-                            />
-                        </>
-                    )}
-
-                    {/* Activity History Panel */}
-                    {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
+                    <SupportTicketSidebarWidgets ticketId={ticketId || 'new'} />
                 </div>
             </div>
         </SceneContent>

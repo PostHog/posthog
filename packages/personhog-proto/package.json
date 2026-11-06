@@ -1,0 +1,10 @@
+{
+    "name": "@posthog/personhog-proto",
+    "version": "0.0.1",
+    "private": true,
+    "description": "Python stubs generated from proto/personhog (personhog-proto). Python uv workspace member; this manifest registers it in the turbo graph so turbo-discover can see when it changed and re-test the products that import it. The package has no tests of its own, so backend:test is a no-op that exists to make it a cascade source.",
+    "scripts": {
+        "backend:test": "echo 'personhog-proto has no tests'"
+    },
+    "pythonImportName": "personhog"
+}
