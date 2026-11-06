@@ -133,7 +133,10 @@ impl KafkaTraceRow {
         let (timestamp, original_timestamp) = override_timestamp(raw_timestamp);
         let was_overridden = original_timestamp.is_some();
         if let Some(original) = original_timestamp {
-            attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+            attributes.insert(
+                crate::log_record::ORIGINAL_TIMESTAMP_ATTRIBUTE.to_string(),
+                original.to_rfc3339(),
+            );
         }
 
         let end_time = match span.end_time_unix_nano {
@@ -455,7 +458,7 @@ mod tests {
         let (row, was_overridden) = KafkaTraceRow::new(span, None, None).unwrap();
 
         assert!(was_overridden);
-        assert!(row.attributes.contains_key("$originalTimestamp"));
+        assert!(row.attributes.contains_key("posthog.original_timestamp"));
     }
 
     #[test]
@@ -471,7 +474,7 @@ mod tests {
         let (row, was_overridden) = KafkaTraceRow::new(span, None, None).unwrap();
 
         assert!(!was_overridden);
-        assert!(!row.attributes.contains_key("$originalTimestamp"));
+        assert!(!row.attributes.contains_key("posthog.original_timestamp"));
     }
 
     #[test]

@@ -135,6 +135,7 @@ async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, workflowHealth
 }
 
 function tableText(blocks) {
+    assert.ok(blocks[1].rows.flat().every((cell) => cell.text.length > 0), 'Slack rejects an empty table cell')
     return blocks[1].rows.slice(1).map((row) => row.map((cell) => cell.text))
 }
 
