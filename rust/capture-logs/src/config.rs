@@ -34,13 +34,9 @@ pub struct Config {
     #[envconfig(from = "FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES", default = "8388608")] // 8 MiB
     pub firehose_max_request_body_size_bytes: usize,
 
-    // Bounds the rows one OTLP request builds, because each row copies the shared resource and
-    // scope. The body cap alone does not bound this. See `expansion.rs` for the estimate.
     #[envconfig(from = "MAX_EXPANDED_REQUEST_BYTES", default = "134217728")] // 128 MiB
     pub max_expanded_request_bytes: u64,
 
-    // The same bound for Firehose, where each row copies the record template and the common
-    // attributes. It is larger because one Firehose request can decode to 8x its body cap.
     #[envconfig(from = "FIREHOSE_MAX_EXPANDED_REQUEST_BYTES", default = "268435456")] // 256 MiB
     pub firehose_max_expanded_request_bytes: u64,
 

@@ -49,8 +49,7 @@ const DECODED_BUDGET_FACTOR: usize = 8;
 /// plus attribute strings compress well enough that half is a safe budget.
 const KAFKA_BATCH_BUDGET_DIVISOR: usize = 2;
 
-/// Every row copies the common attributes, so their size multiplies with the event count. Firehose
-/// allows at most 50 attributes, and this cap leaves room for those at their full size.
+/// Every row copies the common attributes, so their size multiplies with the event count.
 pub const MAX_COMMON_ATTRIBUTES_HEADER_BYTES: usize = 64 * 1024;
 
 type Rejection = (StatusCode, Json<Value>);
@@ -287,7 +286,6 @@ fn map_cost(map: &HashMap<String, String>) -> u64 {
 }
 
 impl RowTemplate {
-    /// The bytes every row built from this template copies, before its own body and event id.
     fn row_cost(&self) -> u64 {
         ROW_OVERHEAD_BYTES
             .saturating_add(self.service_name.len() as u64)
@@ -295,9 +293,6 @@ impl RowTemplate {
             .saturating_add(map_cost(&self.attributes))
     }
 
-    /// Charges the rows of one record before they are built, so a record that does not fit
-    /// allocates nothing. `rows` and `content_bytes` are the event count and the summed size of
-    /// the bodies and event ids.
     fn charge(
         &self,
         budget: &mut ExpansionBudget,

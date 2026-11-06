@@ -1,9 +1,5 @@
-//! Request-wide budget for the rows a request expands into.
-//!
-//! A body size cap bounds the input bytes only. OTLP shares one resource and one scope between
-//! many records, and every row gets its own copy of them, so a small body can still build a very
-//! large set of rows. The handlers estimate the expanded size from the decoded request and reject
-//! it before they build any row.
+//! Every row copies its shared resource and scope, so the body cap does not bound the rows a
+//! request builds. These estimates let handlers reject a request before building any row.
 
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
@@ -13,11 +9,8 @@ use opentelemetry_proto::tonic::metrics::v1::metric::Data;
 use opentelemetry_proto::tonic::resource::v1::Resource;
 use prost::Message;
 
-/// Fixed cost of one row: the uuid, ids, timestamps and the map and string headers that every row
-/// allocates, whatever its content.
 pub const ROW_OVERHEAD_BYTES: u64 = 256;
 
-/// Fixed cost of one attribute in a row map: two string headers and the hash table slot.
 pub const ATTRIBUTE_OVERHEAD_BYTES: u64 = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,8 +18,6 @@ pub struct ExpansionExceeded {
     pub limit: u64,
 }
 
-/// Adds row costs and fails as soon as the total goes over the limit, so a caller can stop before
-/// it builds the row that does not fit.
 #[derive(Debug)]
 pub struct ExpansionBudget {
     limit: u64,
@@ -50,7 +41,6 @@ impl ExpansionBudget {
         Ok(())
     }
 
-    /// Charges `count` rows of `bytes_per_row` each in one step.
     pub fn charge_rows(&mut self, count: u64, bytes_per_row: u64) -> Result<(), ExpansionExceeded> {
         self.charge(count.saturating_mul(bytes_per_row))
     }
@@ -60,7 +50,7 @@ fn len_u64(len: usize) -> u64 {
     u64::try_from(len).unwrap_or(u64::MAX)
 }
 
-/// The protobuf size of each attribute is a proxy for the size of its string form in the row.
+/// Protobuf size stands in for the size of the attribute's string form in the row.
 pub fn attributes_cost(attributes: &[KeyValue]) -> u64 {
     attributes.iter().fold(0u64, |total, kv| {
         total
@@ -73,7 +63,6 @@ pub fn resource_cost(resource: Option<&Resource>) -> u64 {
     resource.map_or(0, |r| attributes_cost(&r.attributes))
 }
 
-/// A row keeps only `name@version` from the scope.
 pub fn scope_cost(scope: Option<&InstrumentationScope>) -> u64 {
     scope.map_or(0, |s| {
         len_u64(s.name.len())
@@ -130,8 +119,6 @@ pub fn check_traces_request(
     Ok(budget.used())
 }
 
-/// A metric becomes one row per data point, and each row copies the resource, the scope and the
-/// metric name and unit.
 pub fn check_metrics_request(
     request: &ExportMetricsServiceRequest,
     limit: u64,
