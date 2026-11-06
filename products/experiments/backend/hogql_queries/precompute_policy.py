@@ -62,12 +62,14 @@ METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS = 90 * 24 * 60 * 60  # 90 days
 
 def precompute_person_resolution_enabled(team: Team) -> bool:
     """
-    Whether a person-aggregated read of the precomputed tables resolves each row to its current
-    person through `person_distinct_id_overrides`.
+    Whether the precomputed tables follow person merges for the team. A build stores the
+    distinct_id of each row, and a person-aggregated read resolves each row to its current person
+    through `person_distinct_id_overrides`.
 
-    The join aggregates all of the team's override rows on every read, and it can change only a
-    row that stores its distinct_id. Off, a read takes the person stored at build time and pays
-    no join. Default-off and fail-safe: an absent or unevaluable flag keeps the read without the join.
+    A build that stores distinct_id has a different job hash, so the team's cached jobs are built
+    again when the flag turns on. The read join aggregates all of the team's override rows on
+    every read. Off, a build stores no distinct_id, and a read takes the person stored at build
+    time and pays no join. Default-off and fail-safe: an absent or unevaluable flag keeps both off.
     """
     return bool(
         posthoganalytics.feature_enabled(
