@@ -318,6 +318,14 @@ const HOG_TRANSFORM_CASES: HogTransformCase[] = [
     },
     { hog: `return record.missing.deeply` },
     { hog: `let rec := record\nrec.body := upper(rec.body)\nreturn rec`, record: { body: 'héllo wörld 🚀 ✓' } },
+    {
+        hog: `let rec := record\nrec.attributes.len := length(rec.body)\nrec.attributes.sub := substring(rec.body, 2, 3)\nrec.attributes.emoji := substring(rec.body, 13, 2)\nrec.attributes.pos := position(rec.body, '✓')\nrec.attributes.split := splitByString('', 'é✓')\nreturn rec`,
+        record: { body: 'héllo wörld 🚀 ✓' },
+    },
+    { hog: `let rec := record\nrec.body := (x) -> x\nreturn rec` },
+    { hog: `return (x) -> x` },
+    { hog: `let rec := record\nrec.attributes.f := (x) -> x\nreturn rec` },
+    { hog: `return {'body': 'not applied'}`, sensitive: ['body'] },
 ]
 
 async function buildHogTransformCases(): Promise<Case[]> {
@@ -364,6 +372,13 @@ async function buildHogInputsCases(): Promise<Case[]> {
                 first: { value: '', bytecode: await compileHog(`return f'{record.service_name}-1'`), order: 0 },
                 plain: { value: { n: 3, list: [1, 2.5] } },
                 skipped: { value: 'kept as is', bytecode: await compileHog(`return 'not run'`), templating: 'liquid' },
+            },
+        ],
+        [
+            'numeric string order',
+            {
+                b: { value: '', bytecode: await compileHog(`return inputs.a`), order: '10' },
+                a: { value: 'first', order: '2' },
             },
         ],
         [

@@ -91,6 +91,7 @@ cargo test --release -p logs-ingestion
 
 - `tests/parity_corpus.rs` replays the corpus through the pipeline. It needs Redis on 127.0.0.1:6379.
 - `tests/module_vectors_transformations.rs` replays the hog transformation vectors. `tests/transformations.rs` covers what a fixture cannot pin: the wall-clock timeout and budgets, fetch failures and secret shapes.
+- `tests/service_hog_functions.rs` loads hog functions from a temporary table with the column types of Django's `HogFunction`. It runs against any Postgres on localhost:5432 and skips without one.
 - `tests/service_postgres.rs` runs the Postgres dependencies against `test_posthog` on localhost:5432. It copies a team, seeds rule rows and deletes them. It skips without Postgres.
 - `tests/service_kafka.rs` runs on librdkafka's mock cluster: the Kafka outputs, commit-after-success with a real consumer group, and shadow mode end to end. For the `passthrough`, `parse-failures` and `codecs` scenarios it produces the inputs, runs one batch, and checks that the shadow topics hold the outputs Node recorded and that no production topic received anything.
 

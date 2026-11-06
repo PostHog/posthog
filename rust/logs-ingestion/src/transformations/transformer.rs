@@ -21,6 +21,11 @@ use super::exec::{
 use super::functions::{HogFunction, HogFunctionSource};
 use super::monitoring::{HogFunctionMonitoring, LogEntry};
 
+/// A panic inside one function run must not reach the pipeline, which would send the whole message to the DLQ.
+fn guarded<T>(run: impl FnOnce() -> T) -> Option<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).ok()
+}
+
 const ATTR_TRANSFORMATIONS_FAILED: &str = "$transformations_failed";
 const ATTR_TRANSFORMATIONS_SKIPPED: &str = "$transformations_skipped";
 
@@ -212,6 +217,18 @@ impl RecordContext<'_> {
         agg.error_logs.push(entry("error", message));
     }
 
+    /// Node's catch around `executeLogTransformation`: a transformer bug, not customer code, so it keeps no
+    /// function logs. Here it is a panic in the VM or the apply step.
+    fn unexpected_failure(&mut self, record: &mut LogRecord, function: &HogFunction) {
+        counter!("logs_ingestion_transformations_unexpected_errors_total").increment(1);
+        tracing::error!(
+            team_id = self.run.team_id,
+            function_id = %function.id,
+            "[logs-transformer] unexpected error"
+        );
+        self.fail(record, function);
+    }
+
     fn fail(&mut self, record: &mut LogRecord, function: &HogFunction) {
         aggregates_for(&mut self.result.aggregates, &function.id).failed += 1;
         record_counter("failed");
@@ -227,26 +244,38 @@ impl RecordContext<'_> {
             if index > 0 {
                 record_globals = build_record_globals(record);
             }
-            let inputs = match self.resolve_inputs(function, &record_globals) {
-                Ok((inputs, ms)) => {
+            let resolved = guarded(|| self.resolve_inputs(function, &record_globals));
+            let inputs = match resolved {
+                None => {
+                    self.unexpected_failure(record, function);
+                    continue;
+                }
+                Some(Ok((inputs, ms))) => {
                     self.add_vm_ms(ms);
                     aggregates_for(&mut self.result.aggregates, &function.id).total_duration_ms +=
                         ms;
                     inputs
                 }
-                Err(error) => {
+                Some(Err(error)) => {
                     self.fail(record, function);
                     self.capture_error_logs(function, Vec::new(), &error);
                     continue;
                 }
             };
-            let outcome = execute_log_transformation(
-                function,
-                record,
-                globals(&self.project, &record_globals, inputs),
-                self.run.config.hog_timeout_ms,
-                &function.sensitive_values,
-            );
+            let timeout_ms = self.run.config.hog_timeout_ms;
+            let root = globals(&self.project, &record_globals, inputs);
+            let Some(outcome) = guarded(|| {
+                execute_log_transformation(
+                    function,
+                    record,
+                    root,
+                    timeout_ms,
+                    &function.sensitive_values,
+                )
+            }) else {
+                self.unexpected_failure(record, function);
+                continue;
+            };
             self.add_vm_ms(outcome.duration_ms);
             let agg = aggregates_for(&mut self.result.aggregates, &function.id);
             agg.total_duration_ms += outcome.duration_ms;
@@ -294,8 +323,9 @@ pub fn transform_message(
         result: MessageTransformResult::default(),
     };
     let mut exhausted_scope: Option<&'static str> = None;
-    let mut kept = Vec::with_capacity(records.len());
-    for mut staged in std::mem::take(records) {
+    // Records change in place and leave the vector only at the end, so a panic leaves every record in it.
+    let mut dropped = vec![false; records.len()];
+    for (index, staged) in records.iter_mut().enumerate() {
         if exhausted_scope.is_none() {
             if run.batch_budget.is_some_and(|b| b.exhausted()) {
                 exhausted_scope = Some("batch");
@@ -317,16 +347,18 @@ pub fn transform_message(
             for function in run.functions {
                 aggregates_for(&mut ctx.result.aggregates, &function.id).budget_skipped += 1;
             }
-            kept.push(staged);
             continue;
         }
         if ctx.transform_record(&mut staged.record) {
             ctx.result.records_dropped += 1;
-        } else {
-            kept.push(staged);
+            dropped[index] = true;
         }
     }
-    *records = kept;
+    let mut index = 0;
+    records.retain(|_| {
+        index += 1;
+        !dropped[index - 1]
+    });
     ctx.result
 }
 
@@ -393,11 +425,12 @@ impl LogsTransformerService {
         if functions.is_empty() || records.is_empty() {
             return Ok(MessageTransformResult::default());
         }
-        let mut taken = std::mem::take(records);
+        let shared = Arc::new(Mutex::new(std::mem::take(records)));
+        let task_records = shared.clone();
         let config = self.config.clone();
         let clock = self.clock.clone();
         // The VM is CPU-bound for up to the message budget, so it runs off the async workers.
-        let (kept, result) = tokio::task::spawn_blocking(move || {
+        let joined = tokio::task::spawn_blocking(move || {
             let run = MessageRun {
                 team_id,
                 functions: &functions,
@@ -406,11 +439,20 @@ impl LogsTransformerService {
                 clock: &clock,
                 instance_id: uuid::Uuid::now_v7().to_string(),
             };
-            let result = transform_message(&run, &mut taken);
-            (taken, result)
+            let mut records = task_records.lock().unwrap_or_else(|e| e.into_inner());
+            transform_message(&run, &mut records)
         })
-        .await?;
-        *records = kept;
+        .await;
+        *records = std::mem::take(&mut *shared.lock().unwrap_or_else(|e| e.into_inner()));
+        // Fail open like Node's catch: the records go on as the task left them.
+        let result = match joined {
+            Ok(result) => result,
+            Err(error) => {
+                counter!("logs_ingestion_transformations_unexpected_errors_total").increment(1);
+                tracing::error!(team_id, error = %error, "[logs-transformer] unexpected error");
+                return Ok(MessageTransformResult::default());
+            }
+        };
         histogram!("logs_ingestion_transformations_vm_duration_seconds")
             .record(result.vm_ms / 1000.0);
         self.queue_aggregates(team_id, result.aggregates.clone());
