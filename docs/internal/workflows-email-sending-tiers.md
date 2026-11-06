@@ -106,11 +106,11 @@ A project appearing there often is spending more on transactional than its tier 
 
 The worker sends through a `sandbox` email integration only when `WORKFLOWS_SANDBOX_SENDER_ENABLED` is on and `SES_SANDBOX_TENANT_NAME`, `SES_SANDBOX_CONFIGURATION_SET`, and `SES_SANDBOX_FROM_ADDRESS` are set.
 Otherwise every send through it skips with a reason in the run log and a `workflows sandbox email blocked` event with reason `switch_off`.
-It sends workflow email steps and test sends only: a broadcast or a transactional API email through it skips with a reason in the run log.
+It sends workflow email steps and test sends only: a broadcast, a transactional API email, or a destination send through it skips with a reason in the run log and a blocked event with reason `not_workflow_step`.
 Every To, CC, and BCC address must belong to an active member of the team's active organization with a verified email address.
 The worker reads membership fresh before it prepares the send, and again right before delivery.
 A membership check that fails or takes longer than 3 seconds skips the send and lists the blocked addresses in the run log.
-The blocked event fires at most once an hour per team, reason, and send kind (workflow or test).
+The blocked event fires at most once an hour per team, reason, and send kind (workflow or test); `cdp_sandbox_email_blocked_total` counts every blocked send by reason.
 A send that passes every check goes out through the fixed SES tenant, configuration set, and From address, whatever the step's custom sender and Reply-To say.
 Sandbox sends skip the team's tier budget, click and open tracking, and unsubscribe headers, because they reach only members of the sending organization.
 The worker parses and normalizes the HTML, then appends a footer that names the sender and the organization ID.
