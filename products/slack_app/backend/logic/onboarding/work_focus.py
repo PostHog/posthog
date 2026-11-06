@@ -25,11 +25,12 @@ from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.llm.system_one import NoulAnswer, NoulQuestion
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_one_client
 from posthog.models.integration import SlackIntegration
-from posthog.token_bucket import BucketDecision, Budget, consume
+from posthog.token_bucket import BucketDecision, Budget, consume, refund
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.logic.onboarding.actions import WORK_FOCUS_TASK_ACTION_ID
+from products.slack_app.backend.logic.onboarding.actions import WORK_FOCUS_START_ACTION_ID, WORK_FOCUS_TASK_ACTION_ID
 from products.slack_app.backend.logic.onboarding.checks import has_ai_approval
+from products.slack_app.backend.logic.onboarding.step import read_action_value
 from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
 from products.slack_app.backend.services.slack_user_oauth import linked_user_token
@@ -40,6 +41,7 @@ logger = structlog.get_logger(__name__)
 # pinned: analytics event names, renaming breaks dashboards
 SUGGESTIONS_SENT_EVENT = "slack app work focus suggestions sent"
 SUGGESTION_CLICKED_EVENT = "slack app work focus suggestion clicked"
+SUGGESTION_STARTED_EVENT = "slack app work focus suggestion started"
 WORK_FOCUS_SUGGESTION_BLOCK_PREFIX = "work_focus_suggestion_"
 
 SEARCH_LOOKBACK = timedelta(days=30)
@@ -47,6 +49,7 @@ SEARCH_LOOKBACK = timedelta(days=30)
 # of the two searches stay at six calls, the most one person's run may take.
 SEARCH_LIMIT = 20
 SEARCH_PAGES = 3
+SEARCH_CALLS = 2 * SEARCH_PAGES
 # A workspace gets about 10 search calls a minute, so a burst of links waits for tokens.
 SEARCH_BUDGET = Budget(burst=10, per_hour=600)
 MIN_MESSAGES = 5
@@ -133,6 +136,10 @@ _RESPONSE_FORMAT: ResponseFormatJSONSchema = {
 }
 
 
+class WorkFocusTransientError(Exception):
+    """Raised before anything is sent, so the activity retries and no outcome is stored."""
+
+
 class WorkFocusRateLimited(Exception):
     """Raised before anything is sent, so the activity can retry later."""
 
@@ -174,6 +181,12 @@ def find_and_send_work_focus(integration: WorkspaceIntegration, slack_user_id: s
     return outcome
 
 
+def _ready_to_send(integration: WorkspaceIntegration, slack_user_id: str) -> None:
+    # Stored before the DM goes out. When Slack takes the DM but the response times out, the retry sees this and
+    # sends nothing, because a second DM would carry a second set of buttons.
+    update_onboarding(integration.integration_id, slack_user_id, work_focus_outcome="sending")
+
+
 def _find_and_send(integration: WorkspaceIntegration, slack_user_id: str) -> str:
     token = linked_user_token(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
     if token is None or "search:read.public" not in token.scopes:
@@ -181,30 +194,35 @@ def _find_and_send(integration: WorkspaceIntegration, slack_user_id: str) -> str
     channel_types = [kind for kind, scope in _CHANNEL_TYPE_SCOPES.items() if scope in token.scopes]
     messages = _search_messages(integration, token.access_token, slack_user_id, channel_types)
     if messages is None:
-        return "search_failed"
+        raise WorkFocusTransientError("search failed")
     if len(messages) < MIN_MESSAGES:
         return "not_enough_messages"
     try:
         candidates = _rank(integration, messages)
-    except Exception:
+    except Exception as error:
         logger.warning("slack_app_work_focus_rank_failed", exc_info=True)
-        return "rank_failed"
+        raise WorkFocusTransientError("rank failed") from error
     if not candidates:
         return "nothing_actionable"
     try:
         focus = _write(integration, candidates)
-    except Exception:
+    except Exception as error:
         logger.warning("slack_app_work_focus_model_failed", exc_info=True)
-        return "model_failed"
+        raise WorkFocusTransientError("write failed") from error
     if not focus.suggestions:
         return "no_suggestions"
-    SlackIntegration(integration).client.chat_postMessage(
-        channel=slack_user_id,
-        text=focus.intro,
-        blocks=work_focus_blocks(integration, focus, slack_user_id),
-        unfurl_links=False,
-        unfurl_media=False,
-    )
+    _ready_to_send(integration, slack_user_id)
+    try:
+        SlackIntegration(integration).client.chat_postMessage(
+            channel=slack_user_id,
+            text=focus.intro,
+            blocks=work_focus_blocks(integration, focus, slack_user_id),
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+    except SlackApiError:
+        logger.warning("slack_app_work_focus_post_failed", exc_info=True)
+        return "post_failed"
     capture_slack_event(
         integration,
         SUGGESTIONS_SENT_EVENT,
@@ -224,56 +242,67 @@ def _search_messages(
     )
     after = int((timezone.now() - SEARCH_LOOKBACK).timestamp())
     found: dict[tuple[str, str], _FoundMessage] = {}
-    # The person's own messages, then the messages that mention them.
-    for query in (f"from:<@{slack_user_id}>", f"<@{slack_user_id}>"):
-        cursor = ""
-        for _ in range(SEARCH_PAGES):
-            decision = consume(f"slack_app:work_focus_search:{integration.integration_id}", SEARCH_BUDGET)
-            if isinstance(decision, BucketDecision) and not decision.allowed:
-                raise WorkFocusRateLimited
-            params: dict[str, Any] = {
-                "query": query,
-                "channel_types": ",".join(channel_types),
-                "content_types": "messages",
-                "sort": "timestamp",
-                "after": after,
-                "limit": SEARCH_LIMIT,
-                "include_bots": False,
-            }
-            if cursor:
-                params["cursor"] = cursor
-            try:
-                response = client.api_call("assistant.search.context", params=params)
-            except SlackApiError as error:
-                if (error.response or {}).get("error") == "ratelimited":
-                    raise WorkFocusRateLimited from error
-                logger.warning("slack_app_work_focus_search_failed", error=(error.response or {}).get("error"))
-                return None
-            except (SlackClientError, OSError):
-                logger.warning("slack_app_work_focus_search_failed", exc_info=True)
-                return None
-            for message in ((response.get("results") or {}).get("messages")) or []:
-                content = str(message.get("content") or "").strip()
-                key = (str(message.get("channel_id") or ""), str(message.get("message_ts") or ""))
-                if content and not message.get("is_author_bot") and key not in found:
-                    channel_name = message.get("channel_name")
-                    permalink = message.get("permalink")
-                    author_id = message.get("author_user_id")
-                    found[key] = _FoundMessage(
-                        content=content[:MAX_MESSAGE_CHARS],
-                        # A DM has no channel name worth showing, so only channels keep theirs.
-                        channel_name=channel_name
-                        if isinstance(channel_name, str) and channel_name and key[0][:1] in ("C", "G")
-                        else None,
-                        author_id=author_id if isinstance(author_id, str) and author_id else None,
-                        permalink=permalink
-                        if isinstance(permalink, str) and permalink.startswith("https://")
-                        else None,
-                    )
-            cursor = str((response.get("response_metadata") or {}).get("next_cursor") or "")
-            if not cursor:
-                break
+    # All calls are reserved at once, so two runs cannot each take one call and both fail on the next one.
+    bucket = f"slack_app:work_focus_search:{integration.integration_id}"
+    decision = consume(bucket, SEARCH_BUDGET, cost=SEARCH_CALLS)
+    if isinstance(decision, BucketDecision) and not decision.allowed:
+        raise WorkFocusRateLimited
+    calls = 0
+    try:
+        # The person's own messages, then the messages that mention them.
+        for query in (f"from:<@{slack_user_id}>", f"<@{slack_user_id}>"):
+            cursor = ""
+            for _ in range(SEARCH_PAGES):
+                params: dict[str, Any] = {
+                    "query": query,
+                    "channel_types": ",".join(channel_types),
+                    "content_types": "messages",
+                    "sort": "timestamp",
+                    "after": after,
+                    "limit": SEARCH_LIMIT,
+                    "include_bots": False,
+                }
+                if cursor:
+                    params["cursor"] = cursor
+                calls += 1
+                try:
+                    response = client.api_call("assistant.search.context", params=params)
+                except SlackApiError as error:
+                    if (error.response or {}).get("error") == "ratelimited":
+                        raise WorkFocusRateLimited from error
+                    logger.warning("slack_app_work_focus_search_failed", error=(error.response or {}).get("error"))
+                    return None
+                except (SlackClientError, OSError):
+                    logger.warning("slack_app_work_focus_search_failed", exc_info=True)
+                    return None
+                for message in ((response.get("results") or {}).get("messages")) or []:
+                    _collect(found, message)
+                cursor = str((response.get("response_metadata") or {}).get("next_cursor") or "")
+                if not cursor:
+                    break
+    finally:
+        if calls < SEARCH_CALLS:
+            refund(bucket, SEARCH_BUDGET, SEARCH_CALLS - calls)
     return list(found.values())
+
+
+def _collect(found: dict[tuple[str, str], _FoundMessage], message: dict[str, Any]) -> None:
+    content = str(message.get("content") or "").strip()
+    key = (str(message.get("channel_id") or ""), str(message.get("message_ts") or ""))
+    if not content or message.get("is_author_bot") or key in found:
+        return
+    channel_name = message.get("channel_name")
+    permalink = message.get("permalink")
+    author_id = message.get("author_user_id")
+    found[key] = _FoundMessage(
+        content=content[:MAX_MESSAGE_CHARS],
+        # A DM has no channel name worth showing, so only channels keep theirs.
+        channel_name=channel_name
+        if isinstance(channel_name, str) and channel_name and key[0][:1] in ("C", "G")
+        else None,
+        author_id=author_id if isinstance(author_id, str) and author_id else None,
+        permalink=permalink if isinstance(permalink, str) and permalink.startswith("https://") else None,
+    )
 
 
 def _rank(integration: WorkspaceIntegration, messages: list[_FoundMessage]) -> list[_FoundMessage]:
@@ -390,8 +419,9 @@ def work_focus_blocks(integration: WorkspaceIntegration, focus: WorkFocus, slack
                     "type": "button",
                     "text": {"type": "plain_text", "text": "Do it 🚀", "emoji": True},
                     "action_id": WORK_FOCUS_TASK_ACTION_ID,
-                    # The full request opens the task's thread, so the person sees what runs.
-                    "value": json.dumps(value, separators=(",", ":")),
+                    # The full request opens in a thread for the person to read before anything runs. Unicode stays as
+                    # is, because escaping it can push the value past Slack's 2,000 characters.
+                    "value": json.dumps(value, separators=(",", ":"), ensure_ascii=False),
                 },
             }
         )
@@ -401,16 +431,69 @@ def work_focus_blocks(integration: WorkspaceIntegration, focus: WorkFocus, slack
     return blocks
 
 
-def mark_work_focus_started(blocks: list[dict], block_id: str) -> list[dict]:
-    """The DM's blocks with the clicked suggestion's button replaced by a note, so it cannot start twice."""
+@frozen
+class WorkFocusChoice:
+    integration_id: int
+    request: str
+    source: str | None
+    source_line: str | None
+
+
+def read_work_focus_choice(action: dict[str, Any] | None) -> WorkFocusChoice | None:
+    value = read_action_value(action) if action else None
+    if not value:
+        return None
+    integration_id = value.get("integration_id")
+    request = str(value.get("request") or "").strip()
+    source = value.get("source")
+    source = source if isinstance(source, str) and source.startswith("https://") else None
+    line = value.get("source_line")
+    line = line if source and isinstance(line, str) and len(line) <= 500 else None
+    if not isinstance(integration_id, int) or not request:
+        return None
+    return WorkFocusChoice(integration_id=integration_id, request=request, source=source, source_line=line)
+
+
+def work_focus_opened_blocks(blocks: list[dict], opened_block_ids: set[str]) -> list[dict]:
+    """The DM's blocks with each opened suggestion's button replaced by a note, so the DM never brings one back."""
     marked = []
     for block in blocks:
-        if block.get("block_id") == block_id and block.get("type") == "section":
+        if block.get("block_id") in opened_block_ids and block.get("type") == "section" and "accessory" in block:
             text = (block.get("text") or {}).get("text") or ""
             block = {key: value for key, value in block.items() if key != "accessory"}
-            block["text"] = {"type": "mrkdwn", "text": f"{text}\n✅ Started, see below"}
+            block["text"] = {"type": "mrkdwn", "text": f"{text}\n👇 Opened below"}
         marked.append(block)
     return marked
+
+
+def work_focus_review_blocks(choice: WorkFocusChoice) -> list[dict]:
+    """The full request, shown before it runs. The model writes it from other people's messages too, so the
+    person reads what runs under their name before they start it."""
+    value = {"integration_id": choice.integration_id, "request": choice.request}
+    if choice.source and choice.source_line:
+        value |= {"source": choice.source, "source_line": choice.source_line}
+    blocks: list[dict] = [section_block(f"*Here's what I'd ask*\n{choice.request}")]
+    if choice.source_line:
+        blocks.append(context_block(choice.source_line))
+    blocks.append(
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Start 🚀", "emoji": True},
+                    "style": "primary",
+                    "action_id": WORK_FOCUS_START_ACTION_ID,
+                    "value": json.dumps(value, separators=(",", ":"), ensure_ascii=False),
+                }
+            ],
+        }
+    )
+    return blocks
+
+
+def work_focus_started_blocks(blocks: list[dict]) -> list[dict]:
+    return [block for block in blocks if block.get("type") != "actions"] + [context_block("✅ Started")]
 
 
 def start_work_focus(integration: WorkspaceIntegration, slack_user_id: str) -> None:
@@ -422,6 +505,9 @@ def start_work_focus(integration: WorkspaceIntegration, slack_user_id: str) -> N
             return
         token = linked_user_token(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
         if token is None or "search:read.public" not in token.scopes or not has_ai_approval(integration.team_id):
+            return
+        # A task started from the DM reads its thread with the bot, so suggestions need the bot's DM scope.
+        if SlackIntegration(integration).missing_scopes(frozenset({"im:history"})):
             return
         _start_workflow(integration, slack_user_id)
     except Exception:

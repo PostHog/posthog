@@ -19,6 +19,7 @@ from products.slack_app.backend.logic.onboarding.work_focus import (
     WorkFocus,
     WorkFocusRateLimited,
     WorkFocusSuggestion,
+    WorkFocusTransientError,
     find_and_send_work_focus,
     work_focus_blocks,
 )
@@ -118,6 +119,7 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
         patch(f"{WORK_FOCUS}.build_system_one_client") as ranker,
         patch(f"{WORK_FOCUS}.build_ai_gateway_openai_client") as writer,
         patch(f"{WORK_FOCUS}.consume", return_value=allowed) as bucket,
+        patch(f"{WORK_FOCUS}.refund") as refunded,
         patch(f"{WORK_FOCUS}.capture_slack_event"),
         patch("posthog.models.integration.slack.WebClient") as bot_client,
     ):
@@ -138,6 +140,7 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
             "ranker": ranker,
             "writer": writer,
             "bucket": bucket,
+            "refund": refunded,
             "bot": bot_client.return_value,
         }
 
@@ -155,6 +158,9 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
 
     searches = slack["search"].return_value.api_call.call_args_list
     assert len(searches) == 4
+    # All six calls are reserved at once, and the two the search did not need go back.
+    assert slack["bucket"].call_args.kwargs["cost"] == 6
+    assert slack["refund"].call_args.args[2] == 2
     assert [call.kwargs["params"].get("cursor") for call in searches] == [None, "page-2", None, "page-2"]
     assert {call.kwargs["params"]["channel_types"] for call in searches} == {"public_channel,im"}
     assert slack["ranker"].call_args.kwargs["privacy_mode"] is True
@@ -187,7 +193,6 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
         ("no_search_scope", "users:read", 6, False),
         ("not_enough_messages", "search:read.public", 3, False),
         ("nothing_actionable", "search:read.public", 5, False),
-        ("model_failed", "search:read.public", 6, True),
     ],
 )
 def test_sends_nothing_without_a_usable_search_or_answer(
@@ -211,31 +216,48 @@ def test_sends_nothing_without_a_usable_search_or_answer(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("rate_limited", [True, False])
-def test_runs_that_cannot_start_yet_store_nothing_so_they_run_later(
-    rate_limited: bool, org_team_user, link_user, slack: dict[str, MagicMock]
+@pytest.mark.parametrize("reason", ["rate_limited", "no_ai_consent", "model_failed"])
+def test_runs_that_cannot_finish_yet_store_nothing_so_they_run_later(
+    reason: str, org_team_user, link_user, slack: dict[str, MagicMock]
 ) -> None:
     org, team, user = org_team_user
     integration = _install(team)
     link_user(user, user_scopes="search:read.public")
-    if rate_limited:
+    if reason == "rate_limited":
         slack["bucket"].return_value = BucketDecision(allowed=False, remaining=0, limit=10, retry_after=6, reset=60)
         with pytest.raises(WorkFocusRateLimited):
             find_and_send_work_focus(integration, SLACK_USER_ID)
-    else:
+    elif reason == "no_ai_consent":
         Organization.objects.filter(id=org.id).update(is_ai_data_processing_approved=False)
         assert find_and_send_work_focus(integration, SLACK_USER_ID) == "no_ai_consent"
+    else:
+        slack["writer"].return_value.with_options.return_value.chat.completions.create.side_effect = TimeoutError()
+        with pytest.raises(WorkFocusTransientError):
+            find_and_send_work_focus(integration, SLACK_USER_ID)
 
-    slack["search"].return_value.api_call.assert_not_called()
+    assert slack["search"].return_value.api_call.called is (reason == "model_failed")
+    slack["bot"].chat_postMessage.assert_not_called()
     assert resolve_onboarding(SLACK_TEAM_ID, SLACK_USER_ID) is None
+
+
+@pytest.mark.django_db
+def test_a_dm_that_may_have_gone_out_is_never_sent_twice(org_team_user, link_user, slack: dict[str, MagicMock]) -> None:
+    _, team, user = org_team_user
+    integration = _install(team)
+    link_user(user, user_scopes="search:read.public")
+    slack["bot"].chat_postMessage.side_effect = TimeoutError()
+
+    with pytest.raises(TimeoutError):
+        find_and_send_work_focus(integration, SLACK_USER_ID)
+    assert find_and_send_work_focus(integration, SLACK_USER_ID) == "already_done"
+
+    slack["bot"].chat_postMessage.assert_called_once()
 
 
 @pytest.mark.django_db
 @override_settings(DEBUG=True)
 @patch("products.slack_app.backend.api.SlackIntegration")
-def test_a_suggestion_starts_its_request_in_a_new_dm_thread_once_and_loses_its_button(
-    mock_slack_cls: MagicMock, org_team_user
-) -> None:
+def test_do_it_shows_the_request_and_only_start_runs_it_once(mock_slack_cls: MagicMock, org_team_user) -> None:
     _, team, user = org_team_user
     cache.clear()
     integration = _install(team)
@@ -258,23 +280,25 @@ def test_a_suggestion_starts_its_request_in_a_new_dm_thread_once_and_loses_its_b
         ],
     )
     blocks = work_focus_blocks(integration, focus, SLACK_USER_ID)
-    clicked = blocks[1]
-    payload = {
-        "type": "block_actions",
-        "team": {"id": SLACK_TEAM_ID},
-        "user": {"id": SLACK_USER_ID},
-        "container": {"type": "message", "channel_id": "D1", "message_ts": "1690.1"},
-        "message": {"ts": "1690.1", "text": focus.intro, "blocks": blocks},
-        "actions": [
-            {
-                "action_id": clicked["accessory"]["action_id"],
-                "block_id": clicked["block_id"],
-                "value": clicked["accessory"]["value"],
-            }
-        ],
-    }
-    body = f"payload={json.dumps(payload)}"
-    signed = sign_slack_request(body.encode(), secret)
+
+    def click(message_ts: str, message_blocks: list[dict], button: dict, block_id: str | None = None) -> None:
+        payload = {
+            "type": "block_actions",
+            "team": {"id": SLACK_TEAM_ID},
+            "user": {"id": SLACK_USER_ID},
+            "container": {"type": "message", "channel_id": "D1", "message_ts": message_ts},
+            "message": {"ts": message_ts, "text": "dm", "blocks": message_blocks},
+            "actions": [{"action_id": button["action_id"], "block_id": block_id, "value": button["value"]}],
+        }
+        body = f"payload={json.dumps(payload)}"
+        signed = sign_slack_request(body.encode(), secret)
+        response = APIClient().post(
+            "/slack/interactivity-callback/",
+            data=body,
+            content_type="application/x-www-form-urlencoded",
+            headers={"x-slack-signature": signed.signature, "x-slack-request-timestamp": signed.timestamp},
+        )
+        assert response.status_code == 200
 
     with (
         patch("products.slack_app.backend.api._is_org_member", return_value=user),
@@ -283,13 +307,21 @@ def test_a_suggestion_starts_its_request_in_a_new_dm_thread_once_and_loses_its_b
         patch("products.slack_app.backend.api.capture_slack_event"),
     ):
         for _ in range(2):
-            response = APIClient().post(
-                "/slack/interactivity-callback/",
-                data=body,
-                content_type="application/x-www-form-urlencoded",
-                headers={"x-slack-signature": signed.signature, "x-slack-request-timestamp": signed.timestamp},
-            )
-            assert response.status_code == 200
+            click("1690.1", blocks, blocks[1]["accessory"], blocks[1]["block_id"])
+        # The model writes the request from other people's messages too, so nothing runs before the person reads it.
+        start.assert_not_called()
+        bot.chat_postMessage.assert_called_once()
+        review = bot.chat_postMessage.call_args.kwargs
+        shown = all_block_text(review["blocks"])
+        assert REQUEST in shown and f"<{source}|Here's the thread> with <@U_ANDY> in #product" in shown
+        assert review["unfurl_links"] is False
+        opened = bot.chat_update.call_args.kwargs["blocks"]
+        assert "accessory" not in opened[1] and "Opened below" in opened[1]["text"]["text"]
+        assert "accessory" in opened[2]
+
+        start_button = review["blocks"][-1]["elements"][0]
+        for _ in range(2):
+            click("1700.1", review["blocks"], start_button, "review_actions")
 
     start.assert_called_once()
     assert start.call_args.args[0] == {
@@ -300,10 +332,5 @@ def test_a_suggestion_starts_its_request_in_a_new_dm_thread_once_and_loses_its_b
         "thread_ts": "1700.1",
         "text": f"{REQUEST}\n\nThe Slack message this came from: {source}",
     }
-    starter = bot.chat_postMessage.call_args.kwargs
-    assert REQUEST in starter["text"] and starter["unfurl_links"] is False
-    assert f"<{source}|Here's the thread> with <@U_ANDY> in #product" in starter["text"]
-    bot.chat_update.assert_called_once()
-    updated = bot.chat_update.call_args.kwargs["blocks"]
-    assert "accessory" not in updated[1] and "Started" in updated[1]["text"]["text"]
-    assert "accessory" in updated[2]
+    started = bot.chat_update.call_args.kwargs["blocks"]
+    assert all(block["type"] != "actions" for block in started) and "Started" in all_block_text(started)
