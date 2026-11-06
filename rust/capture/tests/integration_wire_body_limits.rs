@@ -200,12 +200,11 @@ async fn every_v0_analytics_route_accepts_a_body_under_the_wire_cap() {
     }
 }
 
-/// `/i/v0/ai/batch` carries the same handler, but it lives in its own router
-/// group that only capture-ai registers, with the larger AI cap so one event at
-/// the shared ceiling fits. That split is what makes this worth pinning apart: a
-/// group added without the `WireBodyLimit` extension falls back to the
-/// decompressed budget, a group left on the batch cap refuses large AI events,
-/// and no Events-mode sweep would notice either.
+/// `/i/v0/ai/batch` carries the same handler and the AI cap, but it lives in
+/// its own router group that only capture-ai registers. That split is what makes
+/// this worth pinning apart: a group added without the `WireBodyLimit` extension
+/// falls back to the decompressed budget and reverts the fix on this one route,
+/// and no Events-mode sweep would notice.
 #[tokio::test]
 async fn the_ai_batch_route_carries_the_ai_wire_cap() {
     let (client, sink) = make_test_client(CaptureMode::Ai);

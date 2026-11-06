@@ -41,8 +41,7 @@ pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB
 
 const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB
 
-/// One event at the shared ceiling, plus the 10% the multipart route allows
-/// for framing. Each token's own cap is checked per event after the read.
+/// One event at the shared ceiling, plus the 10% multipart allows for framing.
 pub const AI_BODY_SIZE: usize =
     (AI_MAX_EVENT_BYTES_CEILING + AI_MAX_EVENT_BYTES_CEILING / 10) as usize;
 
@@ -165,8 +164,7 @@ async fn index() -> &'static str {
     "capture"
 }
 
-/// `/i/v1/ai/events` shares the v1 knobs with v1 analytics, so only capture-ai
-/// raises them to `AI_BODY_SIZE`.
+/// v1 AI shares these knobs with v1 analytics, so only capture-ai raises them.
 fn v1_body_limit(capture_mode: CaptureMode, configured: usize) -> usize {
     match capture_mode {
         CaptureMode::Ai => configured.max(AI_BODY_SIZE),
@@ -288,8 +286,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // ingress can route them to the capture-ai deployment and keep AI and
     // analytics workloads isolated. Its own router rather than a member of
     // `batch_router` so capture-ai can serve this path without also serving the
-    // analytics batch and event routes, and rather than a member of `ai_router`,
-    // whose body limit follows the multipart setting.
+    // analytics batch and event routes.
     let ai_batch_router = Router::new()
         .route(
             "/i/v0/ai/batch",

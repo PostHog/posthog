@@ -116,7 +116,6 @@ fn nanos_to_datetime(nanos: u64) -> Option<DateTime<Utc>> {
     Utc.timestamp_opt(secs, nsecs).single()
 }
 
-/// Protobuf bytes of the resource copies [`expand_into_events`] makes, one per AI span.
 pub fn resource_copy_bytes(request: &ExportTraceServiceRequest) -> usize {
     request
         .resource_spans

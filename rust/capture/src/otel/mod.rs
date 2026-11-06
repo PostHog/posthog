@@ -175,8 +175,8 @@ pub async fn otel_handler(
     }
 
     // Cap raw spans before doing any expensive attribute conversion. The body
-    // size limit bounds the absolute maximum, but compact protobuf can pack
-    // many spans into that budget.
+    // size limit bounds the absolute maximum, but compact protobuf can
+    // pack many spans into that budget.
     if raw_span_count > MAX_RAW_SPANS_PER_REQUEST {
         let err = CaptureError::RequestParsingError(format!(
             "Too many spans: {raw_span_count} exceeds limit of {MAX_RAW_SPANS_PER_REQUEST}"
@@ -192,8 +192,7 @@ pub async fn otel_handler(
         return Err(err.into_response());
     }
 
-    // Each AI span gets its own copy of its resource's attributes, so one large
-    // resource shared by many spans would expand far past the body it came in.
+    // Each AI span gets its own copy of its resource, which can expand far past the body.
     let resource_copy_bytes = fan_out::resource_copy_bytes(&request);
     if resource_copy_bytes > OTEL_BODY_SIZE {
         let err = CaptureError::RequestParsingError(format!(
