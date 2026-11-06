@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "retention_months": {
+            "anyOf": [
+                {
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The period in months, one of `retention_months_choices` from organization-events-retention-get. Null removes the organization's period, so projects without their own period use the default period."
+        }
+    },
+    "required": ["retention_months"],
+    "type": "object"
+}
