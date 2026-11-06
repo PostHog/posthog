@@ -101,6 +101,9 @@ def _catalog_key(evaluation: Evaluation) -> str | None:
     for template in catalog.templates().values():
         if template.evaluation_type != evaluation.evaluation_type:
             continue
+        # A built-in type such as sentiment has no prompt or source, so its type alone identifies it.
+        if template.prompt is None and template.source is None:
+            return template.key
         if template.prompt is not None and template.prompt.strip() == str(config.get("prompt", "")).strip():
             return template.key
         if template.source is not None and template.source.strip() == str(config.get("source", "")).strip():
@@ -341,7 +344,9 @@ def _filter_fix(
                 )
                 matching = _count_matching(team, conditions, start, end)
                 if matching == 0:
-                    return None
+                    # Another condition set may still hold the stale value, so undo this guess and keep looking.
+                    prop["value"] = value
+                    continue
                 return FilterFix(
                     patch={"conditions": conditions},
                     weekly_units=matching,

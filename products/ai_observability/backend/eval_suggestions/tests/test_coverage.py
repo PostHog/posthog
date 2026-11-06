@@ -194,3 +194,49 @@ class TestFetchCoverage(ClickhouseTestMixin, APIBaseTest):
         coverage = fetch_coverage(self.team, end - timedelta(days=7), end)
 
         assert [fix.problem for fix in coverage.fixes] == (["one_outcome"] if shared else [])
+
+    def test_a_built_in_sentiment_eval_counts_as_the_sentiment_template(self) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        Evaluation.objects.create(
+            team=self.team,
+            name="User frustration",
+            evaluation_type="sentiment",
+            evaluation_config={},
+            output_type="sentiment",
+            output_config={},
+            target="generation",
+            enabled=True,
+            conditions=ALL_TRAFFIC,
+        )
+
+        coverage = fetch_coverage(self.team, end - timedelta(days=7), end)
+
+        assert [e.template_key for e in coverage.evals] == ["sentiment"]
+
+    def test_a_repair_that_matches_nothing_does_not_stop_the_search(self) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        self._generations(end, ("signals_scout", "billing"))
+        product = {"key": "ai_product", "operator": "exact", "type": "event"}
+        evaluation = self._evaluation("Two branches", None)
+        # The first branch still matches nothing once `signals` becomes `signals_scout`, since no traffic is staging.
+        Evaluation.objects.filter(pk=evaluation.pk).update(
+            conditions=[
+                {
+                    "id": "a",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {**product, "value": ["signals"]},
+                        {"key": "env", "value": ["staging"], "operator": "exact", "type": "event"},
+                    ],
+                },
+                {"id": "b", "rollout_percentage": 100, "properties": [{**product, "value": ["billng"]}]},
+            ]
+        )
+
+        coverage = fetch_coverage(self.team, end - timedelta(days=7), end)
+
+        [fix] = coverage.fixes
+        assert fix.filter_change is not None
+        assert (fix.filter_change.old_value, fix.filter_change.new_value) == ("billng", "billing")
+        assert fix.patch is not None
+        assert fix.patch["conditions"][0]["properties"][0]["value"] == ["signals"]
