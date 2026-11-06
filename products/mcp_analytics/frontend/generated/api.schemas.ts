@@ -7,6 +7,40 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface MCPCustomHarnessApi {
+    readonly id: string
+    /**
+     * Name to show for calls from this harness.
+     * @maxLength 100
+     * @pattern ^[\w .+&()/-]+$
+     */
+    name: string
+    /**
+     * Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`.
+     * @maxLength 100
+     */
+    match_pattern: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PatchedMCPCustomHarnessApi {
+    readonly id?: string
+    /**
+     * Name to show for calls from this harness.
+     * @maxLength 100
+     * @pattern ^[\w .+&()/-]+$
+     */
+    name?: string
+    /**
+     * Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`.
+     * @maxLength 100
+     */
+    match_pattern?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
 /**
  * * `feedback` - Feedback
  * * `missing_capability` - Missing capability
