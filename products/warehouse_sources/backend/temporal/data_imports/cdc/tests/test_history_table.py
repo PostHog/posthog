@@ -36,6 +36,7 @@ _PH_HISTORY_NAMING_FLAG = (
 _GET_S3_CLIENT = "products.data_warehouse.backend.facade.api.get_s3_client"
 # The load queue lives in the warehouse-sources database, which these tests do not create.
 _HAS_QUEUED_BATCHES = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.has_queued_batches"
+_WORKFLOW_IS_RUNNING = "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane._workflow_is_running"
 
 
 @patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
@@ -252,9 +253,23 @@ class TestDropHistoryTable(BaseTest):
         ]
         self.folder = folder
 
-    def _drop(self, *, queued: bool = False) -> DataWarehouseTable | None:
-        with patch(_GET_S3_CLIENT, return_value=self.s3), patch(_HAS_QUEUED_BATCHES, return_value=queued):
+    def _drop(self, *, queued: bool | Exception = False, workflow_running: bool = False) -> DataWarehouseTable | None:
+        queue = {"side_effect": queued} if isinstance(queued, Exception) else {"return_value": queued}
+        with (
+            patch(_GET_S3_CLIENT, return_value=self.s3),
+            patch(_HAS_QUEUED_BATCHES, **queue),
+            patch(_WORKFLOW_IS_RUNNING, return_value=workflow_running),
+        ):
             return drop_history_table(self.schema)
+
+    def _running_job(self) -> None:
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=self.source,
+            schema=self.schema,
+            status=ExternalDataJob.Status.RUNNING,
+            workflow_id="sync-workflow",
+        )
 
     @parameterized.expand([("consolidated_kept_it", False), ("cdc_only_linked_it", True)])
     def test_drop_deletes_the_files_and_the_record_and_forgets_the_naming(self, _name: str, linked: bool) -> None:
@@ -287,7 +302,8 @@ class TestDropHistoryTable(BaseTest):
 
     @parameterized.expand(
         [
-            ("mode_still_writes_it", "both", False, False),
+            # Saved after the caller loaded the schema, so only the stored row says so.
+            ("history_switched_back_on", "both", False, False),
             ("job_running", "consolidated", True, False),
             ("batches_in_the_load_queue", "consolidated", False, True),
         ]
@@ -295,15 +311,46 @@ class TestDropHistoryTable(BaseTest):
     def test_drop_is_refused_while_the_table_can_still_be_written(
         self, _name: str, mode: str, job_running: bool, queued: bool
     ) -> None:
-        self.schema.sync_type_config["cdc_table_mode"] = mode
-        self.schema.save()
+        ExternalDataSchema.objects.filter(id=self.schema.id).update(
+            sync_type_config={**self.schema.sync_type_config, "cdc_table_mode": mode}
+        )
         if job_running:
-            ExternalDataJob.objects.create(
-                team=self.team, pipeline=self.source, schema=self.schema, status=ExternalDataJob.Status.RUNNING
-            )
+            self._running_job()
 
         with pytest.raises(HistoryTableDropRefusedError):
-            self._drop(queued=queued)
+            self._drop(queued=queued, workflow_running=job_running)
+
+        self.history.refresh_from_db()
+        assert not self.history.deleted
+        self.s3.rm.assert_not_called()
+
+    def test_a_storage_failure_keeps_the_record_so_a_retry_finishes(self) -> None:
+        self.s3.rm.side_effect = OSError("SlowDown")
+
+        with pytest.raises(OSError):
+            self._drop()
+
+        self.history.refresh_from_db()
+        self.schema.refresh_from_db()
+        assert not self.history.deleted
+        assert self.schema.sync_type_config["history_naming"] == "legacy"
+
+    def test_a_running_job_row_whose_workflow_closed_does_not_block_the_drop(self) -> None:
+        self._running_job()
+
+        assert self._drop(workflow_running=False) == self.history
+
+    def test_a_failed_queue_check_refuses_the_drop_instead_of_erroring(self) -> None:
+        with pytest.raises(HistoryTableDropRefusedError, match="couldn't check"):
+            self._drop(queued=OSError("connection refused"))
+
+        self.history.refresh_from_db()
+        assert not self.history.deleted
+
+    def test_an_unmarked_table_under_the_legacy_name_is_not_dropped(self) -> None:
+        DataWarehouseTable.objects.filter(id=self.history.id).update(options={})
+
+        assert self._drop() is None
 
         self.history.refresh_from_db()
         assert not self.history.deleted

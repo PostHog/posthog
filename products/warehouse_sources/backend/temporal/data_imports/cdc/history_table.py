@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q, QuerySet
 
 from posthog.exceptions_capture import capture_exception
@@ -15,10 +16,7 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 
 from products.warehouse_sources.backend.facade.contracts import HistoryTableDropRefusedError
-from products.warehouse_sources.backend.models.external_data_schema import (
-    ExternalDataSchema,
-    update_sync_type_config_keys,
-)
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HISTORY_NAMING_OPTION, PH_HISTORY_NAMING, DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
@@ -107,11 +105,9 @@ def _registered_history(schema: ExternalDataSchema) -> tuple[DataWarehouseTable,
     if naming is None:
         return None
     table = tables[naming]
-    # A pinned folder can give the schema's own table the legacy history name.
-    own_name = build_table_name(
-        schema.source, resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name).table_storage_name
-    )
-    if table.name == own_name and not table.is_history_table:
+    # The naming lookup also accepts an unmarked legacy name, which an unrelated table can carry. A delete
+    # can't be undone, so it takes only a table the sync marked.
+    if not table.is_history_table:
         return None
     return table, naming
 
@@ -316,28 +312,41 @@ HISTORY_TABLE_STILL_WRITTEN_ERROR = (
     "This table still writes its history table. Switch it to the consolidated table only, or off change data "
     "capture, before you delete the history table."
 )
+HISTORY_TABLE_CHECK_FAILED_ERROR = (
+    "PostHog couldn't check whether a sync of this table is still running. Try again in a few minutes."
+)
 HISTORY_TABLE_SYNC_IN_FLIGHT_ERROR = (
     "A sync of this table is still running and could still write to its history table. Try again once it "
     "finishes, or cancel it first."
 )
 
 
-def history_sync_in_flight(schema: ExternalDataSchema) -> bool:
-    """Whether a sync that read an earlier mode could still write the schema's history table.
+def assert_history_table_droppable(schema: ExternalDataSchema, *, keeps_history: bool | None = None) -> None:
+    """Raise `HistoryTableDropRefusedError` while the schema's history table can still be written.
 
-    A running job may have read a mode that writes history before the switch was saved, and its batches
-    can still be in the load queue after its workflow ends.
+    `keeps_history` is what a pending save leaves. None reads the stored row, which the caller's copy can
+    predate. A sync that read an earlier mode can still write the table while its workflow runs, and its
+    batches can still be in the load queue after that.
     """
-    # Deferred: the job model imports this module's models, and source_manager pulls in the pipeline.
-    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob  # noqa: PLC0415
+    # Deferred: source_manager pulls in the pipeline.
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (  # noqa: PLC0415
+        running_sync_workflow_id,
+    )
     from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (  # noqa: PLC0415
         has_queued_batches,
     )
 
-    running = ExternalDataJob.objects.filter(
-        team_id=schema.team_id, schema_id=schema.id, status=ExternalDataJob.Status.RUNNING
-    ).exists()
-    return running or has_queued_batches(schema)
+    if keeps_history is None:
+        keeps_history = ExternalDataSchema.objects.get(id=schema.id, team_id=schema.team_id).keeps_history
+    if keeps_history:
+        raise HistoryTableDropRefusedError(HISTORY_TABLE_STILL_WRITTEN_ERROR)
+    try:
+        in_flight = running_sync_workflow_id(schema) is not None or has_queued_batches(schema)
+    except Exception as e:
+        capture_exception(e)
+        raise HistoryTableDropRefusedError(HISTORY_TABLE_CHECK_FAILED_ERROR) from e
+    if in_flight:
+        raise HistoryTableDropRefusedError(HISTORY_TABLE_SYNC_IN_FLIGHT_ERROR)
 
 
 def drop_history_table(schema: ExternalDataSchema) -> DataWarehouseTable | None:
@@ -345,48 +354,52 @@ def drop_history_table(schema: ExternalDataSchema) -> DataWarehouseTable | None:
 
     Returns the dropped table, or None when the schema has no history table. Raises
     `HistoryTableDropRefusedError` while the schema's mode writes the table, or while a sync could still
-    write to it. A later switch back to a history mode then creates a new history table under the naming
-    new tables get at that time.
+    write to it. A storage error propagates and leaves the record, so a retry deletes the rest. A later
+    switch back to a history mode then creates a new history table under the naming new tables get at
+    that time.
     """
     registered = _registered_history(schema)
     if registered is None:
         return None
     table, naming = registered
-    if schema.keeps_history:
-        raise HistoryTableDropRefusedError(HISTORY_TABLE_STILL_WRITTEN_ERROR)
-    if history_sync_in_flight(schema):
-        raise HistoryTableDropRefusedError(HISTORY_TABLE_SYNC_IN_FLIGHT_ERROR)
+    assert_history_table_droppable(schema)
 
     folder_name = NamingConvention.normalize_identifier(companion_resource_name(schema.name, naming))
     _delete_history_files(schema, folder_name)
 
     query_folder_prefix = f"{folder_name}__query"
-
-    def forget_query_folders(config: dict[str, Any]) -> None:
+    with transaction.atomic():
+        # Under the row lock that every mode change saves under, so a switch back to history either
+        # landed before this check or waits for the record to go.
+        locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
+        if locked.keeps_history:
+            raise HistoryTableDropRefusedError(HISTORY_TABLE_STILL_WRITTEN_ERROR)
+        config = locked.sync_type_config or {}
+        config.pop(HISTORY_NAMING_OPTION, None)
         states = config.get(QUERY_FOLDER_STATE_KEY)
         if isinstance(states, dict):
             states.pop(query_folder_prefix, None)
-
-    schema.sync_type_config = update_sync_type_config_keys(
-        schema.id, schema.team_id, removes=[HISTORY_NAMING_OPTION], mutate=forget_query_folders
-    )
-    # cdc_only links the schema to its history table.
-    if schema.table_id == table.id:
-        ExternalDataSchema.objects.filter(id=schema.id, team_id=schema.team_id, table_id=table.id).update(table=None)
-        schema.table = None
-
-    table.soft_delete()
-    # As the table view logs a deleted table: the name only, because a reader may be denied the table.
-    log_activity(
-        organization_id=table.team.organization_id,
-        team_id=table.team_id,
-        user=get_current_user(),
-        was_impersonated=get_was_impersonated(),
-        item_id=table.id,
-        scope="DataWarehouseTable",
-        activity="deleted",
-        detail=Detail(name=table.name),
-    )
+        locked.sync_type_config = config
+        update_fields = ["sync_type_config", "updated_at"]
+        # cdc_only links the schema to its history table.
+        if locked.table_id == table.id:
+            locked.table = None
+            update_fields.append("table")
+        locked.save(update_fields=update_fields, skip_activity_log=True)
+        table.soft_delete()
+        # As the table view logs a deleted table: the name only, because a reader may be denied the table.
+        log_activity(
+            organization_id=table.team.organization_id,
+            team_id=table.team_id,
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+            item_id=table.id,
+            scope="DataWarehouseTable",
+            activity="deleted",
+            detail=Detail(name=table.name),
+        )
+    schema.sync_type_config = locked.sync_type_config
+    schema.table = locked.table
     return table
 
 
@@ -394,23 +407,17 @@ def _delete_history_files(schema: ExternalDataSchema, folder_name: str) -> None:
     """Delete the history table's Delta folder and its `<table>__query*` copies under the schema's folder."""
     from products.data_warehouse.backend.facade.api import get_s3_client  # noqa: PLC0415
 
-    schema_folder = f"{settings.BUCKET_URL}/{schema.folder_path()}"
+    s3 = get_s3_client()
+    s3.invalidate_cache()
     try:
-        s3 = get_s3_client()
-        s3.invalidate_cache()
-        try:
-            entries = s3.ls(schema_folder, detail=False)
-        except FileNotFoundError:
-            return
-        # The folder holds only this schema's tables, so the prefix match can't reach another table's copies.
-        targets = [
-            entry
-            for entry in entries
-            if (leaf := entry.rstrip("/").rsplit("/", 1)[-1]) == folder_name or leaf.startswith(f"{folder_name}__query")
-        ]
-        if targets:
-            s3.rm(targets, recursive=True)
-    except Exception as e:
-        # As `ExternalDataSchema.delete_table`: the record goes regardless, and a new history table
-        # purges its folder before it writes.
-        capture_exception(e)
+        entries = s3.ls(f"{settings.BUCKET_URL}/{schema.folder_path()}", detail=False)
+    except FileNotFoundError:
+        return
+    # The folder holds only this schema's tables, so the prefix match can't reach another table's copies.
+    targets = [
+        entry
+        for entry in entries
+        if (leaf := entry.rstrip("/").rsplit("/", 1)[-1]) == folder_name or leaf.startswith(f"{folder_name}__query")
+    ]
+    if targets:
+        s3.rm(targets, recursive=True)

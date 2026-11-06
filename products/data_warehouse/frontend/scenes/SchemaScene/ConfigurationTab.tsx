@@ -480,7 +480,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         const applyUpdate = async (dropHistoryTable = false): Promise<void> => {
             setSaving(true)
             try {
-                await externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentTeamId()), schema.id, {
+                const saved = await externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentTeamId()), schema.id, {
                     should_sync: true,
                     sync_type: syncType,
                     incremental_field: noIncrementalField ? null : incrementalField,
@@ -494,9 +494,15 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                     ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
                     ...(dropHistoryTable ? { drop_history_table: true } : {}),
                 })
-                lemonToast.success(
-                    dropHistoryTable ? 'Sync method saved and history table deleted' : 'Sync method saved'
-                )
+                if (dropHistoryTable && saved.registered_history_table_name) {
+                    lemonToast.warning(
+                        `Sync method saved, but ${saved.registered_history_table_name} was kept. A sync was still running or its files couldn't be deleted. Delete it from the danger zone later.`
+                    )
+                } else {
+                    lemonToast.success(
+                        dropHistoryTable ? 'Sync method saved and history table deleted' : 'Sync method saved'
+                    )
+                }
                 loadSchema()
             } catch (e: any) {
                 lemonToast.error(e?.message || "Can't save sync method at this time")
@@ -505,9 +511,9 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
             }
         }
 
-        // The last question before the save, so it also follows the confirmations below.
+        // Asked after the xmin and self-managed confirmations, right before the save.
         const askAboutHistoryThenApply = (): void => {
-            const historyTableName = schema.history_table_name
+            const historyTableName = schema.registered_history_table_name
             const keepsHistoryAfter = syncType === 'cdc' && (cdcTableMode ?? schema.cdc_table_mode) !== 'consolidated'
             if (!historyTableName || keepsHistoryAfter) {
                 void applyUpdate()
@@ -1495,7 +1501,8 @@ function DangerZoneSection({
     const hasFullCdcResync = schema.sync_type === 'cdc'
     const hasDeleteAndResync = schema.incremental || schema.sync_type === 'webhook' || schema.sync_type === 'xmin'
     const canDeleteTable = !!schema.table
-    const retiredHistoryTableName = schema.retired_history_table_name
+    const keepsHistory = schema.sync_type === 'cdc' && (schema.cdc_table_mode ?? 'consolidated') !== 'consolidated'
+    const retiredHistoryTableName = keepsHistory ? null : schema.registered_history_table_name
 
     if (!hasFullCdcResync && !hasDeleteAndResync && !canDeleteTable && !retiredHistoryTableName) {
         return (

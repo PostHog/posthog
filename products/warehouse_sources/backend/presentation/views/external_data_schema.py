@@ -76,8 +76,6 @@ from products.warehouse_sources.backend.facade.source_inputs import SourceInputs
 from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
-    HISTORY_TABLE_STILL_WRITTEN_ERROR,
-    HISTORY_TABLE_SYNC_IN_FLIGHT_ERROR,
     AnySource,
     Config,
     RowFilterValidationError,
@@ -86,6 +84,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     WebhookSource,
     add_table_failure_message,
     ambiguous_masked_columns,
+    assert_history_table_droppable,
     collision_alias_masked_columns,
     drop_history_table,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
@@ -94,7 +93,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     hand_reset_to_capture,
     hand_reset_to_capture_if_sync_running,
     history_naming_unless_taken,
-    history_sync_in_flight,
     history_table_name,
     is_another_schemas_history_table,
     is_history_table_mode,
@@ -1038,12 +1036,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "while a sync of the table is still running. Omit it, or send false, to keep the history table."
         ),
     )
-    retired_history_table_name = serializers.SerializerMethodField(
+    registered_history_table_name = serializers.SerializerMethodField(
         read_only=True,
         help_text=(
-            "Name of a history table this schema registered but no longer writes, which the "
-            "`history_table` delete endpoint can remove, or `null` when there is none. Only populated on the "
-            "single-schema retrieve endpoint, `null` elsewhere."
+            "Name of the history table registered for this schema, whether or not its mode still writes it, "
+            "or `null` when none is registered. One the schema no longer writes can be removed with the "
+            "`history_table` delete endpoint. Populated on the single-schema retrieve endpoint, and on an "
+            "update that sent `drop_history_table`, where a name means the history table was kept, for "
+            "example because a sync started meanwhile. `null` elsewhere."
         ),
     )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
@@ -1092,7 +1092,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "source_column_metadata_available",
             "history_table_name",
             "drop_history_table",
-            "retired_history_table_name",
+            "registered_history_table_name",
             "source",
             "api_version",
             "api_version_deprecation",
@@ -1117,7 +1117,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "available_columns",
             "source_column_metadata_available",
             "history_table_name",
-            "retired_history_table_name",
+            "registered_history_table_name",
             "source",
             "api_version_deprecation",
             "user_access_level",
@@ -1128,9 +1128,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         return history_table_name(schema)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_retired_history_table_name(self, schema: ExternalDataSchema) -> str | None:
+    def get_registered_history_table_name(self, schema: ExternalDataSchema) -> str | None:
         # Gated like `source`, so list endpoints skip the lookup.
-        if not self.context.get("include_source") or schema.keeps_history:
+        if not (self.context.get("include_source") or self.context.get("reports_history_drop")):
             return None
         table = registered_history_table(schema)
         return table.name if table is not None else None
@@ -2183,22 +2183,32 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         """The history table a request with `drop_history_table` deletes, or None when the schema has none."""
         resulting_sync_type = validated_data.get("sync_type", instance.sync_type)
         resulting_mode = (validated_data.get("sync_type_config", instance.sync_type_config) or {}).get("cdc_table_mode")
-        if resulting_sync_type == ExternalDataSchema.SyncType.CDC and is_history_table_mode(resulting_mode):
-            raise ValidationError({"drop_history_table": HISTORY_TABLE_STILL_WRITTEN_ERROR})
         table = registered_history_table(instance)
         if table is None:
             return None
         require_history_table_editor(self.context.get("request"), self.context.get("view"), table)
-        if history_sync_in_flight(instance):
-            raise ValidationError({"drop_history_table": HISTORY_TABLE_SYNC_IN_FLIGHT_ERROR})
+        try:
+            assert_history_table_droppable(
+                instance,
+                keeps_history=resulting_sync_type == ExternalDataSchema.SyncType.CDC
+                and is_history_table_mode(resulting_mode),
+            )
+        except HistoryTableDropRefusedError as e:
+            raise ValidationError({"drop_history_table": str(e)})
         return table
 
     def _drop_history_table_after_mode_change(self, schema: ExternalDataSchema) -> None:
+        # The response then names a history table that was kept, since the save itself already succeeded.
+        if "post_commit_actions" not in self.context:
+            self.context["reports_history_drop"] = True
         try:
             dropped = drop_history_table(schema)
         except HistoryTableDropRefusedError:
             # A sync started after the check above. The table stays, and the later delete can remove it.
             logger.warning("history_table_drop_refused_after_mode_change", schema_id=str(schema.id), exc_info=True)
+            return
+        except Exception as e:
+            capture_exception(e)
             return
         request = self.context.get("request")
         if dropped is not None and request is not None:
@@ -3066,6 +3076,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
                 description="The schema has no history table to delete, or it can't be deleted yet.",
             ),
+            503: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                },
+                description="The history table's files couldn't all be deleted. It stays, so retry the request.",
+            ),
         },
     )
     @action(methods=["DELETE"], detail=True, url_path="history_table")
@@ -3079,6 +3096,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             drop_history_table(instance)
         except HistoryTableDropRefusedError as e:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"detail": str(e)})
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                data={
+                    "detail": "PostHog couldn't delete all of the history table's files. Try again in a few minutes."
+                },
+            )
         report_history_table_deleted(request.user, instance, trigger="delete_action", request=request)
         return Response(status=status.HTTP_204_NO_CONTENT)
 

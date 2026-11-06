@@ -47790,6 +47790,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly history_table_name: string | null;
+      /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
+      drop_history_table?: boolean;
+      /**
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve endpoint, and on an update that sent `drop_history_table`, where a name means the history table was kept, for example because a sync started meanwhile. `null` elsewhere.
+         * @nullable
+         */
+      readonly registered_history_table_name: string | null;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -82631,6 +82638,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly history_table_name?: string | null;
+      /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
+      drop_history_table?: boolean;
+      /**
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve endpoint, and on an update that sent `drop_history_table`, where a name means the history table was kept, for example because a sync started meanwhile. `null` elsewhere.
+         * @nullable
+         */
+      readonly registered_history_table_name?: string | null;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -127767,6 +127781,14 @@ export namespace Schemas {
     };
 
     export type ExternalDataSchemasCancelCreate400 = {
+      detail?: string;
+    };
+
+    export type ExternalDataSchemasHistoryTableDestroy400 = {
+      detail?: string;
+    };
+
+    export type ExternalDataSchemasHistoryTableDestroy503 = {
       detail?: string;
     };
 

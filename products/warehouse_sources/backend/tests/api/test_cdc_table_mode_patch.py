@@ -698,8 +698,12 @@ def _history_table(schema: ExternalDataSchema, *, linked: bool = False) -> DataW
     return table
 
 
-def _history_drop_mocks(*, queued: bool = False) -> list:
+def _history_drop_mocks(*, queued: bool = False, workflow_running: bool = False) -> list:
     return [
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane._workflow_is_running",
+            return_value=workflow_running,
+        ),
         mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
@@ -731,11 +735,17 @@ def test_a_switch_off_history_drops_the_history_table_only_when_asked(
     source, schema = _make_cdc_source_and_schema(team, cdc_table_mode=old_mode)
     history = _history_table(schema, linked=old_mode == "cdc_only")
     if job_running:
-        ExternalDataJob.objects.create(team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING)
+        ExternalDataJob.objects.create(
+            team=team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            workflow_id="sync-workflow",
+        )
     client.force_login(user)
 
     with ExitStack() as stack:
-        for patcher in _history_drop_mocks():
+        for patcher in _history_drop_mocks(workflow_running=job_running):
             stack.enter_context(patcher)
         capture = stack.enter_context(mock.patch("posthog.event_usage.posthoganalytics.capture"))
         response = client.patch(
@@ -767,14 +777,36 @@ def test_the_history_table_action_deletes_only_a_table_the_schema_no_longer_writ
     client.force_login(user)
     url = f"/api/environments/{team.pk}/external_data_schemas/{schema.id}"
 
-    before = client.get(url).json()["retired_history_table_name"]
+    before = client.get(url).json()["registered_history_table_name"]
     with ExitStack() as stack:
         for patcher in _history_drop_mocks():
             stack.enter_context(patcher)
         response = client.delete(f"{url}/history_table/")
-    after = client.get(url).json()["retired_history_table_name"]
+    after = client.get(url).json()["registered_history_table_name"]
 
     assert response.status_code == expected_status, response.content
     history.refresh_from_db()
     assert history.deleted is (expected_status == 204)
-    assert (before, after) == (("postgres_orders_cdc", None) if mode == "consolidated" else (None, None))
+    assert (before, after) == ("postgres_orders_cdc", None if mode == "consolidated" else "postgres_orders_cdc")
+
+
+def test_a_drop_refused_after_the_save_names_the_kept_history_table(team, user, client: HttpClient):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="both")
+    history = _history_table(schema)
+    client.force_login(user)
+
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks():
+            stack.enter_context(patcher)
+        # A sync starts between the check before the save and the drop after it.
+        stack.enter_context(mock.patch(_PATCH_TARGETS["has_queued_batches"], side_effect=[False, True]))
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"cdc_table_mode": "consolidated", "drop_history_table": True},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    assert response.json()["registered_history_table_name"] == "postgres_orders_cdc"
+    history.refresh_from_db()
+    assert not history.deleted

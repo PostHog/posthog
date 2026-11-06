@@ -420,7 +420,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         deleteHistoryTable: async ({ schema }) => {
             try {
                 await externalDataSchemasHistoryTableDestroy(String(ApiConfig.getCurrentTeamId()), schema.id)
-                lemonToast.success(`${schema.retired_history_table_name ?? 'The history table'} has been deleted`)
+                lemonToast.success(`${schema.registered_history_table_name ?? 'The history table'} has been deleted`)
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || "Can't delete the history table at this time")
             } finally {
