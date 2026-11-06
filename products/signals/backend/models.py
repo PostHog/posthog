@@ -58,6 +58,7 @@ from products.signals.backend.filter_catalog import (
     SignalFilterCatalogVersion as SignalFilterCatalogVersion,
     SignalFilterSourceDefinition as SignalFilterSourceDefinition,
 )
+from products.signals.backend.rated_usage_models import SignalRatedUsage as SignalRatedUsage
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 
@@ -99,7 +100,7 @@ class SignalSourceConfig(UUIDModel):
     SourceProduct = SignalSourceProduct
 
     # Source-type choices are intentionally a *subset* of the full SignalSourceType taxonomy: only the
-    # types that carry a per-team config row live here. session_problem gates through another config.
+    # types that carry a per-team config row live here. session_problem and alert_firing gate through another config.
     # evaluation is retired, and stays in the taxonomy only so old signals still resolve to a label.
     # Every source_type the emission registry emits must appear here, or enabling that source 400s.
     class SourceType(models.TextChoices):
@@ -135,6 +136,20 @@ class SignalSourceConfig(UUIDModel):
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     @classmethod
+    def config_source_type(cls, source_product: str, source_type: str) -> str:
+        """The `source_type` of the row that configures a signal, which another type can own."""
+        # Session problem signals are emitted as part of session analysis,
+        # so they're gated by the pre-existing session_analysis_cluster config
+        if source_product == cls.SourceProduct.SESSION_REPLAY and source_type == "session_problem":
+            return cls.SourceType.SESSION_ANALYSIS_CLUSTER
+
+        # Firing alerts are a scope of the product analytics source, so they share its row and toggle.
+        if source_product == cls.SourceProduct.ANALYTICS and source_type == SignalSourceType.ALERT_FIRING:
+            return cls.SourceType.ANOMALY_INVESTIGATION
+
+        return source_type
+
+    @classmethod
     def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
         """Check whether a given signal source is enabled for a team.
 
@@ -146,11 +161,12 @@ class SignalSourceConfig(UUIDModel):
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
             return True
 
-        # A failed follow-up check is the inbox emitting to itself, so there is no team to configure
-        # it: `check_failed` is deliberately absent from `SourceType` above, which means a config row
-        # for it cannot exist and a row-backed gate would refuse the pair forever. The check the team
-        # already authored is the opt-in.
-        if source_product == cls.SourceProduct.SIGNALS_CHECK and source_type == SignalSourceType.CHECK_FAILED:
+        # Verification emits these internal signals without a source config. The team's authored
+        # checks supply the opt-in; Monitoring requests also enforce their rollout gate.
+        if source_product == cls.SourceProduct.SIGNALS_CHECK and source_type in {
+            SignalSourceType.CHECK_FAILED,
+            SignalSourceType.MONITORING_UNRESOLVED,
+        }:
             return True
 
         # Scout findings surface to the inbox by default — the team-level toggle was retired from the
@@ -164,15 +180,10 @@ class SignalSourceConfig(UUIDModel):
                 enabled=False,
             ).exists()
 
-        # Session problem signals are emitted as part of session analysis,
-        # so they're gated by the pre-existing session_analysis_cluster config
-        if source_product == cls.SourceProduct.SESSION_REPLAY and source_type == "session_problem":
-            source_type = cls.SourceType.SESSION_ANALYSIS_CLUSTER
-
         return cls.objects.filter(
             team_id=team_id,
             source_product=source_product,
-            source_type=source_type,
+            source_type=cls.config_source_type(source_product, source_type),
             enabled=True,
         ).exists()
 
@@ -492,6 +503,22 @@ class SignalReport(UUIDModel):
     # key is what makes the retry that follows return this report instead of authoring a second one.
     scout_idempotency_key = models.CharField(max_length=255, null=True, blank=True)
 
+    # A project member filed this report through the report API rather than a scout or the pipeline.
+    # Automatic start never runs for it, on creation or on any later re-evaluation, because the
+    # create endpoint needs only `inbox:write` while an implementation run acts on the text. The
+    # flag carries the gate, so deleting the user behind `created_by` does not reopen it.
+    user_authored = models.BooleanField(default=False, db_default=False)
+    # No field index: `signals_report_created_by` leads with this column and serves the user-delete lookup too.
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+
     # Video segment clustering fields
     cluster_centroid = deprecate_field(
         ArrayField(
@@ -511,6 +538,19 @@ class SignalReport(UUIDModel):
     latest_actionability = models.CharField(max_length=30, null=True, blank=True)
     latest_already_addressed = models.BooleanField(null=True, blank=True)
 
+    # These fields keep inbox ordering on the report table. Artefact receivers and the ranking
+    # sweep update them without changing `updated_at`.
+    priority_sort_rank = models.PositiveSmallIntegerField(
+        default=len(AutonomyPriority.values), db_default=len(AutonomyPriority.values)
+    )
+    ranking_scores = models.JSONField(null=True, blank=True)
+    ranking_open_score = models.FloatField(null=True, blank=True)
+    ranking_action_score = models.FloatField(null=True, blank=True)
+    ranking_fix_score = models.FloatField(null=True, blank=True)
+    ranking_open_lift = models.FloatField(null=True, blank=True)
+    ranking_action_lift = models.FloatField(null=True, blank=True)
+    ranking_fix_lift = models.FloatField(null=True, blank=True)
+
     # Cached from `implementation_pr_report_filter`, with and without `active_only`, so the inbox
     # filters on a column instead of evaluating five link subqueries for every report.
     # implementation_pr_cache.py keeps them current.
@@ -521,6 +561,14 @@ class SignalReport(UUIDModel):
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
             models.Index(fields=["team", "created_at"]),
+            models.Index(fields=["team", "priority_sort_rank"], name="signals_rpt_team_priority"),
+            models.Index(
+                "team", models.F("ranking_open_score").desc(nulls_last=True), name="signals_rpt_team_rank_open"
+            ),
+            models.Index(
+                "team", models.F("ranking_action_score").desc(nulls_last=True), name="signals_rpt_team_rank_action"
+            ),
+            models.Index("team", models.F("ranking_fix_score").desc(nulls_last=True), name="signals_rpt_team_rank_fix"),
             # Back the inbox list ordered by `-updated_at`. The view appends `id` as a tie-breaker.
             models.Index(fields=["team", "-updated_at", "id"], name="signals_report_team_updated"),
             # Partial: the daily-limit gate only ever counts stamped rows for one team and day.
@@ -528,6 +576,12 @@ class SignalReport(UUIDModel):
                 fields=["team", "first_visible_at"],
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
+            ),
+            # Partial: the per-user daily create cap counts one member's reports from the start of the day.
+            models.Index(
+                fields=["created_by", "created_at"],
+                condition=models.Q(created_by__isnull=False),
+                name="signals_report_created_by",
             ),
             # Back the inbox `search` filter. On UPPER(...) because icontains compiles to
             # UPPER(col) LIKE UPPER(pattern) on Postgres. Direct updates avoid pending-list
@@ -1416,7 +1470,7 @@ class SignalEmissionRecord(UUIDModel):
             models.Index(
                 fields=["team", "source_product", "source_type"],
                 name="signals_emission_lookup_idx",
-            )
+            ),
         ]
 
 
@@ -1460,11 +1514,13 @@ class SignalReportArtefact(UUIDModel):
         COMMIT = "commit"
         TASK_RUN = "task_run"
         NOTE = "note"
+        SCOUT_NOTE_LEFT = "scout_note_left"
         TITLE_CHANGE = "title_change"
         SUMMARY_CHANGE = "summary_change"
         CODE_REVIEW = "code_review"
         RELATED_TO = "related_to"
         REPORT_LINK = "report_link"
+        SOURCE_ISSUE = "source_issue"
         AUTOSTART_SKIP = "autostart_skip"
         WORK_CLAIM = "work_claim"
         WORK_RELEASE = "work_release"
@@ -1533,11 +1589,13 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
             ArtefactType.NOTE,
+            ArtefactType.SCOUT_NOTE_LEFT,
             ArtefactType.TITLE_CHANGE,
             ArtefactType.SUMMARY_CHANGE,
             ArtefactType.CODE_REVIEW,
             ArtefactType.RELATED_TO,
             ArtefactType.REPORT_LINK,
+            ArtefactType.SOURCE_ISSUE,
             ArtefactType.AUTOSTART_SKIP,
             ArtefactType.IMPLEMENTATION_REPLACEMENT,
             ArtefactType.IMPLEMENTATION_HANDOVER,
@@ -1811,7 +1869,9 @@ class SignalReportArtefact(UUIDModel):
                     claim_id=claim_id,
                 )
                 if reevaluate_autostart and (not update.protected or rules.effects_enabled):
-                    cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
+                    cls._schedule_autostart_reevaluation(
+                        team_id=team_id, report_id=str(report_id), triggering_user_id=attribution.user_id
+                    )
                 return artefact
         return cls._create(
             team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
@@ -1926,7 +1986,9 @@ class SignalReportArtefact(UUIDModel):
         )
 
     @staticmethod
-    def _schedule_autostart_reevaluation(*, team_id: int, report_id: str) -> None:
+    def _schedule_autostart_reevaluation(
+        *, team_id: int, report_id: str, triggering_user_id: int | None = None
+    ) -> None:
         """After the current transaction commits, re-evaluate auto-start for the report.
 
         Changing a report's suggested reviewers can newly satisfy auto-start (e.g. adding a
@@ -1940,7 +2002,9 @@ class SignalReportArtefact(UUIDModel):
             from products.signals.backend import auto_start
 
             try:
-                async_to_sync(auto_start.maybe_autostart_from_report_artefacts)(team_id=team_id, report_id=report_id)
+                async_to_sync(auto_start.maybe_autostart_from_report_artefacts)(
+                    team_id=team_id, report_id=report_id, triggering_user_id=triggering_user_id
+                )
             except Exception:
                 logger.exception(
                     "signals reviewer-change auto-start re-evaluation failed", extra={"report_id": report_id}
@@ -2693,6 +2757,8 @@ class SignalReportMonitoringAttempt(UUIDModel):
     aggregation_checked_at = models.DateTimeField(null=True, blank=True)
     assessment_requested_at = models.DateTimeField(null=True, blank=True)
     research_requested_at = models.DateTimeField(null=True, blank=True)
+    research_processed_at = models.DateTimeField(null=True, blank=True)
+    research_next_attempt_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_requested_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_processed_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_next_attempt_at = models.DateTimeField(null=True, blank=True)
@@ -2712,6 +2778,13 @@ class SignalReportMonitoringAttempt(UUIDModel):
                     tracker_issue_close_requested_at__isnull=False, tracker_issue_close_processed_at__isnull=True
                 ),
                 name="signals_pending_tracker_close",
+            ),
+            models.Index(
+                models.F("research_next_attempt_at").asc(nulls_first=True),
+                models.F("research_requested_at"),
+                models.F("id"),
+                condition=models.Q(research_requested_at__isnull=False, research_processed_at__isnull=True),
+                name="signals_pending_research",
             ),
         ]
 
@@ -3803,7 +3876,8 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
       another path (the report's reviewers artefact, and the project profile's recent corrections), so
       the key scopes aren't required on top. It is the only derived kind addressed to more than the
       authoring scout: a removed login is also sent to every scout whose `reviewer:` memory names it,
-      because those are the scouts still routing on it.
+      because those are the scouts still routing on it. A claim by a person or their agent uses the
+      same kind as positive evidence, and reaches the holders of the claimant's memory the same way.
     `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
     on one report, a discussion as a question to weigh, feedback as a reader's rating, and a reviewer
     correction as a trigger to revisit routing memory — rather than fleet-level steering.
@@ -3815,6 +3889,7 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
         REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
         REPORT_FEEDBACK = "report_feedback", "Derived from inbox report feedback"
         REPORT_REVIEWER_CORRECTION = "report_reviewer_correction", "Derived from an inbox reviewer correction"
+        REPORT_NOTE = "report_note", "Left from an inbox report"
 
     @classmethod
     def derived_origins(cls) -> tuple[str, ...]:
@@ -4090,6 +4165,9 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     accounting_failed = models.BooleanField(default=False)
     finalized_at = models.DateTimeField(null=True, blank=True, db_index=True)
     billing_exempt = models.BooleanField(default=False, db_default=False)
+    # Freeze the meter at admission: a later plan change must not bill the same work twice.
+    # Existing receipts and old workers retain the legacy PR meter.
+    usage_billing = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -4331,6 +4409,8 @@ class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
 
     # Covers the candidates with their status, priority, PR state, needs-you facts and score, the summary version, the prompt version and the focus.
     input_hash = models.CharField(max_length=64)
+    # The inputs of `input_hash` as one hash per part, from `input_parts`. Null on rows from before the parts.
+    input_parts = models.JSONField(null=True, blank=True)
     # Report ids in candidate order.
     candidate_ids = models.JSONField(default=list)
     # Every candidate with its rank, tier and reason, and the folded reports. See `PersonalRankingResult.as_json`.

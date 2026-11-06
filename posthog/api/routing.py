@@ -23,9 +23,11 @@ from posthog.auth import (
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
+    WorkloadAccessTokenAuthentication,
 )
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.dataclasses import frozen
@@ -50,6 +52,7 @@ from posthog.queryset_paging import stable_queryset_ordering
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 if TYPE_CHECKING:
@@ -243,6 +246,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     # PostHogAutoSchema reads the same mapping to type the OpenAPI path parameters.
     path_parameters: dict[str, PathParameterType | PathParameter] = {}
 
+    # Set to False on a view whose read_object() records have no access rules of their own, for
+    # example when the scope object is not an access-control resource. AccessControlPermission then
+    # skips the object check for those records. Otherwise it needs object_access_ref().
+    records_have_object_access_rules: bool = True
+
     @classmethod
     def _check_path_parameters(cls) -> None:
         for name, declared in cls.path_parameters.items():
@@ -266,7 +274,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         super().__init_subclass__(**kwargs)
         protected_methods = {
             "get_queryset": "Use safely_get_queryset instead",
-            "get_object": "Use safely_get_object instead",
+            "get_object": "Use safely_get_object, or read_object for a view without a queryset, instead",
             "get_permissions": "Add additional 'permission_classes' via the class attribute instead. Or in exceptional use cases use dangerously_get_permissions instead",
             "get_authenticators": "Add additional 'authentication_classes' via the class attribute instead",
         }
@@ -367,9 +375,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             # being a @cached_property this still degrades safely.
             if "team" in self.__dict__:
                 canonical_team_id = self.team.parent_team_id or team_id
+                resolved_from_team_id: int | None = team_id
             else:
                 canonical_team_id = team_id
-            self._team_scope_token = set_current_team_id(canonical_team_id)
+                resolved_from_team_id = None
+            self._team_scope_token = set_current_team_id(canonical_team_id, resolved_from_team_id=resolved_from_team_id)
 
     def dangerously_get_permissions(self):
         """
@@ -386,10 +396,19 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
         else:
+            # A workload token acts as an owner, who may pass a view's own checks, so its policy's scopes and
+            # project are enforced whatever chain the view builds.
+            workload_token_boundary = (
+                [APIScopePermission()]
+                if isinstance(self.request.successful_authenticator, WorkloadAccessTokenAuthentication)
+                else []
+            )
+
             # These are tenant boundaries, not authorization levels. Views that shape their own
             # permission chain cannot remove them.
             return [
                 *dangerously_defined,
+                *workload_token_boundary,
                 VerifiedDomainEnforcementPermission(),
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),
@@ -445,6 +464,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 # rejected before its own authenticator could run. IDJagAccessTokenAuthentication
                 # has a strict `typ == "at+jwt"` precheck and cleanly defers for other JWTs.
                 IDJagAccessTokenAuthentication,
+                # Same reason as ID-JAG: a workload access token is an RS256 JWT that JwtAuthentication would reject.
+                WorkloadAccessTokenAuthentication,
                 DelegatedPersonalAPIKeyAuthentication,
                 DelegatedOAuthAccessTokenAuthentication,
                 JwtAuthentication,
@@ -541,6 +562,22 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def safely_get_object(self, queryset: QuerySet) -> Any:
         raise NotImplementedError()
 
+    def read_object(self) -> Any:
+        """
+        Fetch the record in the URL, for a view that reads through a facade and has no queryset.
+        The facade must filter by team. Return None when no record matches, which becomes a 404.
+        get_object() runs the object permission checks on the record and returns it.
+        """
+        raise NotImplementedError()
+
+    def object_access_ref(self, record: Any) -> ObjectAccessRef:
+        """The access-control reference for a record that read_object() returned."""
+        raise NotImplementedError(
+            f"{type(self).__name__}.read_object() returned a {type(record).__name__}, which object access "
+            "control cannot check. Define object_access_ref() to return its ObjectAccessRef, or set "
+            "records_have_object_access_rules = False when no access rule can name one record."
+        )
+
     def get_object(self):
         """
         We don't want to allow generic overriding of get_object as under the hood it does
@@ -551,6 +588,16 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             return self.dangerously_get_object()
         except NotImplementedError:
             pass
+
+        try:
+            record = self.read_object()
+        except NotImplementedError:
+            pass
+        else:
+            if record is None:
+                raise NotFound()
+            self.check_object_permissions(self.request, record)
+            return record
 
         queryset = self.filter_queryset(self.get_queryset())
 
@@ -571,8 +618,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         return self.param_derived_from_user_current_team == "team_id" or "team_id" in self.parent_query_kwargs
 
     @property
+    def _is_nested_project_view(self) -> bool:
+        return "project_id" in self.parent_query_kwargs
+
+    @property
     def _is_project_view(self):
-        return self.param_derived_from_user_current_team == "project_id" or "project_id" in self.parent_query_kwargs
+        return self.param_derived_from_user_current_team == "project_id" or self._is_nested_project_view
 
     @cached_property
     def team_id(self) -> int:
@@ -594,6 +645,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def team(self) -> Team:
         if team_from_token := self._get_team_from_request():
             team = team_from_token
+        elif psak_team := self._get_team_from_project_secret_api_key():
+            team = psak_team
         elif self._is_project_view:
             team = Team.objects.select_related("organization").get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
@@ -615,6 +668,17 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         tag_queries(**get_team_query_tags(team))
         return team
+
+    def _get_team_from_project_secret_api_key(self) -> Optional[Team]:
+        # The authenticator already loaded the key's team and organization. Reuse that row only when it is the
+        # team the route resolves to, so a key for another team still fails the permission check.
+        if not (self._is_team_view or self._is_project_view):
+            return None
+        authenticator = getattr(self.request, "successful_authenticator", None)
+        if not isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
+            return None
+        psak = authenticator.project_secret_api_key
+        return psak.team if psak.team_id == self.team_id else None
 
     @cached_property
     def project_id(self) -> int:
@@ -646,6 +710,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except (Project.DoesNotExist, ValueError):
             raise NotFound(detail="Project not found.")
 
+    def _get_project_team_or_404(self) -> Team:
+        try:
+            team = self.team
+        except Team.DoesNotExist:
+            raise NotFound(detail="Project not found.")
+        if team.project_id != self.project_id:
+            raise NotFound(detail="Project not found.")
+        return team
+
     @cached_property
     def organization_id(self) -> str:
         try:
@@ -656,6 +729,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             if self._is_team_view:
                 # TODO: self.team.project.organization_id when project environments are rolled out
                 current_organization_id = self.team.organization_id
+            elif self._is_nested_project_view:
+                current_organization_id = self._get_project_team_or_404().organization_id
             elif self._is_project_view:
                 current_organization_id = self.project.organization_id
             elif user:
@@ -669,6 +744,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def organization(self) -> Organization:
         if self._is_team_view:
             return self.team.organization
+        if self._is_nested_project_view:
+            return self._get_project_team_or_404().organization
         try:
             return Organization.objects.get(
                 id=self.project.organization_id if self._is_project_view else self.organization_id

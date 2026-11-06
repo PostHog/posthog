@@ -169,6 +169,95 @@ export const FIXTURE_GENERATION_OUTPUT: ThreadMessage[] = [
 
 export const FIXTURE_GENERATION_MESSAGES: ThreadMessage[] = [...FIXTURE_GENERATION_INPUT, ...FIXTURE_GENERATION_OUTPUT]
 
+const AGENT_TURNS: { ask: string; tool: string; args: Record<string, unknown>; result: string; answer: string }[] = [
+    {
+        ask: 'Which plan are we on?',
+        tool: 'get_subscription',
+        args: { team: 'hedgebox' },
+        result: '{"plan": "Team", "seats": 6, "renews": "2026-09-30"}',
+        answer: 'You are on the **Team** plan with 6 seats, renewing on September 30.',
+    },
+    {
+        ask: 'How many seats did we use last month?',
+        tool: 'seat_usage',
+        args: { month: '2026-08' },
+        result: '{"peak": 6, "average": 5.2}',
+        answer: 'Usage peaked at 6 seats in August, with an average of 5.2.',
+    },
+    {
+        ask: 'Can we drop back to 4 seats?',
+        tool: 'seat_change_preview',
+        args: { seats: 4 },
+        result: '{"allowed": true, "effective": "2026-09-30", "saving_usd": 60}',
+        answer: 'Yes. The change takes effect on September 30 and saves $60 a month.',
+    },
+    {
+        ask: 'Do it, and email me the new invoice.',
+        tool: 'change_seats',
+        args: { seats: 4, notify: 'ana@example.com' },
+        result: '{"status": "scheduled", "effective": "2026-09-30"}',
+        answer: '',
+    },
+]
+
+function agentMessage(id: string, role: ThreadMessage['role'], parts: ThreadMessage['parts']): ThreadMessage {
+    return { id, role, parts, isInternal: role !== 'user', sourceNodeId: 'gen-answer' }
+}
+
+/** An agent step whose input holds four user turns, each with a tool call, so the earlier turns can collapse. */
+export const FIXTURE_LONG_AGENT_INPUT: ThreadMessage[] = [
+    FIXTURE_GENERATION_INPUT[0],
+    ...AGENT_TURNS.flatMap((turn, index) => [
+        agentMessage(`agent-${index}-user`, 'user', [{ kind: 'text', text: turn.ask }]),
+        agentMessage(`agent-${index}-call`, 'assistant', [{ kind: 'toolCall', name: turn.tool, args: turn.args }]),
+        agentMessage(`agent-${index}-result`, 'tool', [{ kind: 'text', text: turn.result }]),
+        ...(turn.answer
+            ? [agentMessage(`agent-${index}-answer`, 'assistant', [{ kind: 'text', text: turn.answer }])]
+            : []),
+    ]),
+]
+
+export const FIXTURE_LONG_AGENT_OUTPUT: ThreadMessage[] = [
+    agentMessage('agent-final', 'assistant', [
+        {
+            kind: 'text',
+            text: 'Done. Your team drops to **4 seats** on September 30, and the new invoice is on its way to ana@example.com.',
+        },
+    ]),
+]
+
+const SEAT_HISTORY = Array.from({ length: 24 }, (_, index) => ({
+    month: `2026-${String((index % 12) + 1).padStart(2, '0')}`,
+    seats: 4 + (index % 3),
+    note: 'Seat count from the billing snapshot taken on the first day of the month, before any proration.',
+}))
+
+/** An answer taller than any window: a preamble, a long report and a tool call with a long JSON result. */
+export const FIXTURE_LONG_ANSWER_MESSAGE: ThreadMessage = agentMessage('long-answer', 'assistant', [
+    {
+        kind: 'text',
+        text: [
+            'You are a billing assistant. Answer in markdown, cite the invoice month, and never share card details.',
+            '',
+            '## Seat history',
+            '',
+            ...SEAT_HISTORY.map(({ month, seats }) => `- **${month}:** ${seats} seats, billed at the team plan rate.`),
+            '',
+            '## What changed',
+            '',
+            ...SEAT_HISTORY.map(({ month }) => `1. ${month}: the invoice shows one prorated line for the seat change.`),
+            '',
+            'The seat count changed at most once a month, so every invoice line matches one row above.',
+        ].join('\n'),
+    },
+    {
+        kind: 'toolCall',
+        name: 'lookup_seat_history',
+        args: { team: 'team-42', months: 24 },
+        result: { team: 'team-42', history: SEAT_HISTORY },
+    },
+])
+
 export const FIXTURE_TURN: ConversationTurn = {
     id: 'trace-1',
     timestamp: '2026-09-01T10:15:00Z',
@@ -381,6 +470,7 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
         name: 'answer-billing-question',
         hasError: false,
         backLink: { label: 'Back to traces', href: '/traces' },
+        copyAction: { loading: false, onCopy: () => {} },
         exportAction: { loading: false, onExport: () => {} },
     },
     summary: {
@@ -557,6 +647,12 @@ export const FIXTURE_SUMMARY: TraceSummaryContentApi = {
     model: 'gpt-4.1-mini',
     generatedAt: '2026-09-01T10:20:00Z',
 }
+
+export const withStepScroller: Decorator = (Story) => (
+    <div className="h-120 w-160 overflow-y-auto border border-dashed border-primary">
+        <Story />
+    </div>
+)
 
 export function withWidth(px: number): Decorator {
     return (Story) => (

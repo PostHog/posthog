@@ -1789,6 +1789,42 @@ export interface TracePullRequestLookupApi {
     pullRequest: TracePullRequestApi | null
 }
 
+export interface TraceHumanReviewScoreApi {
+    /** The scorer's name. */
+    name: string
+    /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
+    value: string
+    /** The scorer's name and the score together, such as `Tone: 4.5`. */
+    label: string
+}
+
+export interface TraceHumanReviewApi {
+    /** The display name of whoever last saved the review, or null when that user was removed. */
+    reviewedBy: string | null
+    /** When the review was last saved. */
+    reviewedAt: string
+    /** The reviewer's reasoning, if any. */
+    comment: string | null
+    /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
+    scores: TraceHumanReviewScoreApi[]
+}
+
+export interface TraceReviewQueueAssignmentApi {
+    /** The review queue's id. */
+    id: string
+    /** The review queue's name. */
+    name: string
+    /** The queue item that holds the trace, for moving or removing it. */
+    itemId: string
+}
+
+export interface TraceReviewStatusApi {
+    /** The trace's human review, or null when it has none or the user may not see it. */
+    review: TraceHumanReviewApi | null
+    /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
+    queue: TraceReviewQueueAssignmentApi | null
+}
+
 export interface TraceSearchMatchApi {
     /** A step whose stored data contains the query. The root's id is the trace id. */
     nodeId: string
@@ -1860,6 +1896,21 @@ export interface TraceSummaryApi {
 export interface TraceSummaryRequestApi {
     /** Replace a ready summary with a new one. A pending summary is never replaced. */
     regenerate?: boolean
+}
+
+export interface TraceAvailabilityRequestApi {
+    /**
+     * Application and evaluator trace IDs to check without loading trace contents.
+     * @minItems 1
+     * @maxItems 2
+     * @items.maxLength 255
+     */
+    trace_ids: string[]
+}
+
+export interface TraceAvailabilityApi {
+    /** Requested trace IDs readable from AI events or the shared events table. */
+    available_trace_ids: string[]
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
@@ -2076,6 +2127,13 @@ export interface DatasetReadApi {
     readonly tags: readonly string[]
     readonly archived: boolean
     /**
+     * Earliest cleanup time if the dataset remains unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+    /** Whether the dataset is within seven days of expiry. */
+    readonly expiring_soon: boolean
+    /**
      * Latest dataset revision, or null before the first item is added.
      * @nullable
      */
@@ -2201,6 +2259,13 @@ export interface DatasetRevisionReadApi {
     readonly created_by: UserBasicApi | null
     /** Project that owns the revision. */
     readonly team_id: number
+    /**
+     * Earliest expiry time of this dataset snapshot if unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+    /** Whether this snapshot is within seven days of expiry. */
+    readonly expiring_soon: boolean
 }
 
 export interface PaginatedDatasetRevisionReadListApi {
@@ -4338,6 +4403,25 @@ export interface PatchedLLMProviderKeyApi {
     readonly last_used_at?: string | null
 }
 
+export interface LLMProxyModelInfoApi {
+    /** Provider-specific model identifier. */
+    id: string
+    /** Model display name. */
+    name: string
+    /** Provider display name. */
+    provider: string
+    /** Description of the model. */
+    description: string
+    /** Whether the provider recommends this model. */
+    is_recommended: boolean
+    /** Whether this model supports decision questions. */
+    supports_decisions?: boolean
+    /** Whether this model supports chat completions with written reasoning. */
+    supports_chat?: boolean
+    /** Whether an evaluation judge can set a reasoning level for this model. */
+    supports_reasoning?: boolean
+}
+
 export interface ReviewQueueItemApi {
     readonly id: string
     /** Review queue ID that currently owns this pending trace. */
@@ -5872,6 +5956,25 @@ export type AiObservabilityTracesClustersRetrieveParams = {
     created_at: string
 }
 
+export type AiObservabilityTracesExportsContentRetrieveParams = {
+    /**
+     * What the file is read for. Only a download is recorded as one.
+     *
+     * * `download` - Download
+     * * `copy` - Copy
+     * @minLength 1
+     */
+    purpose?: AiObservabilityTracesExportsContentRetrievePurpose
+}
+
+export type AiObservabilityTracesExportsContentRetrievePurpose =
+    (typeof AiObservabilityTracesExportsContentRetrievePurpose)[keyof typeof AiObservabilityTracesExportsContentRetrievePurpose]
+
+export const AiObservabilityTracesExportsContentRetrievePurpose = {
+    Download: 'download',
+    Copy: 'copy',
+} as const
+
 export type AiObservabilityTracesFeedbackRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
@@ -5924,6 +6027,7 @@ export type DatasetItemsListParams = {
     dataset: string
     /**
      * Number of results to return per page.
+     * @maximum 25
      */
     limit?: number
     /**
@@ -5983,6 +6087,7 @@ export type DatasetItemsPartialUpdateBody = {
 export type DatasetItemsVersionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -6004,6 +6109,7 @@ export type DatasetsListParams = {
     id__in?: string[]
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -6049,6 +6155,7 @@ export const DatasetsListTagMatch = {
 export type DatasetsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**

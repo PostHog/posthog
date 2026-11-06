@@ -29,7 +29,7 @@ from posthog.api.sharing_publish_gate import dashboard_filter_leaves
 from posthog.auth import SharingPasswordProtectedAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models import ActivityLog, OrganizationMembership, PropertyDefinition, Team
+from posthog.models import ActivityLog, OrganizationMembership, Team
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -46,6 +46,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.event_definitions.backend.models import PropertyDefinition
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -2342,6 +2343,36 @@ class TestSharingPublishGate(APIBaseTest):
         assert "Can't enable sharing" in str(response.json())
         assert "governed_view" in str(response.json())
         assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
+
+    @patch("posthog.api.sharing.export_asset_for_opengraph")
+    @patch("posthog.models.sharing_configuration.SharingConfiguration.lock_resource")
+    @patch("posthog.api.sharing.denied_resources_in_share")
+    def test_publish_validation_runs_before_resource_lock(self, check: Mock, lock: Mock, _export: Mock) -> None:
+        def validate(*args: Any) -> list[str]:
+            lock.assert_not_called()
+            return []
+
+        check.side_effect = validate
+        response = self._enable_sharing("dashboard")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        check.assert_called_once()
+        lock.assert_called_once()
+
+    @patch("posthog.api.sharing.denied_resources_in_share")
+    def test_enable_checks_current_state_after_concurrent_disable(self, check: Mock) -> None:
+        configuration = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
+
+        def validate(*args: Any) -> list[str]:
+            SharingConfiguration.objects.filter(team=self.team, pk=configuration.pk).update(enabled=False)
+            return ["governed_view"]
+
+        check.side_effect = validate
+        response = self._enable_sharing("insight")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        configuration.refresh_from_db()
+        assert not configuration.enabled
 
     def test_publisher_with_access_can_enable_sharing(self):
         response = self._enable_sharing("dashboard")

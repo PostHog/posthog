@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconMessage, IconPlusSmall, IconSearch, IconTrash } from '@posthog/icons'
-import { LemonDialog, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -14,10 +14,22 @@ import { businessKnowledgePlaygroundLogic } from './businessKnowledgePlaygroundL
 import { formatChatAge } from './playgroundDisplay'
 
 export function PlaygroundChatList(): JSX.Element {
-    const { chats, chatsLoading, chatGroups, chatSearch, chatId, chatHasOpenTurn, deletingChatId } = useValues(
+    const {
+        chats,
+        chatsError,
+        chatsLoading,
+        chatGroups,
+        chatSearch,
+        chatId,
+        chatHasOpenTurn,
+        deletingChatId,
+        nextChatsOffset,
+        loadingMoreChats,
+        moreChatsError,
+    } = useValues(businessKnowledgePlaygroundLogic)
+    const { newChat, deleteChat, setChatSearch, loadChats, loadMoreChats } = useActions(
         businessKnowledgePlaygroundLogic
     )
-    const { newChat, deleteChat, setChatSearch } = useActions(businessKnowledgePlaygroundLogic)
 
     const confirmDelete = (id: string): void => {
         LemonDialog.open({
@@ -39,8 +51,8 @@ export function PlaygroundChatList(): JSX.Element {
                     type="search"
                     size="small"
                     className="min-h-[30px] min-w-0 flex-1"
-                    placeholder="Filter chats"
-                    aria-label="Filter chats"
+                    placeholder="Filter loaded chats"
+                    aria-label="Filter loaded chats"
                     value={chatSearch}
                     onChange={setChatSearch}
                     fullWidth
@@ -64,6 +76,13 @@ export function PlaygroundChatList(): JSX.Element {
                         <LemonSkeleton className="h-8" />
                         <LemonSkeleton className="h-8 opacity-60" />
                         <LemonSkeleton className="h-8 opacity-30" />
+                    </div>
+                ) : chatsError && chats.length === 0 ? (
+                    <div role="alert" className="flex flex-col items-center gap-2 px-2 py-8 text-center">
+                        <p className="mb-0 text-xs text-danger">{chatsError}</p>
+                        <LemonButton size="small" loading={chatsLoading} onClick={() => loadChats()}>
+                            Retry
+                        </LemonButton>
                     </div>
                 ) : chatGroups.length === 0 ? (
                     <div className="m-1 rounded-md border border-dashed py-8 text-center text-muted">
@@ -131,6 +150,31 @@ export function PlaygroundChatList(): JSX.Element {
                             </Collapsible.Panel>
                         </Collapsible>
                     ))
+                )}
+                {chatsError && chats.length > 0 && (
+                    <div role="alert" className="flex items-center gap-2 px-2 text-xs text-danger">
+                        <span>{chatsError}</span>
+                        <LemonButton size="small" loading={chatsLoading} onClick={() => loadChats()}>
+                            Retry
+                        </LemonButton>
+                    </div>
+                )}
+                {moreChatsError && (
+                    <p role="alert" className="px-2 text-xs text-danger">
+                        {moreChatsError}
+                    </p>
+                )}
+                {nextChatsOffset !== null && (
+                    <LemonButton
+                        size="small"
+                        center
+                        data-attr="business-knowledge-playground-load-more-chats"
+                        loading={loadingMoreChats}
+                        disabledReason={chatsLoading ? 'Wait for chats to load' : undefined}
+                        onClick={() => loadMoreChats()}
+                    >
+                        Load more chats
+                    </LemonButton>
                 )}
             </div>
         </aside>

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import json
 import logging
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from typing import TYPE_CHECKING
 
 from django.db.models import Case, IntegerField, Value, When
@@ -19,6 +19,7 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
+from products.tasks.backend.facade.profiles import TaskProfile, TaskSource
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -276,6 +277,28 @@ def list_team_connected_repositories(team_id: int) -> list[str]:
     return _list_candidate_repos(github, team_id, allow_refresh=False, exclude_archived=True)
 
 
+def team_repository_names(
+    team_id: int, *, team: Team | None = None, refresh_stale_snapshot: bool = True
+) -> dict[str, str] | None:
+    """The repositories the team's own GitHub installation can reach, keyed by lowercased `owner/repo`.
+
+    Each value keeps GitHub's casing, for display. Returns None when the team has no GitHub installation.
+    `team_only` because callers show these names to any project member and run work as the installation's
+    bot, so a member's personal connection must not answer for the team. Callers apply their own precedence
+    to pick one repository from the result.
+
+    With `refresh_stale_snapshot=False`, a stale snapshot is used as it is, and GitHub is called only when no
+    snapshot exists yet. A refresh lists every page of the installation inside the request.
+    """
+    github = resolve_team_github_integration(team_id, team=team, team_only=True)
+    if github is None:
+        return None
+    repositories = (
+        None if refresh_stale_snapshot else github.list_all_cached_repositories(max_repos=1000, allow_refresh=False)
+    ) or github.list_all_cached_repositories(max_repos=1000)
+    return {full_name.lower(): full_name for repo in repositories if (full_name := repo.get("full_name"))}
+
+
 def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> set[str]:
     """Repos the agent can reason about: present in the heavy cache and not archived.
     Anything else is dropped from the candidate list (no SQL evidence, or unfixable code)."""
@@ -338,6 +361,43 @@ def _filter_candidates_by_source_visibility(
     if source_repository is None or visibility.get(source_repository) is False:
         return candidate_repos
     return [repo for repo in candidate_repos if repo == source_repository or visibility.get(repo) is True]
+
+
+def _filter_repository_sources(
+    candidate_repos: list[str],
+    source_repositories: Collection[str],
+    visibility: Mapping[str, bool | None],
+    require_private_destination: bool,
+) -> list[str]:
+    allowed = candidate_repos
+    for source in source_repositories:
+        allowed = _filter_candidates_by_source_visibility(source, allowed, visibility)
+    if require_private_destination:
+        allowed = [repository for repository in allowed if visibility.get(repository) is True]
+    return allowed
+
+
+def filter_repository_candidates_for_sources(
+    team_id: int,
+    candidate_repos: list[str],
+    source_repositories: Collection[str],
+    require_private_destination: bool = False,
+) -> list[str]:
+    github = resolve_team_github_integration(team_id)
+    if github is None:
+        return []
+    sources = {repository.strip().lower() for repository in source_repositories}
+    normalized = {repository: repository.strip().lower() for repository in candidate_repos}
+    if github.repository_cache_is_stale():
+        try:
+            github.sync_repository_cache(priority=Priority.BATCH)
+        except Exception:
+            logger.warning("repo_selection.visibility_refresh_failed", exc_info=True)
+    visibility = (
+        {} if github.repository_cache_is_stale() else _candidate_visibility(github, [*normalized.values(), *sources])
+    )
+    allowed = _filter_repository_sources(list(normalized.values()), sources, visibility, require_private_destination)
+    return [repository for repository, name in normalized.items() if name in allowed]
 
 
 def _build_repo_selection_prompt(
@@ -630,8 +690,10 @@ async def select_repository(
     user_id: int,
     context: str,
     *,
-    origin_product: Task.OriginProduct,
+    profile: TaskProfile | None = None,
     priority: Priority,
+    origin_product: Task.OriginProduct | None = None,
+    source: TaskSource | None = None,
     github: GitHubIntegrationBase | None = None,
     candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
@@ -647,6 +709,8 @@ async def select_repository(
     service_tier: str | None = None,
     past_corrections: str | None = None,
     source_repository: str | None = None,
+    source_repositories: Collection[str] = (),
+    require_private_destination: bool = False,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request context.
 
@@ -710,10 +774,13 @@ async def select_repository(
         )
 
     source_repository = (source_repository or "").strip().lower() or None
+    sources = {repository.lower() for repository in source_repositories}
+    if source_repository:
+        sources.add(source_repository)
     visibility = await database_sync_to_async(_candidate_visibility, thread_sensitive=False)(
-        github, [*candidate_repos, source_repository] if source_repository else candidate_repos
+        github, [*candidate_repos, *sources]
     )
-    candidate_repos = _filter_candidates_by_source_visibility(source_repository, candidate_repos, visibility)
+    candidate_repos = _filter_repository_sources(candidate_repos, sources, visibility, require_private_destination)
     if not candidate_repos:
         return RepoSelectionResult(
             repository=None,
@@ -779,11 +846,13 @@ async def select_repository(
             step_name=step_name,
             verbose=verbose,
             output_fn=output_fn,
+            profile=profile,
+            source=source,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            internal=True,
             spend_signal_id=spend_signal_id,
             ai_stage="repo_selection",
-            internal=True,
             on_task_run_created=_session_created,
             fallback_from_text=_salvage,
             json_retry_prompt=REPO_SELECTION_JSON_RETRY_PROMPT,

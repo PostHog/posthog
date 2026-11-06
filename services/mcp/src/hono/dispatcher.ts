@@ -20,11 +20,12 @@ import type {
 import GUIDELINES from '@shared/guidelines.md'
 import { randomUUID } from 'node:crypto'
 
-import { mapErrorToAuthResponse } from '@/lib/auth-errors'
+import { mapErrorToAuthResponse, withoutStepUpChallenge } from '@/lib/auth-errors'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { isLegacyDialectOnlyClient } from '@/lib/client-detection'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { McpSessionResetRequiredError, SESSION_RESET_REQUIRED_REASON } from '@/lib/errors'
+import { InsufficientScopeError } from '@/lib/missing-scope'
 import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import { getPublicUrl } from '@/lib/routing'
@@ -359,10 +360,20 @@ class McpDispatcher {
             return new Response(JSON.stringify(result), { status, headers })
         }
 
+        // A step-up 403 answers the whole HTTP request and would drop the other items' results, so
+        // batch items report a missing scope as a tool error.
+        const withoutStepUp = (itemState: ResolvedState | undefined): ResolvedState | undefined =>
+            itemState && { ...itemState, supportsStepUp: false }
         const results = await Promise.all(
             requests.map(async (request) => {
                 if (!sessionlessBatch) {
-                    return this.dispatch(request, props, state, getPublicUrl(req).origin, carriedContextHandle)
+                    return this.dispatch(
+                        request,
+                        props,
+                        withoutStepUp(state),
+                        getPublicUrl(req).origin,
+                        carriedContextHandle
+                    )
                 }
                 const itemProps = { ...props }
                 if (request.method === Method.ToolsCall) {
@@ -375,7 +386,7 @@ class McpDispatcher {
                         : undefined
                 } catch (error) {
                     if (mapErrorToAuthResponse(error)) {
-                        throw error
+                        throw withoutStepUpChallenge(error)
                     }
                     console.error('[McpDispatcher] Internal error:', error)
                     return jsonRpcMethodError(request.id, ErrorCode.InternalError, 'Internal error')
@@ -383,7 +394,7 @@ class McpDispatcher {
                 return this.dispatch(
                     request,
                     itemProps,
-                    itemState,
+                    withoutStepUp(itemState),
                     getPublicUrl(req).origin,
                     Boolean(itemProps.mcpSessionId || itemProps.mcpConversationId)
                 )
@@ -427,6 +438,10 @@ class McpDispatcher {
             if (error instanceof InterviewRequestError) {
                 return jsonRpcMethodError(id, ErrorCode.InvalidParams, error.message)
             }
+            // A step-up client needs the HTTP 403 and its challenge, not a JSON-RPC error.
+            if (error instanceof InsufficientScopeError) {
+                throw error
+            }
             console.error('[McpDispatcher] Internal error:', error)
             return jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
         }
@@ -462,9 +477,13 @@ class McpDispatcher {
                     params
                         ? {
                               carriedContextHandle,
-                              resolveConversation: (conversationId) => {
+                              resolveConversation: async (conversationId) => {
                                   props.mcpConversationId = conversationId
-                                  return this.stateResolver.resolve(props, state!.reqCtx.lookups)
+                                  const resolved = await this.stateResolver.resolve(props, state!.reqCtx.lookups)
+                                  return {
+                                      ...resolved,
+                                      supportsStepUp: resolved.supportsStepUp && state!.supportsStepUp,
+                                  }
                               },
                               beforeExecute: (callState) =>
                                   this.interviewRecruitment.beforeToolCall(

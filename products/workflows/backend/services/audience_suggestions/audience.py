@@ -1,23 +1,28 @@
 """The audiences a suggestion can describe: the cohort that holds them, and how many of them have an email address."""
 
+import math
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from posthog.schema import HogQLQueryModifiers, HogQLQueryResponse, PersonsOnEventsMode, ProductKey
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models import Team, User
 
-from products.workflows.backend.facade.contracts import AudienceKind
+from products.workflows.backend.facade.contracts import AudienceKind, AudienceSuggestion
 
 # A lapsed person did the event within this many days, but not within the suggestion's window.
 LAPSED_LOOKBACK_DAYS = 90
 _COUNT_TIMEOUT_SECONDS = 30
 _COUNT_MAX_BYTES = 4_000_000_000
+# A scan this size answers in about 3 seconds.
+_COUNT_TARGET_ROWS = 10_000_000
 # PostHog events that stand for being active in the product.
 ACTIVITY_EVENTS = frozenset({"$pageview", "$screen"})
 # pinned: broadcast email steps send to {{ person.properties.email }}
@@ -52,72 +57,96 @@ def cohort_filters(
     return {"properties": {"type": "AND", "values": [{"type": "AND", "values": [*behavior, email]}]}}
 
 
-def reachable_count(
-    team: Team,
-    *,
-    kind: AudienceKind,
-    event: str,
-    missing_event: str | None,
-    window_days: int,
-    min_count: int | None,
-    user: User | None = None,
-) -> int:
-    """How many people match the cohort definition and have an email address. Each window starts where the
-    cohort's window starts, so the card and the calculated cohort agree."""
+def sample_denominator(audiences: Sequence[AudienceSuggestion], weekly_counts: Mapping[str, int]) -> int:
+    """Which share of people to count, so the scan stays small however busy the audiences' events are."""
+    weekly_rows = sum(weekly_counts.get(name, 0) for name in _event_names(audiences))
+    return max(1, math.ceil(weekly_rows * _lookback_days(audiences) / 7 / _COUNT_TARGET_ROWS))
+
+
+def reachable_counts(
+    team: Team, audiences: Sequence[AudienceSuggestion], *, denominator: int = 1, user: User | None = None
+) -> list[int]:
+    """Roughly how many people in each audience have an email address, from one scan of the audiences' events. The
+    scan misses an address set after the person's last scanned event, and the sample keeps one distinct ID in
+    `denominator`, so a person with several IDs can look lapsed. Each window starts where the cohort's window starts."""
+    if not audiences:
+        return []
+    matched = parse_select(
+        """
+        SELECT person_id, countIf({email} ILIKE '%@%') > 0 AS has_email
+        FROM events
+        WHERE timestamp >= toStartOfDay(now() - toIntervalDay({lookback})) AND event IN {events}
+        GROUP BY person_id
+        """,
+        placeholders={
+            # The send reads the address from the person, which events copy when they are captured.
+            "email": ast.Field(chain=["person", "properties", EMAIL_PROPERTY]),
+            "lookback": ast.Constant(value=_lookback_days(audiences)),
+            "events": ast.Tuple(exprs=[ast.Constant(value=name) for name in sorted(_event_names(audiences))]),
+        },
+    )
+    assert isinstance(matched, ast.SelectQuery) and matched.select_from is not None
+    if denominator > 1:
+        matched.select_from.sample = ast.SampleExpr(
+            sample_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=denominator))
+        )
+    aliases = [f"audience_{index}" for index in range(len(audiences))]
+    matched.select.extend(
+        ast.Alias(alias=alias, expr=_matches(audience)) for alias, audience in zip(aliases, audiences)
+    )
+    query = ast.SelectQuery(
+        select=[
+            parse_expr("countIf({matched} AND has_email)", placeholders={"matched": ast.Field(chain=[alias])})
+            for alias in aliases
+        ],
+        select_from=ast.JoinExpr(table=matched),
+    )
+    response = _run(team, query, "workflows_audience_suggestions_size", user)
+    row = (response.results or [[0] * len(audiences)])[0]
+    return [int(count) * denominator for count in row]
+
+
+def _event_names(audiences: Sequence[AudienceSuggestion]) -> set[str]:
+    return {name for audience in audiences for name in (audience.event, audience.missing_event) if name}
+
+
+def _lookback_days(audiences: Sequence[AudienceSuggestion]) -> int:
+    return max(LAPSED_LOOKBACK_DAYS if audience.kind == "lapsed" else audience.window_days for audience in audiences)
+
+
+def _matches(audience: AudienceSuggestion) -> ast.Expr:
     placeholders: dict[str, ast.Expr] = {
-        "event": ast.Constant(value=event),
-        "window": ast.Constant(value=window_days),
-        "email": ast.Field(chain=["properties", EMAIL_PROPERTY]),
+        "event": ast.Constant(value=audience.event),
+        "since": parse_expr(
+            "toStartOfDay(now() - toIntervalDay({window}))",
+            placeholders={"window": ast.Constant(value=audience.window_days)},
+        ),
+        "window": ast.Constant(value=audience.window_days),
+        "missing": ast.Constant(value=audience.missing_event or ""),
+        "min_count": ast.Constant(value=audience.min_count or 1),
+        "lookback": ast.Constant(value=LAPSED_LOOKBACK_DAYS),
     }
-    match kind:
+    match audience.kind:
         case "not_yet":
-            placeholders["missing"] = ast.Constant(value=missing_event or "")
-            inner = """
-                SELECT person_id
-                FROM events
-                WHERE timestamp >= toStartOfDay(now() - toIntervalDay({window})) AND event IN ({event}, {missing})
-                GROUP BY person_id
-                HAVING countIf(event = {event}) > 0 AND countIf(event = {missing}) = 0
+            template = """
+                countIf(event = {event} AND timestamp >= {since}) > 0
+                AND countIf(event = {missing} AND timestamp >= {since}) = 0
             """
         case "regulars":
             # The cohort counts repeat events over a rolling window that ends 5 seconds from now, not by the day.
-            placeholders["min_count"] = ast.Constant(value=min_count or 1)
-            inner = """
-                SELECT person_id
-                FROM events
-                WHERE timestamp >= now() - toIntervalDay({window})
+            template = """
+                countIf(
+                    event = {event}
+                    AND timestamp >= now() - toIntervalDay({window})
                     AND timestamp < now() + toIntervalSecond(5)
-                    AND event = {event}
-                GROUP BY person_id
-                HAVING count() >= {min_count}
+                ) >= {min_count}
             """
         case "lapsed":
-            placeholders["lookback"] = ast.Constant(value=LAPSED_LOOKBACK_DAYS)
-            inner = """
-                SELECT person_id
-                FROM events
-                WHERE timestamp >= toStartOfDay(now() - toIntervalDay({lookback})) AND event = {event}
-                GROUP BY person_id
-                HAVING max(timestamp) < toStartOfDay(now() - toIntervalDay({window}))
+            template = """
+                countIf(event = {event} AND timestamp >= toStartOfDay(now() - toIntervalDay({lookback}))) > 0
+                AND countIf(event = {event} AND timestamp >= {since}) = 0
             """
-    # The email comes from the person, not the events, because the send reads it from the person. Only the
-    # candidates' rows are read: the persons table would copy the events subquery into its own filter and fail.
-    # The tuple keeps a newer null email, which a bare argMax skips in favor of an older address.
-    query = parse_select(
-        """
-        SELECT count() FROM (
-            SELECT id FROM raw_persons
-            WHERE id IN (SELECT person_id FROM {matched})
-            GROUP BY id
-            HAVING argMax(is_deleted, version) = 0
-                AND toString(tupleElement(argMax(tuple({email}), version), 1)) ILIKE '%@%'
-        )
-        """,
-        placeholders={"matched": parse_select(inner, placeholders=placeholders), "email": placeholders["email"]},
-    )
-    response = _run(team, query, "workflows_audience_suggestions_size", user)
-    rows = response.results or []
-    return int(rows[0][0]) if rows else 0
+    return parse_expr(template, placeholders=placeholders)
 
 
 def activity_counts(team: Team, user: User | None = None) -> dict[str, int]:
@@ -151,8 +180,10 @@ def _run(
         team=team,
         query_type=query_type,
         settings=settings,
-        # Cohorts resolve merged persons this way, so the counts must too.
-        modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+        # A person waits on the page for these cards.
+        workload=Workload.ONLINE,
+        # Merged persons count once, and the email comes from the events, so counting never reads the persons table.
+        modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
         user=user,
     )
 

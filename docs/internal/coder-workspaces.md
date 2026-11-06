@@ -26,6 +26,13 @@ hogli devbox:exec -- bash -lc 'gh auth status'   # run one command on the box an
 **Connecting your IDE** —
 Open the workspace in VS Code (`hogli devbox:open --vscode`), Cursor (`--cursor`), or a browser-based editor (`--web`).
 
+**Driving a devbox from Herdr** —
+`hogli devbox:open --herdr` adds the devbox to [Herdr](https://herdr.dev) as a machine and opens a space on it in `~/posthog`.
+Terminals and agents you open in that space run on the devbox.
+The first run copies `hc` onto the box; later runs show the same space again.
+The devbox must be running, so run `hogli devbox:start` first.
+Stopping the devbox ends its terminals, and Herdr gives each pane a new shell after the next start.
+
 **Running the dev stack in detached mode** —
 Start the PostHog dev stack in the background without an interactive terminal:
 
@@ -61,15 +68,25 @@ hogli devbox:sync --status                           # check sync state
 hogli devbox:sync --terminate                        # tear down when done
 ```
 
-`devbox:open --vscode` / `--cursor` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth.
+`devbox:open --vscode` / `--cursor` / `--herdr` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth.
 
 **One devbox per git worktree** —
 Run `hogli devbox:worktree` from a linked worktree to give it its own labeled box and sync mirror. The label comes from the branch name, shortened with a hash when it would push the workspace name past Coder's 32-character limit. Re-running reuses the same box and mirror. `--clone-from <label>` creates the box with `devbox:clone`, and `--dry-run` prints the plan.
 
 `hogli worktrees:clean --mode full --stop-boxes` (or `--delete-boxes`) also stops (or deletes) the box of each worktree it removes. Save a default with `hogli devbox:worktree --on-clean stop|delete|keep`, and override it with `--keep-boxes`. Only boxes that `devbox:worktree` set up are touched.
 It also handles boxes whose worktree was already removed some other way, but only once the box itself has not been used since the `--before` cutoff.
+`hogli devbox:worktree:prune` handles only those boxes, with no cutoff, after t3code, herdr or `git worktree remove` deleted the worktree.
 
-To give every new worktree a box, run `hogli devbox:worktree --auto claude,phw` once with the worktree sources you want (`claude`, `codex`, `posthog-code`, `phw`, `other`). The husky `post-checkout` hook then runs `devbox:worktree` in the background after `git worktree add`, including for `claude -w`. Claude subagent worktrees are skipped. Turn it off with `--auto off`.
+To give every new worktree a box, run `hogli devbox:worktree --auto claude,phw` once with the worktree sources you want (`claude`, `codex`, `posthog-code`, `phw`, `t3code`, `herdr`, `superset`, `emdash`, `orca`, `conductor`, `worktrunk`, `other`). The husky `post-checkout` hook then runs `devbox:worktree` in the background after `git worktree add`, including for `claude -w`. Superset, Emdash, Orca and worktrunk run it from the create hooks checked into the repo, and stop the box from their remove hooks. For Conductor, `--auto conductor` adds the same hooks to your uncommitted `.conductor/settings.local.toml`, so other people's Conductor scripts stay as they are. t3code runs it only after you import `t3.json` once with **Import from t3.json** in the project's scripts. herdr users link `tools/herdr-devbox-plugin` with `herdr plugin link`. Claude subagent worktrees are skipped. Turn it off with `--auto off`.
+
+**Worktree boxes on Hogland** —
+`hogli devbox:worktree --provider hogland` gives the worktree a Hogland devbox instead of a Coder workspace.
+It restores the box from the `devbox-golden` snapshot with `hogland devbox up`, so the `hogland` CLI must be installed and signed in.
+The box is named `wt-<label>` and the mirror goes to `/home/hog/posthog` over SSH.
+To make Hogland the default, including for automatic boxes, pass `--provider hogland` together with `--auto`.
+`hogli devbox:config:rm worktree-provider` goes back to Coder.
+`worktrees:clean --stop-boxes` hibernates a Hogland box, and `--delete-boxes` deletes it.
+`--clone-from` and `--start-app` work only with Coder.
 
 ## Prerequisites
 
@@ -89,7 +106,8 @@ This does the host-side setup only:
 
 - verifies Tailscale connectivity
 - installs the `coder` CLI at the version matching the server and the `mutagen` binary (pinned v0.18.1) that powers `devbox:sync`
-- logs you into the Coder deployment
+- links `coder` into `~/.local/bin` (or `~/bin`) when that directory is on your PATH, so you can run `coder` yourself; otherwise it prints the PATH line to add
+- logs you into the Coder deployment. Login asks you to paste a token from the browser, so run setup in a terminal that takes input. In a shell without one, setup stops and tells you to run `coder login` in a terminal first
 - configures `~/.ssh/config` with Coder workspace entries (use `--skip-configure-ssh` to skip)
 - shows a compact "Currently configured:" status block with your saved settings
 - prompts for Git identity, an optional dotfiles repo, a preferred region, and an optional Claude OAuth token (stored as a Coder user secret)

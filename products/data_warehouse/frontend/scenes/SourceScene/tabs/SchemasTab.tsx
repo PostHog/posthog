@@ -625,17 +625,62 @@ function ManagedSchemaTable({
                     key: 'sync_type',
                     className: dimWhenNotSyncing,
                     render: (_, schema) => {
-                        if (!schema.sync_type) {
-                            return <span className="text-muted">Not set up</span>
-                        }
                         const blockedReason = schema.incremental_sync_blocked
-                        if (!blockedReason) {
-                            return <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                        const syncMethod = schema.sync_type ? (
+                            <LemonTag type={blockedReason ? 'warning' : 'primary'}>
+                                {SyncTypeLabelMap[schema.sync_type]}
+                            </LemonTag>
+                        ) : (
+                            <span className="text-muted">Not set up</span>
+                        )
+                        // The schema scene hides the sync method section for a file upload, so no link here.
+                        if (isFileUpload) {
+                            return syncMethod
+                        }
+                        const webhookTag = schema.webhook_not_registered ? (
+                            <Tooltip title="This table uses webhook sync, but the source has no active webhook. Each sync reads the source API instead, which is slower and can read the whole table. Set up the webhook on the Webhook tab, or change the sync method.">
+                                <Link
+                                    to={urls.dataWarehouseSource(prefixedSourceId, 'webhook')}
+                                    subtle
+                                    data-attr="schemas-tab-webhook-not-registered"
+                                >
+                                    <LemonTag type="danger">No webhook</LemonTag>
+                                </Link>
+                            </Tooltip>
+                        ) : null
+                        const syncMethodLink = (
+                            <Tooltip
+                                title={
+                                    blockedReason
+                                        ? IncrementalSyncBlockedMessageMap[blockedReason]
+                                        : schema.sync_type
+                                          ? 'Change the sync method for this table'
+                                          : 'Set up the sync method for this table'
+                                }
+                                interactive={!!blockedReason}
+                            >
+                                <Link
+                                    to={urls.dataWarehouseSourceSchema(
+                                        prefixedSourceId,
+                                        schema.id,
+                                        'configuration',
+                                        'sync-method'
+                                    )}
+                                    subtle
+                                    data-attr="schemas-tab-sync-method"
+                                >
+                                    {syncMethod}
+                                </Link>
+                            </Tooltip>
+                        )
+                        if (!webhookTag) {
+                            return syncMethodLink
                         }
                         return (
-                            <Tooltip title={IncrementalSyncBlockedMessageMap[blockedReason]} interactive>
-                                <LemonTag type="warning">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
-                            </Tooltip>
+                            <div className="flex flex-wrap items-center gap-1">
+                                {syncMethodLink}
+                                {webhookTag}
+                            </div>
                         )
                     },
                 },

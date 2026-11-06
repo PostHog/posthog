@@ -68,6 +68,13 @@ interface SlopeValueLabelSummary {
     side: 'start' | 'end'
 }
 
+interface GaugeSummary {
+    value: string
+    label: string | null
+    min: string | null
+    max: string | null
+}
+
 interface PieSliceLabelSummary {
     text: string
     /** One entry per rendered line (label and/or value). */
@@ -124,6 +131,13 @@ export interface ChartAccessor<Meta = unknown> {
         /** On-slice labels, in slice order. */
         sliceLabels(): PieSliceLabelSummary[]
     }
+    gauge: {
+        /** The text a `Gauge` shows, or null for other charts. `label`, `min` and `max` are null when
+         *  hidden, for example when the min and max labels would overlap. */
+        text(): GaugeSummary | null
+        /** The CSS color of the value text, or null for other charts. */
+        valueColor(): string | null
+    }
     /** The legend container in this chart's render scope, or null when the legend is hidden. */
     legend(): HTMLElement | null
     /** Legend rows in this chart's render scope — label plus the row's secondary text (a slope
@@ -133,6 +147,12 @@ export interface ChartAccessor<Meta = unknown> {
     /** Click the legend row with this label. `additive` holds ⌘/Ctrl, which toggles that one series
      *  instead of isolating it. Throws when no legend row has the label. */
     clickLegendItem(label: string, options?: { additive?: boolean }): void
+    /** Click the value-table header with this text, which sorts the legend by that column. Throws
+     *  when no header has the text. */
+    sortLegendBy(header: string): void
+    /** The value-table cells of each legend row as rendered, in row then column order. Empty for a
+     *  list legend. */
+    legendValues(): string[][]
     /** Fire one `mouseMove` over the label at `index`, without waiting for a tooltip. */
     hoverAtIndex(index: number): void
     /** Hover the label at `index` until the tooltip shows its content, then read it as a `DefaultTooltip`.
@@ -251,6 +271,8 @@ export function getChart<Meta = unknown>(
         }
         return count
     }
+    const gaugePart = (part: string): HTMLElement | null =>
+        wrapper.querySelector<HTMLElement>(`[data-attr="hog-chart-gauge-${part}"]`)
 
     return {
         element: wrapper,
@@ -319,6 +341,14 @@ export function getChart<Meta = unknown>(
                     })
                 ),
         },
+        gauge: {
+            text: () => {
+                const text = (part: string): string | null => gaugePart(part)?.textContent ?? null
+                const value = text('value')
+                return value === null ? null : { value, label: text('label'), min: text('min'), max: text('max') }
+            },
+            valueColor: () => gaugePart('value')?.style.color ?? null,
+        },
         legend: () => scope.querySelector<HTMLElement>('[data-hog-charts-legend]'),
         legendItems: () => readLegendItems(scope),
         clickLegendItem(label: string, { additive = false }: { additive?: boolean } = {}): void {
@@ -331,6 +361,26 @@ export function getChart<Meta = unknown>(
             }
             act(() => {
                 fireEvent.click(row, { metaKey: additive })
+            })
+        },
+        legendValues: () =>
+            Array.from(scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-label"]'), (labelEl) =>
+                Array.from(
+                    labelEl
+                        .closest('button, div')
+                        ?.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-value"]') ?? [],
+                    (cell) => cell.textContent ?? ''
+                )
+            ).filter((cells) => cells.length > 0),
+        sortLegendBy(header: string): void {
+            const button = Array.from(scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-sort"]')).find(
+                (el) => el.textContent?.replace(/ [↑↓]$/, '') === header
+            )
+            if (!button) {
+                throw new Error(`No legend column headed "${header}"`)
+            }
+            act(() => {
+                fireEvent.click(button)
             })
         },
         hoverAtIndex(index: number): void {
