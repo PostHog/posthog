@@ -6802,11 +6802,14 @@ class TestExternalDataSource(APIBaseTest):
                 team=self.team, pipeline=never_completed, status=ExternalDataJob.Status.RUNNING
             )
 
-        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
 
         assert response.status_code == status.HTTP_200_OK
         last_run_at = {row["id"]: row["last_run_at"] for row in response.json()["results"]}
         assert last_run_at == {str(source.pk): "2024-07-01T18:00:00+00:00", str(never_completed.pk): None}
+        job_row_select = f'SELECT "{ExternalDataJob._meta.db_table}"."id"'
+        assert not any(job_row_select in query["sql"] for query in queries.captured_queries)
 
     def test_source_jobs(self):
         source = self._create_external_data_source()

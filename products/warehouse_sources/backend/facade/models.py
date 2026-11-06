@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.models.external_data_job import (
     ExternalDataJob,
     get_latest_run_if_exists,
     latest_completed_job_prefetch,
+    latest_completed_job_subquery,
 )
 from products.warehouse_sources.backend.models.external_data_schema import (
     CDC_SNAPSHOT_LANE_KEY,
@@ -126,6 +127,7 @@ __all__ = [
     "is_managed_warehouse_connection_ready",
     "get_latest_run_if_exists",
     "latest_completed_job_prefetch",
+    "latest_completed_job_subquery",
     "get_or_create_datawarehouse_credential",
     "get_or_create_warehouse_destination",
     "clear_masked_column_bounds",
