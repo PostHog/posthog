@@ -1041,9 +1041,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         help_text=(
             "Name of the history table registered for this schema, whether or not its mode still writes it, "
             "or `null` when none is registered. One the schema no longer writes can be removed with the "
-            "`history_table` delete endpoint. Populated on the single-schema retrieve endpoint, and on an "
-            "update that sent `drop_history_table`, where a name means the history table was kept, for "
-            "example because a sync started meanwhile. `null` elsewhere."
+            "`history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, "
+            "`null` elsewhere. After an update that sent `drop_history_table`, a name means the history "
+            "table was kept, for example because a sync started meanwhile."
         ),
     )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
@@ -1129,8 +1129,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_registered_history_table_name(self, schema: ExternalDataSchema) -> str | None:
-        # Gated like `source`, so list endpoints skip the lookup.
-        if not (self.context.get("include_source") or self.context.get("reports_history_drop")):
+        if not self.context.get("include_history_table"):
             return None
         table = registered_history_table(schema)
         return table.name if table is not None else None
@@ -2198,9 +2197,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         return table
 
     def _drop_history_table_after_mode_change(self, schema: ExternalDataSchema) -> None:
-        # The response then names a history table that was kept, since the save itself already succeeded.
-        if "post_commit_actions" not in self.context:
-            self.context["reports_history_drop"] = True
         try:
             dropped = drop_history_table(schema)
         except HistoryTableDropRefusedError:
@@ -2719,6 +2715,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).
         context["include_source"] = self.action == "retrieve"
+        # Single-schema responses only, so a list skips the lookup. After a drop, a name means the table was kept.
+        context["include_history_table"] = self.action in ("retrieve", "update", "partial_update")
         return context
 
     def safely_get_queryset(self, queryset):

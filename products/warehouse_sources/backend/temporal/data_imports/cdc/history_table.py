@@ -321,12 +321,12 @@ HISTORY_TABLE_SYNC_IN_FLIGHT_ERROR = (
 )
 
 
-def assert_history_table_droppable(schema: ExternalDataSchema, *, keeps_history: bool | None = None) -> None:
+def assert_history_table_droppable(schema: ExternalDataSchema, *, keeps_history: bool) -> None:
     """Raise `HistoryTableDropRefusedError` while the schema's history table can still be written.
 
-    `keeps_history` is what a pending save leaves. None reads the stored row, which the caller's copy can
-    predate. A sync that read an earlier mode can still write the table while its workflow runs, and its
-    batches can still be in the load queue after that.
+    `keeps_history` is whether the schema's mode writes the table, after a pending save when there is one.
+    A sync that read an earlier mode can still write the table while its workflow runs, and its batches can
+    still be in the load queue after that.
     """
     # Deferred: source_manager pulls in the pipeline.
     from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (  # noqa: PLC0415
@@ -336,8 +336,6 @@ def assert_history_table_droppable(schema: ExternalDataSchema, *, keeps_history:
         has_queued_batches,
     )
 
-    if keeps_history is None:
-        keeps_history = ExternalDataSchema.objects.get(id=schema.id, team_id=schema.team_id).keeps_history
     if keeps_history:
         raise HistoryTableDropRefusedError(HISTORY_TABLE_STILL_WRITTEN_ERROR)
     try:
@@ -362,18 +360,15 @@ def drop_history_table(schema: ExternalDataSchema) -> DataWarehouseTable | None:
     if registered is None:
         return None
     table, naming = registered
-    assert_history_table_droppable(schema)
-
     folder_name = NamingConvention.normalize_identifier(companion_resource_name(schema.name, naming))
-    _delete_history_files(schema, folder_name)
-
     query_folder_prefix = f"{folder_name}__query"
+    # Every mode save takes this row lock, so holding it from the checks until the record goes keeps a
+    # switch back to history from landing while the files are deleted. A storage error rolls back with
+    # the record still in place, so a retry deletes the rest.
     with transaction.atomic():
-        # Under the row lock that every mode change saves under, so a switch back to history either
-        # landed before this check or waits for the record to go.
         locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
-        if locked.keeps_history:
-            raise HistoryTableDropRefusedError(HISTORY_TABLE_STILL_WRITTEN_ERROR)
+        assert_history_table_droppable(locked, keeps_history=locked.keeps_history)
+        _delete_history_files(schema, folder_name)
         config = locked.sync_type_config or {}
         config.pop(HISTORY_NAMING_OPTION, None)
         states = config.get(QUERY_FOLDER_STATE_KEY)

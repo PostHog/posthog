@@ -1,11 +1,13 @@
 import uuid
+import threading
 from io import StringIO
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.db import OperationalError, connection, transaction
 
 from parameterized import parameterized
 
@@ -355,3 +357,55 @@ class TestDropHistoryTable(BaseTest):
         self.history.refresh_from_db()
         assert not self.history.deleted
         self.s3.rm.assert_not_called()
+
+
+@patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
+class TestDropHistoryTableLocking(NonAtomicBaseTest):
+    # Needs committed transactions: a second connection must see the row lock the drop holds.
+    def test_a_mode_save_cannot_land_while_the_files_are_deleted(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_table_mode": "consolidated"},
+        )
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name=build_table_name(source, "orders_cdc"),
+            format="DeltaS3Wrapper",
+            url_pattern="s3://bucket/orders_cdc",
+            external_data_source=source,
+            options={"history_table": True},
+        )
+        row_was_locked: list[bool] = []
+
+        def save_mode_from_another_connection() -> None:
+            try:
+                with transaction.atomic():
+                    ExternalDataSchema.objects.select_for_update(nowait=True).get(id=schema.id)
+                row_was_locked.append(False)
+            except OperationalError:
+                row_was_locked.append(True)
+            finally:
+                connection.close()
+
+        def delete_files(*_args: object, **_kwargs: object) -> None:
+            thread = threading.Thread(target=save_mode_from_another_connection)
+            thread.start()
+            thread.join()
+
+        s3 = MagicMock()
+        s3.ls.return_value = [f"bucket/{schema.folder_path()}/orders_cdc"]
+        s3.rm.side_effect = delete_files
+        with (
+            patch(_GET_S3_CLIENT, return_value=s3),
+            patch(_HAS_QUEUED_BATCHES, return_value=False),
+            patch(_WORKFLOW_IS_RUNNING, return_value=False),
+        ):
+            drop_history_table(schema)
+
+        assert row_was_locked == [True]

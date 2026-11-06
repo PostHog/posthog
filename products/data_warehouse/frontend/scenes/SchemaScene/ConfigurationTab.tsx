@@ -514,8 +514,10 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         // Asked after the xmin and self-managed confirmations, right before the save.
         const askAboutHistoryThenApply = (): void => {
             const historyTableName = schema.registered_history_table_name
-            const keepsHistoryAfter = syncType === 'cdc' && (cdcTableMode ?? schema.cdc_table_mode) !== 'consolidated'
-            if (!historyTableName || keepsHistoryAfter) {
+            const stopsWritingHistory =
+                writesHistoryTable(schema.sync_type, schema.cdc_table_mode) &&
+                !writesHistoryTable(syncType, cdcTableMode ?? schema.cdc_table_mode)
+            if (!historyTableName || !stopsWritingHistory) {
                 void applyUpdate()
                 return
             }
@@ -528,8 +530,9 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                             row.
                         </p>
                         <p>
-                            Delete it to remove the table and every past version in it. This can't be undone. Keep it to
-                            go on querying the versions recorded so far. You can delete it later from the danger zone.
+                            Delete it to remove the table, every past version in it, and the joins that use it. This
+                            can't be undone. Keep it to go on querying the versions recorded so far. You can delete it
+                            later from the danger zone.
                         </p>
                     </div>
                 ),
@@ -1483,6 +1486,13 @@ function AnchorTimeField({
     )
 }
 
+function writesHistoryTable(
+    syncType: ExternalDataSourceSchema['sync_type'],
+    cdcTableMode: ExternalDataSourceSchema['cdc_table_mode']
+): boolean {
+    return syncType === 'cdc' && (cdcTableMode ?? 'consolidated') !== 'consolidated'
+}
+
 function DangerZoneSection({
     source,
     schema,
@@ -1501,8 +1511,9 @@ function DangerZoneSection({
     const hasFullCdcResync = schema.sync_type === 'cdc'
     const hasDeleteAndResync = schema.incremental || schema.sync_type === 'webhook' || schema.sync_type === 'xmin'
     const canDeleteTable = !!schema.table
-    const keepsHistory = schema.sync_type === 'cdc' && (schema.cdc_table_mode ?? 'consolidated') !== 'consolidated'
-    const retiredHistoryTableName = keepsHistory ? null : schema.registered_history_table_name
+    const retiredHistoryTableName = writesHistoryTable(schema.sync_type, schema.cdc_table_mode)
+        ? null
+        : schema.registered_history_table_name
 
     if (!hasFullCdcResync && !hasDeleteAndResync && !canDeleteTable && !retiredHistoryTableName) {
         return (
@@ -1622,7 +1633,7 @@ function DangerZoneSection({
                                             LemonDialog.open({
                                                 title: `Delete ${retiredHistoryTableName}?`,
                                                 description:
-                                                    "This deletes the history table and every past version of each row in it. This can't be undone.",
+                                                    "This deletes the history table, every past version of each row in it, and the joins that use it. This can't be undone.",
                                                 primaryButton: {
                                                     children: 'Delete history table',
                                                     status: 'danger',
