@@ -1179,6 +1179,10 @@ describe('marketingAnalyticsLogic', () => {
                 entry_point: 'dashboard_customer_cards',
                 section: SetupSection.CONVERSION_GOALS,
             })
+            expect(posthog.capture).not.toHaveBeenCalledWith(
+                'marketing analytics dashboard tab selected',
+                expect.anything()
+            )
 
             await expectLogic(logic, () => logic.actions.setSetupSection(SetupSection.SOURCES))
                 .toFinishAllListeners()
@@ -1194,6 +1198,37 @@ describe('marketingAnalyticsLogic', () => {
             unmountSettings()
         }
     )
+
+    it('reports a tab click with the Search tag visibility, but not a click on the open tab', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.reportTabSelected(
+                MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                true
+            )
+        }).toFinishAllListeners()
+        expect(posthog.capture).not.toHaveBeenCalledWith(
+            'marketing analytics dashboard tab selected',
+            expect.anything()
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.reportTabSelected(
+                MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                MarketingAnalyticsTab.DASHBOARD,
+                true
+            )
+        }).toFinishAllListeners()
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics dashboard tab selected', {
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+            previous_tab: MarketingAnalyticsTab.DASHBOARD,
+            search_new_tag_visible: true,
+        })
+    })
+
     it.each([
         ['?date_from=-7d&date_to=', { dateFrom: '-7d', dateTo: null }],
         ['?date_from=-7d&date_to=&tab=setup&section=sources', { dateFrom: '-7d', dateTo: null }],

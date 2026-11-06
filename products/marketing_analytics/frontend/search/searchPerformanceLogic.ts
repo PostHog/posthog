@@ -26,6 +26,7 @@ import { externalDataSourcesBulkUpdateSchemasPartialUpdate } from 'products/ware
 
 import {
     CampaignChannelTypes,
+    RECOMMENDED_SEARCH_PLATFORMS,
     SEARCH_PERFORMANCE_QUERY_KEY,
     SearchBreakdown,
     SearchChannel,
@@ -214,9 +215,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         missingSources: [
             (s) => [s.allSearchSources],
             (sources: ExternalDataSource[]): SearchPlatform[] =>
-                (['GoogleAds', 'GoogleSearchConsole'] as SearchPlatform[]).filter(
-                    (type) => !sources.some((source) => source.source_type === type)
-                ),
+                RECOMMENDED_SEARCH_PLATFORMS.filter((type) => !sources.some((source) => source.source_type === type)),
         ],
         hasActiveFilters: [
             (s) => [s.querySearch, s.channel, s.integrationFilter, s.allSearchSources],

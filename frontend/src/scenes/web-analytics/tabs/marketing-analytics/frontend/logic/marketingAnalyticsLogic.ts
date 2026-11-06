@@ -510,6 +510,18 @@ export interface marketingAnalyticsLogicActions {
         configured: DashboardGoalsConfigured
         section: string
     }
+    reportSearchNewTagShown: () => {
+        value: true
+    }
+    reportTabSelected: (
+        tab: MarketingAnalyticsTab,
+        previousTab: MarketingAnalyticsTab,
+        searchNewTagVisible: boolean
+    ) => {
+        previousTab: MarketingAnalyticsTab
+        searchNewTagVisible: boolean
+        tab: MarketingAnalyticsTab
+    }
     saveConversionGoal: () => {
         value: true
     }
@@ -840,6 +852,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             control,
             value,
         }),
+        reportTabSelected: (
+            tab: MarketingAnalyticsTab,
+            previousTab: MarketingAnalyticsTab,
+            searchNewTagVisible: boolean
+        ) => ({ tab, previousTab, searchNewTagVisible }),
+        reportSearchNewTagShown: true,
 
         // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
@@ -1702,6 +1720,20 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
             reportDashboardControlUsed: ({ section, control, value }) => {
                 posthog.capture('marketing analytics dashboard control used', { section, control, value })
+            },
+            reportTabSelected: ({ tab, previousTab, searchNewTagVisible }) => {
+                // LemonTabs calls onChange when the open tab is clicked again.
+                if (tab === previousTab) {
+                    return
+                }
+                posthog.capture('marketing analytics dashboard tab selected', {
+                    tab,
+                    previous_tab: previousTab,
+                    search_new_tag_visible: searchNewTagVisible,
+                })
+            },
+            reportSearchNewTagShown: () => {
+                posthog.capture('marketing analytics search tab new tag shown')
             },
             // Track dashboard interactions for filters and chart controls
             setDates: trackDashboardInteraction,
