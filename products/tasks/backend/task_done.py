@@ -8,7 +8,7 @@ import structlog
 from products.tasks.backend.metrics import observe_task_wake_refused
 from products.tasks.backend.models import Task, TaskStatusChange
 from products.tasks.backend.pr_urls import canonical_github_pull_request_url
-from products.tasks.backend.task_run_sync import SHADOW_ACTOR_PREFIX, DoneMode, done_mode, mark_done
+from products.tasks.backend.task_run_sync import SHADOW_ACTOR_PREFIX, DoneMode, done_mode, keeps_done, mark_done
 from products.tasks.backend.visibility import task_control_q
 
 logger = structlog.get_logger(__name__)
@@ -37,7 +37,7 @@ def _latest_change_is_shadow_done(task: Task) -> bool:
 def wake_refusal(task: Task, *, source: str) -> TaskDoneError | None:
     profile = task.profile or "none"
     if task.status == Task.Status.DONE:
-        if done_mode(task.profile, task.team_id) != DoneMode.ENFORCE:
+        if not keeps_done(done_mode(task.profile, task.team_id)):
             return None
         observe_task_wake_refused(profile=profile, source=source, mode=DoneMode.ENFORCE)
         logger.info("task_wake_refused", task_id=str(task.id), profile=profile, source=source)

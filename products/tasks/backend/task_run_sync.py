@@ -195,7 +195,7 @@ def _legacy_columns(task_id: UUID | str) -> dict[str, Any]:
     return columns
 
 
-def done_mode(profile_key: str | None, team_id: int) -> DoneMode:
+def done_mode(profile_key: str | None, team_id: int) -> DoneMode | None:
     if not profile_key:
         return DoneMode.OFF
     try:
@@ -213,12 +213,17 @@ def done_mode(profile_key: str | None, team_id: int) -> DoneMode:
             payload = json.loads(payload)
     except Exception:
         logger.warning("task_done_mode_unresolved", profile=profile_key, team_id=team_id, exc_info=True)
-        return DoneMode.OFF
-    value = payload.get(profile_key) if isinstance(payload, dict) else None
+        return None
+    if not isinstance(payload, dict):
+        return None
     try:
-        return DoneMode(str(value))
+        return DoneMode(str(payload.get(profile_key, DoneMode.OFF)))
     except ValueError:
         return DoneMode.OFF
+
+
+def keeps_done(mode: DoneMode | None) -> bool:
+    return mode in (DoneMode.ENFORCE, None)
 
 
 def _record_change(
@@ -284,13 +289,16 @@ def mark_done(
     task_id: UUID | str, *, reason: str, actor: str, run_id: UUID | None = None, expected: str | None = None
 ) -> bool:
     stored = _stored_task_status(task_id, lock=False)
-    if stored is None:
+    if stored is None or stored.value is None:
         return False
     mode = done_mode(stored.profile, stored.team_id)
-    if mode == DoneMode.OFF:
+    if mode is None or mode == DoneMode.OFF:
         return False
-    observe_task_done(profile=stored.profile or "none", reason=reason, mode=mode)
+    profile = stored.profile or "none"
     if mode == DoneMode.SHADOW:
+        current = stored.value.status
+        if Task.Status.DONE not in TRANSITIONS[current] or (expected is not None and current != expected):
+            return False
         _record_change(
             stored.team_id,
             task_id,
@@ -298,9 +306,13 @@ def mark_done(
             run_id=run_id,
             changed_by=f"{SHADOW_ACTOR_PREFIX}{actor}",
         )
+        observe_task_done(profile=profile, reason=reason, mode=mode)
         logger.info("task_would_mark_done", task_id=str(task_id), profile=stored.profile, reason=reason, actor=actor)
         return False
-    return transition(task_id, Task.Status.DONE, reason=reason, actor=actor, run_id=run_id, expected=expected)
+    moved = transition(task_id, Task.Status.DONE, reason=reason, actor=actor, run_id=run_id, expected=expected)
+    if moved:
+        observe_task_done(profile=profile, reason=reason, mode=mode)
+    return moved
 
 
 def _done_on_turn_close(profile_key: str | None, run: LatestRun) -> bool:
@@ -326,7 +338,7 @@ def sync_task_status(task_id: UUID | str, *, changed_by: str = RUN_SYNC_ACTOR) -
         if (
             previous is not None
             and previous.status == Task.Status.DONE
-            and done_mode(stored.profile, stored.team_id) == DoneMode.ENFORCE
+            and keeps_done(done_mode(stored.profile, stored.team_id))
         ):
             return False
         if previous is not None and derived.status not in {previous.status, *TRANSITIONS[previous.status]}:
