@@ -515,7 +515,7 @@ export function createCdpCoreServices(
         deps.teamManager,
         sandboxBlockedEventRedis,
         sandboxEmailRateLimiter,
-        new SandboxSenderStateService(deps.postgres, deps.pubSub)
+        new SandboxSenderStateService(deps.postgres, config.SES_SANDBOX_TENANT_NAME.trim(), deps.pubSub)
     )
     const emailService = new EmailService(
         {

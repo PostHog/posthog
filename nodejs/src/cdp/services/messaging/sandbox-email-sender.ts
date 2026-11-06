@@ -613,7 +613,7 @@ export class SandboxEmailSender {
 
     public async pauseGate({ fresh = false }: { fresh?: boolean } = {}): Promise<'open' | 'paused' | 'check_failed'> {
         try {
-            return (await this.senderState.isPaused(this.config.tenantName, { fresh })) ? 'paused' : 'open'
+            return (await this.senderState.isPaused({ fresh })) ? 'paused' : 'open'
         } catch (error) {
             logger.warn('Could not check the sandbox sender pause state', { error })
             return 'check_failed'

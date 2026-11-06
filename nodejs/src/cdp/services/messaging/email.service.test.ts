@@ -345,7 +345,7 @@ describe('EmailService', () => {
                     messageAssetsService,
                     dailyCapLimiter = new RateLimiterService(sandboxRedis, { name: 'sandbox-email' }),
                     blockedEventRedis = sandboxRedis,
-                    senderState = new SandboxSenderStateService(hub.postgres, hub.pubSub),
+                    senderState = new SandboxSenderStateService(hub.postgres, 'sandbox-tenant', hub.pubSub),
                 }: {
                     membersPostgres?: PostgresRouter
                     senderSettings?: Partial<SandboxEmailSenderConfig>

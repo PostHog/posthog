@@ -141,6 +141,14 @@ describe('sandbox email content', () => {
         )
         expect(await capSender.claimDailyCaps(1, ['member@example.com'])).toEqual({ type: 'cap_check_failed' })
     })
+    it.each([
+        ['open', () => Promise.resolve(false)],
+        ['paused', () => Promise.resolve(true)],
+        ['check_failed', () => Promise.reject(new Error('relation does not exist'))],
+    ])('answers the pause gate with %s', async (expected, isPaused) => {
+        const gateSender = new SandboxEmailSender(sender.config, teamManager, blockedEventRedis, null, { isPaused })
+        expect(await gateSender.pauseGate({ fresh: true })).toBe(expected)
+    })
     it('sends from the fixed address, drops the reply-to and adds the footer to the text part', async () => {
         const result = await sender.buildSandboxMessage(
             { ...params('<p>Hello</p>', 'Hello'), replyTo: 'replies@example.org' },
