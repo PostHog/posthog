@@ -52,12 +52,6 @@ type GlobalCandidate = {
 type SuppressionEntry = { blocksTransactional: boolean; global?: 'shadow' | 'enforce' }
 
 const HARD_BOUNCE_REASON = 'Auto-suppressed after a hard bounce'
-
-// A global entry holds for as long as the address has been bouncing, from 1 day up to 14 days, like the SES
-// global suppression list. Once it lapses, the next send tries the address again: a delivery clears the entry,
-// and another bounce renews it with a longer hold. A team's own list still blocks the address for good.
-const GLOBAL_HARD_BOUNCE_IS_HELD = `last_bounced_at + LEAST(
-    GREATEST(last_bounced_at - first_bounced_at, INTERVAL '1 day'), INTERVAL '14 days') > NOW()`
 const GLOBAL_HARD_BOUNCE_DIAGNOSTIC = "This address doesn't exist. An earlier email to it hard-bounced."
 
 // Reasons that mark a dead address on rows written before `hard_bounced_at` existed: our own hard-bounce
@@ -569,7 +563,7 @@ export class EmailSuppressionService {
         try {
             const result = await this.postgres.query<{ email: string }>(
                 PostgresUse.COMMON_READ,
-                `SELECT email FROM posthog_emailhardbounce WHERE email = ANY($1) AND ${GLOBAL_HARD_BOUNCE_IS_HELD}`,
+                `SELECT email FROM posthog_emailhardbounce WHERE email = ANY($1)`,
                 [Array.from(new Set(candidates.map((c) => c.identifier)))],
                 'loadGlobalHardBounces'
             )
@@ -585,7 +579,7 @@ export class EmailSuppressionService {
         for (const { key, teamId, identifier, kind } of candidates) {
             if (kind === 'copy') {
                 if (!bounced.has(identifier)) {
-                    // The global entry was cleared by a delivery or has lapsed, so the copy goes too.
+                    // A delivery cleared the global entry, which proves the address exists.
                     entries.delete(key)
                     releasesByTeam.set(teamId, [...(releasesByTeam.get(teamId) ?? []), identifier])
                 } else if (!this.globalHardBounceEnforce) {
