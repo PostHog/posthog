@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'crypto'
 import {
     type DefaultTreeAdapterMap,
     Parser,
+    type ParserOptions,
     type TreeAdapter,
     defaultTreeAdapter,
     html as htmlSpec,
@@ -26,6 +27,7 @@ const DAILY_CAP_TTL_SECONDS = 2 * SECONDS_PER_DAY
 const MAX_TEMPLATE_HTML_BYTES = 75_000
 const MAX_ELEMENT_DEPTH = 256
 const MAX_ATTRIBUTES_PER_TAG = 64
+const STYLED_ROOT_TAGS = new Set(['html', 'body'])
 const MAX_CONDITION_LENGTH = 100
 const MIN_SOURCE_BYTES_PER_ELEMENT = 3
 const MAX_ELEMENTS_PER_PARSE = Math.ceil(MAX_TEMPLATE_HTML_BYTES / MIN_SOURCE_BYTES_PER_ELEMENT)
@@ -344,19 +346,31 @@ function conditionHolds(condition: string, client: ConditionalClient): boolean {
     return value
 }
 
-type BoundedTreeAdapter = TreeAdapter<DefaultTreeAdapterMap> & { readonly maxAttributesPerTag: number }
+type BoundedTreeAdapter = TreeAdapter<DefaultTreeAdapterMap> & {
+    readonly attributeLimit: (tagName: string) => number
+}
 
-class AttributeBoundedParser extends Parser<DefaultTreeAdapterMap> {
-    constructor(...args: ConstructorParameters<typeof Parser<DefaultTreeAdapterMap>>) {
-        super(...args)
-        const { maxAttributesPerTag } = this.treeAdapter as BoundedTreeAdapter
+function isBoundedTreeAdapter(adapter: TreeAdapter<DefaultTreeAdapterMap> | undefined): adapter is BoundedTreeAdapter {
+    return typeof (adapter as Partial<BoundedTreeAdapter> | undefined)?.attributeLimit === 'function'
+}
+
+export class AttributeBoundedParser extends Parser<DefaultTreeAdapterMap> {
+    constructor(
+        options?: ParserOptions<DefaultTreeAdapterMap>,
+        document?: DefaultTreeAdapterMap['document'],
+        fragmentContext?: DefaultTreeAdapterMap['element'] | null
+    ) {
+        const given = options?.treeAdapter
+        const treeAdapter = isBoundedTreeAdapter(given) ? given : boundedTreeAdapter()
+        super({ ...options, treeAdapter }, document, fragmentContext)
         const tokenizer = this.tokenizer as unknown as {
-            currentToken: { attrs: unknown[] } | null
+            currentToken: { tagName: string; attrs: unknown[] } | null
             _leaveAttrName: () => void
         }
         const leaveAttrName = tokenizer._leaveAttrName.bind(tokenizer)
         tokenizer._leaveAttrName = () => {
-            if ((tokenizer.currentToken?.attrs.length ?? 0) >= maxAttributesPerTag) {
+            const token = tokenizer.currentToken
+            if (token && token.attrs.length >= treeAdapter.attributeLimit(token.tagName)) {
                 throw new FooterNotRetained()
             }
             leaveAttrName()
@@ -378,11 +392,13 @@ function refuseDeepNesting(parent: DefaultTreeAdapterMap['parentNode']): void {
     }
 }
 
-function boundedTreeAdapter(maxAttributesPerTag = MAX_ATTRIBUTES_PER_TAG): BoundedTreeAdapter {
+function boundedTreeAdapter({ styledRoots = false } = {}): BoundedTreeAdapter {
     let elements = 0
+    const attributeLimit = (tagName: string): number =>
+        MAX_ATTRIBUTES_PER_TAG + (styledRoots && STYLED_ROOT_TAGS.has(tagName) ? 1 : 0)
     return {
         ...defaultTreeAdapter,
-        maxAttributesPerTag,
+        attributeLimit,
         createElement(tagName, namespaceURI, attrs) {
             elements += 1
             if (elements > MAX_ELEMENTS_PER_PARSE) {
@@ -407,7 +423,8 @@ function boundedTreeAdapter(maxAttributesPerTag = MAX_ATTRIBUTES_PER_TAG): Bound
                 return
             }
             const present = new Set(recipient.attrs.map((attr) => attr.name))
-            if (recipient.attrs.length + attrs.filter((attr) => !present.has(attr.name)).length > maxAttributesPerTag) {
+            const merged = recipient.attrs.length + attrs.filter((attr) => !present.has(attr.name)).length
+            if (merged > attributeLimit(recipient.tagName)) {
                 throw new FooterNotRetained()
             }
             defaultTreeAdapter.adoptAttributes(recipient, attrs)
@@ -425,7 +442,7 @@ function parseBounded(html: string, scriptingEnabled = false): DefaultTreeAdapte
 function parseBuiltEmail(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
     return AttributeBoundedParser.parse<DefaultTreeAdapterMap>(html, {
         scriptingEnabled,
-        treeAdapter: boundedTreeAdapter(MAX_ATTRIBUTES_PER_TAG + 1),
+        treeAdapter: boundedTreeAdapter({ styledRoots: true }),
     })
 }
 
