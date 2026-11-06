@@ -1,8 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
-import type { RdKafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
+import { KafkaConsumerInterface, START_AT_EARLIEST, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 
@@ -128,9 +127,10 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
         // applies to every consumer in the deployment. This one runs at zero replicas, so records
         // always land before it connects: a `latest` value would skip the backlog it was scaled up
         // to drain and report a clean run having replayed nothing.
-        this.kafkaConsumer = createKafkaConsumer({ groupId: REPLAY_GROUP_ID, topic: config.CDP_DLQ_REPLAY_TOPIC }, {
-            'auto.offset.reset': 'earliest',
-        } as RdKafkaConsumerConfig)
+        this.kafkaConsumer = createKafkaConsumer(
+            { groupId: REPLAY_GROUP_ID, topic: config.CDP_DLQ_REPLAY_TOPIC },
+            START_AT_EARLIEST
+        )
 
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
             hogFunctionManager: this.hogFunctionManager,

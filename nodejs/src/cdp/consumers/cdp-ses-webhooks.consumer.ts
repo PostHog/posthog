@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
+import { ZodError } from 'zod'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
-import type { RdKafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
+import { KafkaConsumerInterface, START_AT_EARLIEST, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger, serializeError } from '~/common/utils/logger'
 
@@ -19,8 +19,13 @@ const replayedDeadLettersCounter = new Counter({
     labelNames: ['outcome'],
 })
 
-// A notification that fails to record goes to the dead-letter topic, so one bad message cannot hold its partition.
-// The replay mode reads that topic and throws on a failure instead, because dead-lettering it again would loop.
+const REPLAY_GROUP_ID = 'cdp-ses-webhooks-dlq-replay'
+
+type RecordOutcome = 'recorded' | 'unrecordable' | 'failed'
+
+// The live consumer dead-letters every notification it cannot record, so one bad message cannot hold its partition.
+// The replay reads that dead-letter topic. It skips an unrecordable notification, because it fails on every try.
+// It throws on a failed one, because a database or Kafka outage can clear, and the offset must not commit past it.
 export class CdpSesWebhooksConsumer extends CdpConsumerBase {
     protected name = 'CdpSesWebhooksConsumer'
     private kafkaConsumer: KafkaConsumerInterface
@@ -32,32 +37,40 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
     ) {
         super(config, deps)
         this.kafkaConsumer = options.replayDeadLetters
-            ? // A fixed group stops a second replay; earliest, because the worker starts after what it drains.
-              createKafkaConsumer(
-                  { groupId: 'cdp-ses-webhooks-dlq-replay', topic: config.CDP_SES_WEBHOOKS_DLQ_TOPIC },
-                  { 'auto.offset.reset': 'earliest' } as RdKafkaConsumerConfig
+            ? createKafkaConsumer(
+                  { groupId: REPLAY_GROUP_ID, topic: config.CDP_SES_WEBHOOKS_DLQ_TOPIC },
+                  START_AT_EARLIEST
               )
             : createKafkaConsumer({ groupId: 'cdp-ses-webhooks-consumer', topic: config.CDP_SES_WEBHOOKS_TOPIC })
     }
 
     public async processBatch(messages: Message[]): Promise<void> {
         for (const message of messages) {
-            const recorded = await this.record(message)
-            if (this.options.replayDeadLetters) {
-                replayedDeadLettersCounter.labels({ outcome: recorded ? 'recorded' : 'failed' }).inc()
-                if (!recorded) {
-                    throw new Error(
-                        `SES notification at ${message.topic}:${message.partition}:${message.offset} still fails to ` +
-                            'record, so the replay stops before committing past it'
-                    )
+            const outcome = await this.record(message)
+            if (!this.options.replayDeadLetters) {
+                if (outcome !== 'recorded') {
+                    await this.deadLetter(message)
                 }
-            } else if (!recorded) {
-                await this.deadLetter(message)
+                continue
+            }
+            const { topic, partition, offset } = message
+            replayedDeadLettersCounter.labels({ outcome: outcome === 'unrecordable' ? 'skipped' : outcome }).inc()
+            if (outcome === 'unrecordable') {
+                logger.warn('[CdpSesWebhooksConsumer] Skipping a dead-lettered SES notification that cannot record', {
+                    topic,
+                    partition,
+                    offset,
+                })
+            } else if (outcome === 'failed') {
+                throw new Error(
+                    `SES notification at ${topic}:${partition}:${offset} failed to record, so the replay stops ` +
+                        'before committing past it'
+                )
             }
         }
     }
 
-    private async record(message: Message): Promise<boolean> {
+    private async record(message: Message): Promise<RecordOutcome> {
         let envelope: SnsEnvelope
         try {
             envelope = parseSnsEnvelope(message.value?.toString() ?? '')
@@ -67,17 +80,18 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
                 partition: message.partition,
             })
             counterParseError.labels({ error: 'unparseable_ses_notification' }).inc()
-            return false
+            return 'unrecordable'
         }
         try {
             const recording = await this.emailTrackingService.recordQueuedSesNotification(envelope)
-            return recording.outcome === 'recorded'
+            return recording.outcome === 'recorded' ? 'recorded' : 'unrecordable'
         } catch (error) {
             logger.error('[CdpSesWebhooksConsumer] Failed to record an SES notification', {
                 snsMessageId: envelope.MessageId,
                 error: serializeError(error),
             })
-            return false
+            // A ZodError is an SES event the handler cannot read, which fails again on every try.
+            return error instanceof ZodError ? 'unrecordable' : 'failed'
         }
     }
 

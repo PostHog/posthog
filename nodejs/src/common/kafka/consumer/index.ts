@@ -20,6 +20,9 @@ export type { KafkaConsumerConfig, RdKafkaConsumerConfig } from './consumer-v1'
  */
 export const START_AT_LATEST = { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'latest' as never }
 
+/** Overrides `auto.offset.reset` so a fresh consumer group reads the retained backlog from the start. */
+export const START_AT_EARLIEST = { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'earliest' as never }
+
 /**
  * The shared surface that both KafkaConsumer (v1) and KafkaConsumerV2 expose to call sites.
  * Keep this small — every method here pins the migration. Adding a method here forces both

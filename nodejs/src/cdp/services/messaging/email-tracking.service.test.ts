@@ -29,6 +29,7 @@ import {
     KAFKA_EMAIL_STATUS,
     KAFKA_LOG_ENTRIES,
 } from '~/common/config/kafka-topics'
+import { createKafkaConsumer } from '~/common/kafka/consumer'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
@@ -905,15 +906,20 @@ describe('EmailTrackingService', () => {
                     expect(res.status).toBe(500)
                 })
 
-                it.each<[string, { replayDeadLetters?: boolean }]>([
-                    ['the consumer', {}],
-                    ['the dead-letter replay', { replayDeadLetters: true }],
-                ])('records a notification in %s', async (_, options) => {
+                it.each<[string, { replayDeadLetters?: boolean }, { groupId: string; topic: string }]>([
+                    ['the consumer', {}, { groupId: 'cdp-ses-webhooks-consumer', topic: KAFKA_CDP_SES_WEBHOOKS }],
+                    [
+                        'the dead-letter replay',
+                        { replayDeadLetters: true },
+                        { groupId: 'cdp-ses-webhooks-dlq-replay', topic: KAFKA_CDP_SES_WEBHOOKS_DLQ },
+                    ],
+                ])('records a notification in %s', async (_, options, subscription) => {
                     await postBounce({ functionId: hogFunction.id })
                     const reader = new CdpSesWebhooksConsumer(hub, createCdpConsumerDeps(hub), options)
 
                     await reader.processBatch(queuedNotifications())
 
+                    expect(jest.mocked(createKafkaConsumer).mock.calls.at(-1)?.[0]).toEqual(subscription)
                     expect(recordedMetrics()).toEqual(bounceMetrics)
                     expect(deadLettered()).toEqual([])
                 })
@@ -957,18 +963,35 @@ describe('EmailTrackingService', () => {
                 )
 
                 it.each(failingMessages)(
-                    'fails the replay batch at a message that %s and dead-letters nothing',
+                    'skips a message that %s in the replay and records the rest of the batch',
                     async (_, failingMessage) => {
                         const failing = await failingMessage()
+                        await postBounce({ functionId: hogFunction.id })
+                        const recordable = queuedNotifications().at(-1)!
                         const replay = new CdpSesWebhooksConsumer(hub, createCdpConsumerDeps(hub), {
                             replayDeadLetters: true,
                         })
 
-                        await expect(replay.processBatch([failing])).rejects.toThrow('still fails to record')
+                        await replay.processBatch([failing, recordable])
 
+                        expect(recordedMetrics()).toEqual(bounceMetrics)
                         expect(deadLettered()).toEqual([])
                     }
                 )
+
+                it('fails the replay batch when recording throws and dead-letters nothing', async () => {
+                    await postBounce({ functionId: hogFunction.id })
+                    jest.spyOn(SesWebhookHandler.prototype, 'handleWebhook').mockRejectedValueOnce(
+                        new Error('database unavailable')
+                    )
+                    const replay = new CdpSesWebhooksConsumer(hub, createCdpConsumerDeps(hub), {
+                        replayDeadLetters: true,
+                    })
+
+                    await expect(replay.processBatch(queuedNotifications())).rejects.toThrow('failed to record')
+
+                    expect(deadLettered()).toEqual([])
+                })
 
                 it('fails the batch so it replays when the dead-letter produce fails', async () => {
                     mockProducerObserver.produceSpy.mockRejectedValueOnce(new Error('broker unavailable'))
