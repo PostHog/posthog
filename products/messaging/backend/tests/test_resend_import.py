@@ -338,6 +338,13 @@ class TestResendTemplateConversion(SimpleTestCase):
             ("{{else}}", True, "{% raw %}{{else}}{% endraw %}"),
             ("{% assign a = 1 %}", True, "{% raw %}{% assign a = 1 %}{% endraw %}"),
             ("{% endraw %}", True, '{{ "{%" }} endraw %}'),
+            ("{{ a endraw }}", True, '{{ "{{" }} a endraw }}'),
+            ("{{{ a endraw }}}", True, '{{ "{{" }}{ a endraw }}}'),
+            ("Hi {{NAME", True, 'Hi {{ "{{" }}NAME'),
+            ("{% if", True, '{{ "{%" }} if'),
+            ("{{{NAME|a\\b}}}", False, "{{ variables.NAME }}"),
+            ("{{{NAME|Tom &amp; Ann}}}", False, "{{ variables.NAME }}"),
+            ("{{{NAME|Tom & Ann}}}", False, '{{ variables.NAME | default: "Tom & Ann" }}'),
             ("plain 🦔 text", True, "plain 🦔 text"),
         ]
     )
@@ -345,7 +352,7 @@ class TestResendTemplateConversion(SimpleTestCase):
         assert convert_text(source, {}, is_html=is_html).text == expected
 
     def test_unclosed_braces_scan_in_linear_time(self) -> None:
-        assert convert_text("{{" * 200_000, {}, is_html=True).text.startswith("{{")
+        assert convert_text("{{" * 200_000, {}, is_html=True).text.startswith('{{ "{{" }}')
 
     def test_notes_name_what_to_review(self) -> None:
         converted = convert_template(
