@@ -78,6 +78,14 @@ describe('featureFlagConfigFormat', () => {
             true,
         ],
         [
+            'a boolean flag without a default',
+            stringFlag(
+                { variants: [{ key: 'a', weight: 100, value: true }] },
+                { return_type: 'boolean', default_value: null }
+            ),
+            false,
+        ],
+        [
             'an object experiment rule',
             stringFlag(
                 { variants: [{ key: 'a', weight: 100, value: { columns: 2 } }] },
@@ -110,6 +118,19 @@ describe('featureFlagConfigFormat', () => {
                 { return_type: 'number', default_value: 1 }
             ),
             false,
+        ],
+        [
+            'numbers at both ends of the safe integer range',
+            stringFlag(
+                {
+                    variants: [
+                        { key: 'a', weight: 50, value: Number.MAX_SAFE_INTEGER },
+                        { key: 'b', weight: 50, value: -Number.MAX_SAFE_INTEGER },
+                    ],
+                },
+                { return_type: 'number', default_value: 1 }
+            ),
+            true,
         ],
         ['an unknown rule type', stringFlag({ rule_type: 'future_rule' }), false],
     ])('decides whether a flag with %s opens the editor', (_, filters, editable) => {

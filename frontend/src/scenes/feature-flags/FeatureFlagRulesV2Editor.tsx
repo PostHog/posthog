@@ -23,6 +23,7 @@ import { Button } from '@posthog/quill'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -461,7 +462,12 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                                     aria-label="Default value"
                                     returnType={returnType}
                                     value={draft.config.default_value}
-                                    onChange={(default_value) => setConfig({ default_value })}
+                                    onChange={(default_value) => {
+                                        // A click on the selected true or false reports it again, which is not an edit.
+                                        if (!objectsEqual(default_value, draft.config.default_value)) {
+                                            setConfig({ default_value })
+                                        }
+                                    }}
                                     nullable
                                     className="w-56"
                                     data-attr="rules-v2-default-value"

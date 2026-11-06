@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { RetainedValues } from 'lib/utils/retainedValues'
 import { BlastRadiusError, toBlastRadiusError } from 'scenes/feature-flags/featureFlagReleaseConditionsLogic'
 import { isIncompleteRulesV2Condition } from 'scenes/feature-flags/featureFlagRulesV2Draft'
 import { projectLogic } from 'scenes/projectLogic'
@@ -21,9 +22,11 @@ export interface RulesV2MatchCountLogicProps {
 
 // The estimate is a slow query, and the view and the editor ask for the same targeting, so a pending or recent
 // request is shared.
-const CACHE_TTL_MS = 5 * 60 * 1000
-const CACHE_MAX_ENTRIES = 200
-const recentMatchCounts = new Map<string, { promise: Promise<RulesV2MatchCount>; at: number }>()
+const recentMatchCounts = new RetainedValues<Promise<RulesV2MatchCount>>({
+    maxEntries: 200,
+    ttlMs: 5 * 60 * 1000,
+    scopeToProject: false, // the key already names the project
+})
 
 function sharedMatchCount(
     projectId: number | null,
@@ -32,24 +35,16 @@ function sharedMatchCount(
 ): Promise<RulesV2MatchCount> {
     const cacheKey = `${projectId}:${groupTypeIndex}:${propertiesKey}`
     const cached = recentMatchCounts.get(cacheKey)
-    if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
-        return cached.promise
-    }
-    recentMatchCounts.delete(cacheKey)
-    if (recentMatchCounts.size >= CACHE_MAX_ENTRIES) {
-        const oldest = recentMatchCounts.keys().next().value
-        if (oldest !== undefined) {
-            recentMatchCounts.delete(oldest)
-        }
+    if (cached) {
+        return cached
     }
     const promise = featureFlagsUserBlastRadiusCreate(String(projectId), {
         condition: { properties },
         group_type_index: groupTypeIndex,
     }).then(({ affected, total }) => ({ affected, total }))
-    const entry = { promise, at: Date.now() }
-    recentMatchCounts.set(cacheKey, entry)
+    recentMatchCounts.set(cacheKey, promise)
     promise.catch(() => {
-        if (recentMatchCounts.get(cacheKey) === entry) {
+        if (recentMatchCounts.get(cacheKey) === promise) {
             recentMatchCounts.delete(cacheKey)
         }
     })

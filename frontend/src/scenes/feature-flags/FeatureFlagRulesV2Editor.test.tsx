@@ -168,11 +168,28 @@ describe('FeatureFlagRulesV2Editor', () => {
             expect(screen.getByLabelText('Rule 1 description')).toHaveValue('Beta users')
             expect(screen.getByLabelText('Rule 2 description')).toHaveValue('Everyone else')
             expect(screen.getByLabelText('Rollout percentage')).toHaveValue('20')
+            expect(
+                within(screen.getByRole('group', { name: 'Rule 2' })).getByLabelText('Rollout percentage')
+            ).toHaveValue('20')
         })
 
         it('offers only true and false as the default value', () => {
             const defaultValue = within(screen.getByLabelText('Default value'))
             expect(defaultValue.getAllByRole('button').map((button) => button.textContent)).toEqual(['true', 'false'])
+        })
+
+        it('does not count a click on the selected default as an edit', () => {
+            fireEvent.click(within(screen.getByLabelText('Default value')).getByText('false'))
+            expect(featureFlagRulesV2EditorLogic({ id: 7 }).values.hasUnsavedChanges).toBe(false)
+        })
+
+        it("keeps a saved flag's value type on a click or an arrow key", () => {
+            fireEvent.click(document.querySelector<HTMLElement>('[data-attr="rules-v2-return-type-string"]')!)
+            fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Value type' }), { key: 'ArrowRight' })
+            expect(featureFlagRulesV2EditorLogic({ id: 7 }).values.draft.config).toMatchObject({
+                return_type: 'boolean',
+                default_value: false,
+            })
         })
 
         it('estimates how many users each rule matches and its rollout reaches', async () => {
@@ -264,6 +281,12 @@ describe('FeatureFlagRulesV2Editor', () => {
 
         beforeEach(async () => {
             await renderEditor(9)
+        })
+
+        it('estimates the reach of an experiment rule net of its holdout', async () => {
+            const [rule] = document.querySelectorAll('[data-attr="rules-v2-rule"]')
+            await waitFor(() => expect(rule).toHaveTextContent('≈ 120 users'))
+            expect(rule).toHaveTextContent('≈ 57 users')
         })
 
         it('keeps a variant value that differs from its key when the key is renamed', () => {
@@ -376,6 +399,17 @@ describe('FeatureFlagRulesV2Editor', () => {
             featureFlagRulesV2EditorLogic({ id: 12 }).actions.setConfig({ default_value: null })
 
             await waitFor(() => expect(screen.getByLabelText('Default value')).toHaveValue(null))
+        })
+
+        it('moves focus to the first rule type after deleting the last rule', async () => {
+            fireEvent.click(screen.getByLabelText('Rule 1 actions'))
+            fireEvent.click(await screen.findByText('Delete rule'))
+
+            await waitFor(() =>
+                expect(document.activeElement).toBe(
+                    document.querySelector('[data-attr="rules-v2-add-rule-targeted_release"]')
+                )
+            )
         })
     })
 })

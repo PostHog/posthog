@@ -180,6 +180,8 @@ export const RulesV2RuleEditor = memo(function RulesV2RuleEditor({
                 isDragging && 'z-10 shadow-lg ring-1 ring-accent',
                 (ruleError || seedError) && 'border-danger'
             )}
+            role="group"
+            aria-label={`Rule ${index + 1}`}
             data-attr="rules-v2-rule"
         >
             <div className="flex items-center gap-1.5 pl-1 pr-2 py-1.5 border-b">

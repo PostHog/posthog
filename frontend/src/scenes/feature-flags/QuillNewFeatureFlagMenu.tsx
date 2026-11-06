@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import React from 'react'
 
 import { IconChevronDown, IconCode, IconFlag, IconFlask, IconSparkles, IconWrench } from '@posthog/icons'
@@ -69,7 +68,13 @@ export function QuillNewFeatureFlagMenu({
                         <DropdownMenuItem
                             data-attr="new-rules-v2-feature-flag"
                             disabledReason={disabledReason || rulesV2DisabledReason}
-                            onClick={() => router.actions.push(urls.featureFlagNew({ format: 'rules_v2' }))}
+                            render={
+                                <Button
+                                    size="row"
+                                    left
+                                    render={<LinkPrimitive to={urls.featureFlagNew({ format: 'rules_v2' })} />}
+                                />
+                            }
                             description="Ordered rules, rollouts and experiments"
                         >
                             <IconFlag />

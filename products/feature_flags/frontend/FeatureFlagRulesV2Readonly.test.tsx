@@ -28,14 +28,7 @@ const CONFIG: FeatureFlagRulesV2Config = {
     ],
 }
 
-const emailContains = (value: string): AnyPropertyFilter => ({
-    key: 'email',
-    type: PropertyFilterType.Person,
-    operator: PropertyOperator.IContains,
-    value,
-})
-
-/** The base config with one rule targeting `property`. Estimates are cached by targeting, so each test picks its own. */
+/** The base config with one rule targeting `property`. */
 const withTargeting = (property: AnyPropertyFilter): FeatureFlagRulesV2Config => ({
     ...CONFIG,
     rules: [{ ...CONFIG.rules[0], targeting: { properties: [property] } }],
@@ -233,27 +226,7 @@ describe('FeatureFlagRulesV2Readonly', () => {
         })
         const { container } = render(
             <Provider>
-                <FeatureFlagRulesV2Readonly
-                    config={{
-                        ...CONFIG,
-                        rules: [
-                            {
-                                ...CONFIG.rules[0],
-                                // Targeting no other test uses, so no earlier estimate is reused.
-                                targeting: {
-                                    properties: [
-                                        {
-                                            key: 'email',
-                                            type: PropertyFilterType.Person,
-                                            operator: PropertyOperator.IContains,
-                                            value: `@failure-${status}.example.com`,
-                                        },
-                                    ],
-                                },
-                            },
-                        ],
-                    }}
-                />
+                <FeatureFlagRulesV2Readonly config={CONFIG} />
             </Provider>
         )
 
@@ -268,7 +241,7 @@ describe('FeatureFlagRulesV2Readonly', () => {
         })
         const { container } = render(
             <Provider>
-                <FeatureFlagRulesV2Readonly config={withTargeting(emailContains('@retry.example.com'))} />
+                <FeatureFlagRulesV2Readonly config={CONFIG} />
             </Provider>
         )
         const rule = container.querySelector<HTMLElement>('[data-attr="rules-v2-rule-readonly"]')!
@@ -303,6 +276,7 @@ describe('FeatureFlagRulesV2Readonly', () => {
         await act(async () => {})
         expect(estimate).not.toHaveBeenCalled()
         expect(container.querySelector('[data-attr="rules-v2-rule-readonly"]')).not.toHaveTextContent('≈')
+        expect(container.querySelector('[data-attr="rules-v2-rule-readonly"]')).not.toHaveTextContent('Estimating')
     })
 
     it('estimates a group flag over its group type and links to the matching groups', async () => {
