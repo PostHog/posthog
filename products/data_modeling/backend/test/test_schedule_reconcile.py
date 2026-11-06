@@ -46,6 +46,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     PlanFloorUnavailableError,
     StaleScheduleError,
     TeamScheduleTeardownError,
+    UnconfirmedReconcileError,
     _bootstrap_dag_best_effort,
     _reconcile_dag_best_effort,
     apply_saved_query_frequency_anchor,
@@ -915,7 +916,17 @@ class TestMaybeReconcileDag(BaseTest):
         create.assert_awaited_once()
         queue_retry.assert_called_once_with(str(dag.id), dag.team_id)
 
-    def test_organization_reconcile_keeps_its_own_retry_when_it_cannot_confirm_a_write(self):
+    @parameterized.expand(
+        [
+            (
+                "organization",
+                lambda dag: reconcile_organization_dags(str(dag.team.organization_id)),
+                OrganizationReconcileError,
+            ),
+            ("dag_retry", lambda dag: reconcile_dag_or_raise(str(dag.id), dag.team_id), UnconfirmedReconcileError),
+        ]
+    )
+    def test_retrying_caller_keeps_its_own_retry_when_it_cannot_confirm_a_write(self, _name, reconcile, raised):
         dag = self._dag_with_target()
         first_read = build_frequency_graph(dag)
 
@@ -927,9 +938,9 @@ class TestMaybeReconcileDag(BaseTest):
             mock.patch(f"{RECONCILE}.capture_exception"),
             mock.patch(f"{RECONCILE_TASKS}.reconcile_dag_schedules_with_retry.delay") as queue_retry,
             self.captureOnCommitCallbacks(execute=True),
-            self.assertRaises(OrganizationReconcileError),
+            self.assertRaises(raised),
         ):
-            reconcile_organization_dags(str(self.organization.id))
+            reconcile(dag)
 
         queue_retry.assert_not_called()
 

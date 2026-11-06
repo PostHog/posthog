@@ -140,11 +140,14 @@ def _reconcile_dag_best_effort(dag: DAG) -> None:
 
 
 def reconcile_dag_or_raise(dag_id: str, team_id: int) -> None:
-    """Reconcile the DAG, raising if the plan floor is unreadable or a stale schedule survives, so the caller can retry."""
+    """Reconcile the DAG, raising if the floor is unreadable, a write is unconfirmed or a stale schedule survives.
+
+    The caller retries on the exception, so an unconfirmed write must not queue another task on top of that retry.
+    """
     dag = DAG.objects.filter(id=dag_id, team_id=team_id).select_related("team").first()
     if dag is None:
         return
-    if _reconcile_dag(dag):
+    if _reconcile_dag(dag, raise_if_unconfirmed=True):
         raise StaleScheduleError(f"DAG {dag_id} kept a schedule it could not delete")
 
 
