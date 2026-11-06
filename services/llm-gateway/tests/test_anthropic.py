@@ -1705,6 +1705,40 @@ class TestAnthropicCircuitBreakerIntegration:
         breaker.record_outcome.assert_not_called()
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_open_breaker_without_bedrock_region_still_uses_anthropic(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+        mock_response_dict: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("AWS_REGION", raising=False)
+        monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+        breaker = install_breaker(bypass=True)
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.return_value = mock_response
+
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name=None, request_timeout=300.0),
+        ):
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_args.kwargs["model"] == "anthropic/claude-sonnet-4-6"
+        breaker.evaluate.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_open_breaker_without_fallback_still_uses_anthropic(
         self,
         mock_anthropic: MagicMock,
