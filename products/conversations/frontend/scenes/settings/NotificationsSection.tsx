@@ -22,8 +22,9 @@ interface WorkflowTemplate {
 // The highlights for a team getting started. The rest are one click away under "See all support templates".
 const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     {
-        title: 'New ticket → Slack channel',
-        description: 'Post a message to a chosen Slack channel whenever a customer opens a new ticket.',
+        title: 'New ticket → Slack or email',
+        description:
+            'Post a message to a chosen Slack channel or email your support team whenever a customer opens a new ticket.',
         trigger: '$conversation_ticket_created',
         templateId: '019ce1f1-5d12-0000-e318-4b3ebd4b2aea',
     },

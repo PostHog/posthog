@@ -1,7 +1,7 @@
 {
     "id": "019ce1f1-5d12-0000-e318-4b3ebd4b2aea",
-    "name": "Ticket: notify Slack of new tickets",
-    "description": "When a customer opens a ticket, post it to Slack so your team sees it straight away.",
+    "name": "Ticket: notify your team of new tickets",
+    "description": "When a customer opens a ticket, post it to Slack and email your support team, so your team sees it straight away. Delete whichever step you don't need.",
     "version": 1,
     "created_at": "2026-03-12T12:06:57.554838Z",
     "created_by": {
@@ -44,8 +44,13 @@
             "type": "continue"
         },
         {
-            "to": "exit_node",
+            "to": "email_team",
             "from": "action_function_431166ee-1322-4d35-8186-958120346fc2",
+            "type": "continue"
+        },
+        {
+            "from": "email_team",
+            "to": "exit_node",
             "type": "continue"
         }
     ],
@@ -78,7 +83,7 @@
         {
             "id": "action_function_431166ee-1322-4d35-8186-958120346fc2",
             "name": "Post to Slack",
-            "description": "Connect Slack and pick the channel your team watches.",
+            "description": "Connect Slack and pick the channel your team watches. Delete this step if you only want email.",
             "on_error": null,
             "created_at": 1773317149872,
             "updated_at": 1773317149872,
@@ -135,6 +140,115 @@
             "output_variable": null
         },
         {
+            "id": "email_team",
+            "name": "Email your support team",
+            "description": "Add your support inbox as the recipient and pick your sender. Delete this step if you only want Slack.",
+            "type": "function_email",
+            "on_error": "continue",
+            "filters": null,
+            "config": {
+                "template_id": "template-email",
+                "message_category_type": "transactional",
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "replyTo": "",
+                            "subject": "New ticket #{{ event.properties.ticket_number }}",
+                            "preheader": "{{ event.properties.customer_email }} opened a new ticket.",
+                            "text": "{{ event.properties.customer_email }} opened ticket #{{ event.properties.ticket_number }}.\n\nView ticket: {{ source.url | split: '/workflows/' | first }}/support/tickets/{{ event.properties.ticket_number }}",
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n<!--[if gte mso 9]>\n<xml>\n  <o:OfficeDocumentSettings>\n    <o:AllowPNG/>\n    <o:PixelsPerInch>96</o:PixelsPerInch>\n  </o:OfficeDocumentSettings>\n</xml>\n<![endif]-->\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <!--[if !mso]><!--><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><!--<![endif]-->\n\n\n    <style type=\"text/css\">\n\n      @media only screen and (min-width: 520px) {\n        .u-row {\n          width: 500px !important;\n        }\n\n        .u-row .u-col {\n          vertical-align: top;\n        }\n\n\n            .u-row .u-col-100 {\n              width: 500px !important;\n            }\n\n      }\n\n      @media only screen and (max-width: 520px) {\n        .u-row-container {\n          max-width: 100% !important;\n          padding-left: 0px !important;\n          padding-right: 0px !important;\n        }\n\n        .u-row {\n          width: 100% !important;\n        }\n\n        .u-row .u-col {\n          display: block !important;\n          width: 100% !important;\n          min-width: 320px !important;\n          max-width: 100% !important;\n        }\n\n        .u-row .u-col > div {\n          margin: 0 auto;\n        }\n\n}\n\nbody{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}.ie-container table,.mso-container table{table-layout:fixed}*{line-height:inherit}a[x-apple-data-detectors=true]{color:inherit!important;text-decoration:none!important}\n\n\ntable, td { color: #000000; } #u_body a { color: #0000ee; text-decoration: underline; }\n    </style>\n\n\n\n</head>\n\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <!--[if IE]><div class=\"ie-container\"><![endif]-->\n  <!--[if mso]><div class=\"mso-container\"><![endif]-->\n  <table role=\"presentation\" id=\"u_body\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n    <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" style=\"background-color: #F7F8F9;\" bgcolor=\"#F7F8F9\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"500\" align=\"center\" style=\"border-collapse: collapse;\"><tr><td style=\"padding:0;\"><![endif]-->\n\n\n\n<div class=\"u-row-container\" style=\"padding: 0px;background-color: transparent;\">\n  <div class=\"u-row\" style=\"margin: 0 auto;min-width: 320px;max-width: 500px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;\">\n    <div style=\"border-collapse: collapse;display: table;width: 100%;height: 100%;background-color: transparent;\">\n      <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;background-color: transparent;\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\"><tr style=\"background-color: transparent;\"><![endif]-->\n\n<!--[if (mso)|(IE)]><td align=\"center\" width=\"500\" style=\"width: 500px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;\" valign=\"top\"><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;\"><![endif]-->\n<div class=\"u-col u-col-100\" style=\"max-width: 320px;min-width: 500px;display: table-cell;vertical-align: top;\">\n  <div style=\"height: 100%;width: 100% !important;\">\n  <!--[if (!mso)&(!IE)]><!--><div style=\"box-sizing: border-box; height: 100%; padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;\"><!--<![endif]-->\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n\n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">{{ event.properties.customer_email }} opened ticket <strong>#{{ event.properties.ticket_number }}</strong>.</p><p style=\"line-height: 140%;\"><a href=\"{{ source.url | split: '/workflows/' | first }}/support/tickets/{{ event.properties.ticket_number }}\">View ticket</a></p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n  <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->\n  </div>\n</div>\n<!--[if (mso)|(IE)]></td></tr></table></td><![endif]-->\n      <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n    </div>\n  </div>\n</div>\n\n\n\n    <!--[if (mso)|(IE)]></td></tr></table></td></tr></table><![endif]-->\n    </td>\n  </tr>\n  </tbody>\n  </table>\n  <!--[if mso]></div><![endif]-->\n  <!--[if IE]></div><![endif]-->\n</body>\n\n</html>\n",
+                            "design": {
+                                "body": {
+                                    "id": "body1",
+                                    "rows": [
+                                        {
+                                            "id": "row1",
+                                            "cells": [1],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "padding": "0px",
+                                                "backgroundColor": ""
+                                            },
+                                            "columns": [
+                                                {
+                                                    "id": "col1",
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "padding": "0px",
+                                                        "backgroundColor": ""
+                                                    },
+                                                    "contents": [
+                                                        {
+                                                            "id": "text1",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">{{ event.properties.customer_email }} opened ticket <strong>#{{ event.properties.ticket_number }}</strong>.</p><p style=\"line-height: 140%;\"><a href=\"{{ source.url | split: '/workflows/' | first }}/support/tickets/{{ event.properties.ticket_number }}\">View ticket</a></p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_1",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "fontSize": "14px",
+                                                                "textAlign": "left",
+                                                                "lineHeight": "140%",
+                                                                "containerPadding": "10px"
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "values": {
+                                        "_meta": {
+                                            "htmlID": "u_body",
+                                            "htmlClassNames": "u_body"
+                                        },
+                                        "linkStyle": {
+                                            "body": true,
+                                            "linkColor": "#0000ee",
+                                            "linkUnderline": true,
+                                            "linkHoverColor": "#0000ee",
+                                            "linkHoverUnderline": true
+                                        },
+                                        "textColor": "#000000",
+                                        "fontFamily": {
+                                            "label": "Arial",
+                                            "value": "arial,helvetica,sans-serif"
+                                        },
+                                        "contentAlign": "center",
+                                        "contentWidth": "500px",
+                                        "preheaderText": "",
+                                        "backgroundColor": "#F7F8F9"
+                                    }
+                                },
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_text": 1
+                                },
+                                "schemaVersion": 16
+                            }
+                        }
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
             "id": "exit_node",
             "name": "Exit",
             "description": "",
@@ -153,6 +267,6 @@
     "variables": [],
     "billable_action_types": ["function"],
     "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_9_cc52152691.jpg",
-    "tags": ["support", "support lifecycle", "slack"],
+    "tags": ["support", "support lifecycle", "slack", "email"],
     "scope": "global"
 }
