@@ -78,7 +78,7 @@ export interface businessKnowledgePlaygroundLogicActions {
     deleteChat: (chatId: string) => {
         chatId: string
     }
-    loadChats: (deletedChatId?: string | undefined) => string | undefined
+    loadChats: (_: void) => void
     loadChatsFailure: (
         error: string,
         errorObject?: any
@@ -88,10 +88,10 @@ export interface businessKnowledgePlaygroundLogicActions {
     }
     loadChatsSuccess: (
         chats: PlaygroundChatListApi[],
-        payload?: string | undefined
+        payload?: void
     ) => {
         chats: PlaygroundChatListApi[]
-        payload?: string | undefined
+        payload?: void
     }
     loadMoreChats: (_: void) => void
     loadMoreChatsFailure: (
@@ -222,34 +222,51 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
         setSearchResults: (searchResults: KnowledgeSearchResultApi[]) => ({ searchResults }),
         setSearchError: (searchError: string | null) => ({ searchError }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         chats: [
             [] as PlaygroundChatListApi[],
             {
-                loadChats: async (
-                    deletedChatId: string | undefined = undefined,
-                    breakpoint
-                ): Promise<PlaygroundChatListApi[]> => {
-                    const page = await listPlaygroundChats()
-                    breakpoint()
-                    const loadedIds = new Set(page.results.map((chat) => chat.id))
-                    const olderChats = page.next
-                        ? values.chats.filter((chat) => chat.id !== deletedChatId && !loadedIds.has(chat.id))
-                        : []
-                    actions.setNextChatsOffset(page.next ? page.results.length + olderChats.length : null)
-                    return [...page.results, ...olderChats]
+                loadChats: async (_: void, breakpoint): Promise<PlaygroundChatListApi[]> => {
+                    cache.chatsGeneration = (cache.chatsGeneration ?? 0) + 1
+                    const generation = cache.chatsGeneration
+                    cache.refreshingChats = true
+                    const loadedCount = Math.max(values.chats.length, PLAYGROUND_CHAT_PAGE_SIZE)
+                    const chats: PlaygroundChatListApi[] = []
+                    let offset = 0
+                    let page
+                    try {
+                        do {
+                            page = await listPlaygroundChats(offset)
+                            breakpoint()
+                            chats.push(...page.results)
+                            offset += PLAYGROUND_CHAT_PAGE_SIZE
+                        } while (page.next && offset < loadedCount)
+                        actions.setNextChatsOffset(page.next ? offset : null)
+                        const uniqueChats = new Map<string, PlaygroundChatListApi>()
+                        for (const chat of chats) {
+                            if (!uniqueChats.has(chat.id)) {
+                                uniqueChats.set(chat.id, chat)
+                            }
+                        }
+                        return [...uniqueChats.values()]
+                    } finally {
+                        if (cache.chatsGeneration === generation) {
+                            cache.refreshingChats = false
+                        }
+                    }
                 },
                 loadMoreChats: async (_: void, breakpoint): Promise<PlaygroundChatListApi[]> => {
                     const offset = values.nextChatsOffset
-                    if (offset === null) {
+                    if (offset === null || cache.refreshingChats) {
                         return values.chats
                     }
+                    const generation = cache.chatsGeneration
                     const page = await listPlaygroundChats(offset)
                     breakpoint()
-                    if (values.nextChatsOffset !== offset) {
+                    if (cache.chatsGeneration !== generation || values.nextChatsOffset !== offset) {
                         return values.chats
                     }
-                    actions.setNextChatsOffset(page.next ? offset + page.results.length : null)
+                    actions.setNextChatsOffset(page.next ? offset + PLAYGROUND_CHAT_PAGE_SIZE : null)
                     const loadedIds = new Set(values.chats.map((chat) => chat.id))
                     return [...values.chats, ...page.results.filter((chat) => !loadedIds.has(chat.id))]
                 },
@@ -475,7 +492,7 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
                     if (cache.disposables.isDisposed) {
                         return
                     }
-                    actions.loadChats(chatId)
+                    actions.loadChats()
                     if (values.chatId === chatId) {
                         actions.newChat()
                     }

@@ -86,7 +86,7 @@ class BusinessKnowledgePlaygroundChatViewSet(
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
         # A refused first question leaves an untitled chat behind.
-        page = self.paginate_queryset(self.get_queryset().exclude(title="").order_by("-updated_at"))
+        page = self.paginate_queryset(self.get_queryset().exclude(title="").order_by("-updated_at", "-id"))
         chats = serialize_playground_chat_list(
             page or [],
             team_id=self.team_id,

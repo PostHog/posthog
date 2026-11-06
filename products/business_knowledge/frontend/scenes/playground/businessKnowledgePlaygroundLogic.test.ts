@@ -342,13 +342,15 @@ describe('businessKnowledgePlaygroundLogic', () => {
         expect(logic.values.question).toBe(blocked ? 'Can I get a refund?' : '')
     })
 
-    it('loads older chats without losing them when the first page refreshes', async () => {
+    it('refreshes loaded history without retaining a chat deleted elsewhere', async () => {
         await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
         const recent = Array.from({ length: PLAYGROUND_CHAT_PAGE_SIZE }, (_, index) => ({
             ...listed,
             id: index === 0 ? listed.id : `chat-${index + 1}`,
         }))
-        const older = { ...listed, id: 'chat-101', title: 'Older question' }
+        const deleted = { ...listed, id: 'chat-101', title: 'Deleted question' }
+        const older = { ...listed, id: 'chat-102', title: 'Older question' }
+        const replacement = { ...listed, id: 'chat-103', title: 'Next question' }
         mockedList.mockResolvedValueOnce(listPage(recent, '/chats/?offset=100'))
         await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
 
@@ -361,29 +363,34 @@ describe('businessKnowledgePlaygroundLogic', () => {
         expect(logic.values.moreChatsError).toContain("Couldn't load older chats")
         resumeKeaLoadersErrors()
 
-        mockedList.mockResolvedValueOnce(listPage([older]))
+        mockedList.mockResolvedValueOnce(listPage([deleted, older]))
         await expectLogic(logic, () => logic.actions.loadMoreChats()).toDispatchActions(['loadMoreChatsSuccess'])
 
         expect(mockedList).toHaveBeenLastCalledWith(100)
-        expect(logic.values.chatGroups.flatMap((group) => group.chats)).toHaveLength(101)
-        expect(logic.values.chatGroups.flatMap((group) => group.chats).at(-1)?.id).toBe('chat-101')
+        expect(logic.values.chatGroups.flatMap((group) => group.chats)).toHaveLength(102)
+        expect(logic.values.chatGroups.flatMap((group) => group.chats).at(-1)?.id).toBe('chat-102')
         expect(logic.values.nextChatsOffset).toBeNull()
         expect(logic.values.moreChatsError).toBeNull()
 
-        mockedList.mockResolvedValueOnce(
-            listPage([{ ...listed, title: 'Updated question' }, ...recent.slice(1)], '/chats/?offset=100')
-        )
+        mockedList
+            .mockResolvedValueOnce(
+                listPage([{ ...listed, title: 'Updated question' }, ...recent.slice(1)], '/chats/?offset=100')
+            )
+            .mockResolvedValueOnce(listPage([older, replacement], '/chats/?offset=200'))
         await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
-        expect(logic.values.chats).toHaveLength(101)
+        expect(logic.values.chats).toHaveLength(102)
         expect(logic.values.chats[0].title).toBe('Updated question')
-        expect(logic.values.chats.at(-1)?.title).toBe('Older question')
+        expect(logic.values.chats.at(-1)?.title).toBe('Next question')
+        expect(logic.values.chats.some((chat) => chat.id === deleted.id)).toBe(false)
 
         silenceKeaLoadersErrors()
-        mockedList.mockRejectedValueOnce(new Error('network error'))
+        mockedList
+            .mockResolvedValueOnce(listPage(recent, '/chats/?offset=100'))
+            .mockRejectedValueOnce(new Error('network error'))
         logic.actions.loadChats()
         await expectLogic(logic).toDispatchActions(['loadChatsFailure'])
-        expect(logic.values.nextChatsOffset).toBe(101)
-        expect(logic.values.chats).toHaveLength(101)
+        expect(logic.values.nextChatsOffset).toBe(200)
+        expect(logic.values.chats).toHaveLength(102)
         expect(logic.values.chatsError).toContain("Couldn't load chats")
 
         mockedList.mockRejectedValueOnce(new Error('network error'))
@@ -396,6 +403,36 @@ describe('businessKnowledgePlaygroundLogic', () => {
         await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
         expect(logic.values.nextChatsOffset).toBeNull()
         expect(logic.values.moreChatsError).toBeNull()
+    })
+
+    it.each(['refresh first', 'load more first'])('keeps the refreshed list when %s resolves', async (order) => {
+        await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
+        const recent = Array.from({ length: PLAYGROUND_CHAT_PAGE_SIZE }, (_, index) => ({
+            ...listed,
+            id: `chat-${index}`,
+        }))
+        mockedList.mockResolvedValueOnce(listPage(recent, '/chats/?offset=100'))
+        await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
+
+        let resolveMore: (page: PaginatedPlaygroundChatListListApi) => void = () => {}
+        let resolveRefresh: (page: PaginatedPlaygroundChatListListApi) => void = () => {}
+        mockedList.mockReturnValueOnce(new Promise((resolve) => (resolveMore = resolve)))
+        logic.actions.loadMoreChats()
+        mockedList.mockReturnValueOnce(new Promise((resolve) => (resolveRefresh = resolve)))
+        logic.actions.loadChats()
+
+        if (order === 'load more first') {
+            resolveMore(listPage([{ ...listed, id: 'stale-chat' }]))
+            await Promise.resolve()
+        }
+        resolveRefresh(listPage(recent.slice(0, 1)))
+        await Promise.resolve()
+        if (order === 'refresh first') {
+            resolveMore(listPage([{ ...listed, id: 'stale-chat' }]))
+        }
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.chats.map((chat) => chat.id)).toEqual([recent[0].id])
+        expect(logic.values.nextChatsOffset).toBeNull()
     })
 
     it('shows a first-page failure and clears it when the retry starts', async () => {

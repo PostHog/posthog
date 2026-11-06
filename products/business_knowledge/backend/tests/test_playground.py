@@ -160,6 +160,14 @@ class TestPlaygroundChatAPI(APIBaseTest):
         assert sorted(listed) == sorted(chat["id"] for chat in chats)
         assert second_page["next"] is None
 
+        same_time = now()
+        PlaygroundChat.objects.unscoped().filter(id__in=[chat["id"] for chat in chats]).update(updated_at=same_time)
+        first_page = self.client.get(self.url, {"limit": 2}).json()
+        second_page = self.client.get(first_page["next"]).json()
+        assert [chat["id"] for chat in first_page["results"] + second_page["results"]] == sorted(
+            [chat["id"] for chat in chats], reverse=True
+        )
+
         PlaygroundChat.objects.unscoped().bulk_create(
             [PlaygroundChat(team=self.team, created_by=self.user, title="Another chat") for _ in range(101)]
         )
