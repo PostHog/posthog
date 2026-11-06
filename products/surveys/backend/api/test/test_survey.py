@@ -151,7 +151,9 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json()["appearance"].items() >= expected.items()
-        assert Survey.objects.get(id=response.json()["id"]).appearance.items() >= expected.items()
+        stored_appearance = Survey.objects.get(id=response.json()["id"]).appearance
+        assert stored_appearance is not None
+        assert stored_appearance.items() >= expected.items()
 
     def test_can_create_survey_with_translations(self):
         response = self.client.post(
