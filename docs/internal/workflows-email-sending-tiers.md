@@ -110,7 +110,7 @@ It sends workflow email steps and test sends only: a broadcast, a transactional 
 Every To, CC, and BCC address must belong to an active member of the team's active organization with a verified email address.
 The check ignores case, and the worker delivers to the address as the member stored it, not as the step wrote it.
 When two members stored the address in different cases, the step must write one of them exactly, or the send skips.
-The worker checks recipients against a membership snapshot at most one minute old when it prepares the send, and reads membership fresh right before delivery.
+The worker checks recipients against a membership snapshot at most one minute old when it prepares the send, reloading a snapshot older than 5 seconds before it blocks on it, and reads membership fresh right before delivery.
 A membership check that fails or takes longer than 3 seconds skips the send and lists the blocked addresses in the run log.
 The blocked event fires at most once an hour per team, reason, and send kind (workflow or test); `cdp_sandbox_email_blocked_total` counts every blocked send by reason.
 A send that passes every check goes out through the fixed SES tenant, configuration set, and From address, whatever the step's custom sender and Reply-To say.
@@ -119,13 +119,14 @@ The worker parses and normalizes the HTML, then appends a footer that names the 
 It overrides root clipping and visibility styles, drops any root style declaration it cannot parse cleanly, and keeps the template's typography, so malformed markup may render differently from an own-domain send.
 A template whose HTML cannot keep the footer fails the send.
 The send also fails when the HTML and preview text exceed 75 KB, checked before and again after the footer is added, so every inbox shows the footer instead of clipping it.
-It fails as well when elements nest more than 256 deep, a tag carries more than 64 attributes, or an Outlook conditional comment holds a condition over 100 characters or a nested directive.
+It fails as well when elements nest more than 256 deep, the template parses into more than 25,000 elements, a tag carries more than 64 attributes, or an Outlook conditional comment holds a condition over 100 characters or a nested directive.
 The visible footer is best effort across email clients and template CSS; the signed tracking header still attributes the message.
 Right before delivery, every sandbox send, test sends included, claims a daily allowance per project (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`) and per recipient address across the organization (`WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP`).
 Both charge one token per copy: each To, CC and BCC entry counts, so an address listed twice takes two tokens.
 The allowances are token buckets that refill their capacity over 24 hours, not calendar-day counters.
 A reached allowance skips the send instead of delaying it.
 A limiter error, or a cap value that is not a positive whole number, skips every sandbox send.
+The worker reads each cap as a number like its other numeric settings, so it keeps the leading number of a value such as `25 per day` and reads `1,000` as 1.
 The `workflows sandbox email blocked` event names the outcome: `project_cap_reached`, `recipient_cap_reached`, or `cap_check_failed`.
 The worker checks members after the claim and gives the claim back when that check skips the send.
 An SES throttle response also gives the claim back before the delivery retry, and so does an SES rejection, which means SES did not accept the message.

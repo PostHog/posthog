@@ -468,8 +468,6 @@ function sandboxRecipientsOf(params: CyclotronInvocationQueueParametersEmailType
 
 type SandboxBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | 'not_workflow_step'>
 
-// CC and BCC belong to the route because a route builder may parse them its own way, and SES must
-// deliver to exactly the list that builder checked.
 type SesRoute = {
     tenantName: string
     configurationSetName: string
@@ -680,16 +678,6 @@ export class EmailService {
                 )
             }
 
-            if (isSandbox && !isTest && !isWorkflowEmailStep(invocation)) {
-                this.skipSandboxSend(
-                    result,
-                    isTest,
-                    'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
-                    'sending_suspended'
-                )
-                await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'not_workflow_step', 0)
-                return result
-            }
             const sandboxSender = isSandbox ? this.sandboxSender : null
             if (isSandbox && !sandboxSender?.canSend) {
                 this.skipSandboxSend(
@@ -699,6 +687,16 @@ export class EmailService {
                     'sending_suspended'
                 )
                 await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'switch_off', 0)
+                return result
+            }
+            if (isSandbox && !isTest && !isWorkflowEmailStep(invocation)) {
+                this.skipSandboxSend(
+                    result,
+                    isTest,
+                    'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
+                    'sending_suspended'
+                )
+                await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'not_workflow_step', 0)
                 return result
             }
             if (sandboxSender && !(await this.passesSandboxPauseGate(result, sandboxSender, isTest))) {

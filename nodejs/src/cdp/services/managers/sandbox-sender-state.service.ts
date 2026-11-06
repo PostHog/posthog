@@ -36,8 +36,6 @@ export class SandboxSenderStateService {
         })
     }
 
-    // A reload message that arrives while a check waits means the state changed during its read, so the
-    // check reads again within the same budget.
     public async isPaused({ fresh = false }: { fresh?: boolean } = {}): Promise<boolean> {
         const giveUpAt = performance.now() + DEFAULT_LOADER_RETRY.maxElapsedMs
         for (;;) {
@@ -51,8 +49,9 @@ export class SandboxSenderStateService {
     }
 
     private currentRead(fresh: boolean, giveUpAt: number): Promise<boolean> {
-        if (!fresh && this.cached && Date.now() < this.cached.expiresAt) {
-            return this.cached.paused
+        const previous = this.cached
+        if (!fresh && previous && Date.now() < previous.expiresAt) {
+            return previous.paused
         }
         const read: CachedRead = {
             paused: this.readWithRetry(giveUpAt),
@@ -61,7 +60,7 @@ export class SandboxSenderStateService {
         this.cached = read
         read.paused.catch(() => {
             if (this.cached === read) {
-                this.cached = undefined
+                this.cached = previous && Date.now() < previous.expiresAt ? previous : undefined
             }
         })
         return read.paused
@@ -70,7 +69,6 @@ export class SandboxSenderStateService {
     private async readWithRetry(giveUpAt: number): Promise<boolean> {
         const { retryIntervalMs, retryJitterMs = 0 } = DEFAULT_LOADER_RETRY
         for (let attempt = 1; ; attempt++) {
-            // An attempt with less than one interval left would only time out while holding a connection.
             if (giveUpAt - performance.now() < retryIntervalMs) {
                 throw new Error('The sandbox sender state check ran out of time')
             }
