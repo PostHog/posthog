@@ -1120,6 +1120,23 @@ class BillingManager:
 
         return res.json()
 
+    def record_rated_usage(self, organization: Organization, items: list[dict[str, str | int]]) -> None:
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/rated-usage",
+            headers=self.get_auth_headers(organization, service_action="rated_usage"),
+            json={"items": items},
+            timeout=30,
+        )
+        handle_billing_service_error(res, valid_codes=(200,))
+        body = res.json()
+        results = body.get("results") if isinstance(body, dict) else None
+        if (
+            not isinstance(results, list)
+            or len(results) != len(items)
+            or any(result not in ("created", "replayed") for result in results)
+        ):
+            raise ValueError("Billing did not accept every rated usage item")
+
     def _system_auth_headers(self, service_action: str) -> dict[str, str]:
         if not self.license:  # mypy
             raise Exception("No license found")

@@ -13,6 +13,7 @@ from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
+    AlertDestinationData,
     DestinationSend,
     HandbackRefusal,
     HeldDeliveryAddress,
@@ -446,6 +447,11 @@ def create_alert_destinations(
 
 def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
     return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+
+
+def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
+    """A destination's configuration without the parts that are a credential, for showing it."""
+    return alert_destinations.redact_destination_data(data)
 
 
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:

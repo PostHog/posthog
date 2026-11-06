@@ -220,6 +220,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'data_deletion', objectName: 'Data deletion', objectPlural: 'data deletion requests' },
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
+    {
+        key: 'cross_project_dashboard',
+        objectName: 'Cross-project dashboard',
+        objectPlural: 'cross-project dashboards',
+        disabledWhenProjectScoped: true,
+    },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
     {
         key: 'early_access_feature',
@@ -405,7 +411,6 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
     batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
     mcp_registry: 'Behind a feature flag.',
-    cross_project_dashboard: 'Behind a feature flag.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
     vision_action: 'Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.',
 }

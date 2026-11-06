@@ -731,6 +731,18 @@ class ContentAutopilotDiscoverySustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "100/hour"
 
 
+# Each AEO prompt suggestion request queues a Celery job with up to four model calls and several web
+# searches, so it costs model credits. This team bucket also covers browser callers.
+class AEOPromptSuggestionsBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_prompt_suggestions_burst"
+    rate = "5/minute"
+
+
+class AEOPromptSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_prompt_suggestions_sustained"
+    rate = "30/hour"
+
+
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
 # call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
 # — and its primary caller is the session-authenticated replay/experiment UI, which the
@@ -1827,6 +1839,22 @@ class ContextSelectionSustainedThrottle(_TeamBucketRateThrottle):
     rate = "300/hour"
 
 
+class ContextSelectionTaskThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Caps prepare calls per sandbox task, whether or not the task is eligible for selection.
+
+    The project-wide selection limits count only eligible selections, so this per-task ceiling is
+    what stops one looping sandbox from holding the shared request slots or flooding outcome events.
+    """
+
+    scope = "context_selection_task"
+    rate = "30/minute"
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        access_token = getattr(getattr(request, "successful_authenticator", None), "access_token", None)
+        ident = getattr(access_token, "sandbox_task_id", None) or request.user.pk or self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 class TaskRunChartRenderThrottle(PersonalApiKeyOrUserRateThrottle):
     # A chart render holds a worker for up to 90s, so it needs a far lower ceiling than the
     # ClickHouse throttles. Keyed per team so rotating API keys doesn't split the bucket.
@@ -2131,3 +2159,11 @@ class BatchExportsCountRowsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottl
 class BatchExportsCountRowsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "batch_exports_count_rows_burst"
     rate = "20/minute"
+
+
+class WarehouseMigrationCrawlThrottle(_TeamBucketRateThrottle):
+    """Creating or refreshing a warehouse migration starts a full read of the vendor account on the
+    metadata worker. One project-wide bucket, so new keys or members cannot multiply the crawls."""
+
+    scope = "warehouse_migration_crawl"
+    rate = "20/hour"
