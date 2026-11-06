@@ -164,7 +164,6 @@ async fn index() -> &'static str {
     "capture"
 }
 
-/// v1 AI shares these knobs with v1 analytics, so only capture-ai raises them.
 fn v1_body_limit(capture_mode: CaptureMode, configured: usize) -> usize {
     match capture_mode {
         CaptureMode::Ai => configured.max(AI_BODY_SIZE),
