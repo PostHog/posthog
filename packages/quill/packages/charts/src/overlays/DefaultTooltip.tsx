@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 
 import type { TooltipContext } from '../core/types'
 import { TooltipFooter, TooltipSurface, TooltipSwatch } from './TooltipSurface'
@@ -94,21 +94,31 @@ export function DefaultTooltip<Meta = unknown>({
     const total = summable.reduce((acc, s) => acc + s.value, 0)
     const formatTotal = totalFormatter ?? ((value: number): React.ReactNode => format(value, summable[0]))
     const scrollContainerRef = useRef<HTMLDivElement>(null)
-    const [canScrollUp, setCanScrollUp] = useState(false)
-    const [canScrollDown, setCanScrollDown] = useState(false)
 
+    // Fade whichever edges have rows scrolled out of view. Written straight to the element rather
+    // than kept in state: this runs after every render (hovering re-renders the tooltip on each
+    // mouse move), and a setState here, even an unchanged one, can queue another render. Fast
+    // hovering over a long list then exceeded React's maximum update depth.
     const updateScrollFades = useCallback(() => {
         const el = scrollContainerRef.current
         if (!el) {
             return
         }
-        setCanScrollUp(el.scrollTop > 0)
-        setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 1)
+        const up = el.scrollTop > 0
+        const down = el.scrollTop + el.clientHeight < el.scrollHeight - 1
+        const mask =
+            up && down
+                ? 'linear-gradient(to bottom, transparent, black 20%, black 80%, transparent)'
+                : up
+                  ? 'linear-gradient(to bottom, transparent, black 20%)'
+                  : down
+                    ? 'linear-gradient(to bottom, black 80%, transparent)'
+                    : ''
+        el.style.setProperty('mask-image', mask)
+        el.style.setProperty('-webkit-mask-image', mask)
     }, [])
 
-    useEffect(() => {
-        updateScrollFades()
-    }, [rows, updateScrollFades])
+    useLayoutEffect(updateScrollFades)
 
     useEffect(() => {
         if (!closestKey || !scrollContainerRef.current) {
@@ -135,19 +145,6 @@ export function DefaultTooltip<Meta = unknown>({
         }
     }, [closestKey])
 
-    const maskImage = (() => {
-        if (canScrollUp && canScrollDown) {
-            return 'linear-gradient(to bottom, transparent, black 20%, black 80%, transparent)'
-        }
-        if (canScrollUp) {
-            return 'linear-gradient(to bottom, transparent, black 20%)'
-        }
-        if (canScrollDown) {
-            return 'linear-gradient(to bottom, black 80%, transparent)'
-        }
-        return undefined
-    })()
-
     return (
         <TooltipSurface>
             {showHeader && (
@@ -166,8 +163,6 @@ export function DefaultTooltip<Meta = unknown>({
                     overflowY: 'auto',
                     scrollbarWidth: 'none',
                     scrollBehavior: 'smooth',
-                    maskImage,
-                    WebkitMaskImage: maskImage,
                 }}
             >
                 {rows.map((s) => {

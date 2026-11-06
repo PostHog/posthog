@@ -316,4 +316,32 @@ describe('DefaultTooltip', () => {
             expect(closest[0].querySelector('[data-attr="hog-chart-tooltip-series"]')?.textContent).toBe('Beta')
         })
     })
+
+    describe('scroll fades', () => {
+        const scrollBox = (): HTMLElement =>
+            document.querySelector<HTMLElement>('[data-attr="hog-chart-tooltip-row"]')!.parentElement!
+        const mask = (): string => scrollBox().style.getPropertyValue('mask-image')
+        const layout = ({ scrollTop = 0, scrollHeight }: { scrollTop?: number; scrollHeight: number }): void => {
+            jest.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(224)
+            jest.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(scrollHeight)
+            jest.spyOn(HTMLElement.prototype, 'scrollTop', 'get').mockReturnValue(scrollTop)
+        }
+
+        afterEach(() => jest.restoreAllMocks())
+
+        it('has no fade when every row fits', () => {
+            layout({ scrollHeight: 224 })
+            renderTooltip()
+            expect(mask()).toBe('')
+        })
+
+        it('fades the bottom edge when rows overflow, and both edges once scrolled', () => {
+            layout({ scrollHeight: 900 })
+            renderTooltip()
+            expect(mask()).toBe('linear-gradient(to bottom, black 80%, transparent)')
+            layout({ scrollTop: 100, scrollHeight: 900 })
+            fireEvent.scroll(scrollBox())
+            expect(mask()).toBe('linear-gradient(to bottom, transparent, black 20%, black 80%, transparent)')
+        })
+    })
 })
