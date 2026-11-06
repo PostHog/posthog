@@ -31,10 +31,12 @@ export const BUDGETS: Record<BudgetFamily, readonly BucketSpec[]> = {
         { capacity: 60, windowMs: MINUTE_MS },
         { capacity: 300, windowMs: HOUR_MS },
     ],
-    // The Live screen polls `query/` by design, on buckets of its own, so it never starves Views or replay reads.
+    // The Live screen polls `query/` by design, on buckets of its own, so it never starves Views or replay reads. At 25%
+    // of the budget, the hourly bucket would stop a normal Live session after about half an hour. 900 an hour still caps
+    // a runaway client at 75% of the published query budget.
     live: [
         { capacity: 60, windowMs: MINUTE_MS },
-        { capacity: 300, windowMs: HOUR_MS },
+        { capacity: 900, windowMs: HOUR_MS },
     ],
 }
 
