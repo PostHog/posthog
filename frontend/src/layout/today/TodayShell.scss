@@ -155,7 +155,7 @@ body {
 .TodayShell__drawer {
     position: fixed;
     top: calc(var(--today-top-bar-height, 0px) + var(--today-frame-inset));
-    bottom: var(--today-frame-inset);
+    bottom: calc(var(--today-frame-inset) + var(--bottom-notice-height, 0px));
 
     // A gap off the rail, so the floating sidebar reads as a separate layer.
     left: calc(var(--today-rail-width) + var(--today-frame-inset) * 2);
