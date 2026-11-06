@@ -176,7 +176,7 @@ export async function startDeviceLogin(
         throw new HogError(
             'invalid_scope',
             `${host} won't give hog these scopes: ${escapeControls(error.error_description ?? 'no reason given')}`,
-            'Check the scope names. Self-hosted PostHog can lack newer scopes.'
+            'A self-hosted PostHog can be too old for newer scopes. Set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID to use a personal API key instead.'
         )
     }
     const body = response.ok ? DeviceAuthorizationResponse.safeParse(response.json).data : undefined
@@ -197,6 +197,31 @@ export async function startDeviceLogin(
         scopes: [...scopes],
         requiredScopes: [...requiredScopes],
     }
+}
+
+// PostHog keeps required scopes on the approval page, but an older self-hosted PostHog ignores
+// `required_scopes`. A login without them would replace one that works for less than was asked, so
+// it is revoked and the stored login stays.
+async function refuseWithoutRequiredScopes(
+    runtime: Runtime,
+    login: OAuthLogin,
+    requiredScopes: readonly string[],
+    command: string
+): Promise<void> {
+    if (requiredScopes.length === 0) {
+        return
+    }
+    const { scopesNotCovered } = await import('./scopes')
+    const missing = scopesNotCovered(login.scopes, requiredScopes)
+    if (missing.length === 0) {
+        return
+    }
+    await login.logout(runtime)
+    throw new HogError(
+        'scopes_not_granted',
+        `The approved login doesn't have ${missing.join(', ')}, so hog kept your current login.`,
+        `Run \`${command} ${missing.join(' ')}\` and keep these scopes when you approve it.`
+    )
 }
 
 // One poll of the token endpoint, read the way RFC 8628 section 3.5 describes.
@@ -227,10 +252,9 @@ export async function pollDeviceLogin(
             hint: `Run \`${command}\` to start again.`,
         })
         const [projectId] = body.scoped_teams
-        return {
-            state: 'approved',
-            value: OAuthLogin.fromTokens(runtime, body, { host: pending.host, projectId, scopes: pending.scopes }),
-        }
+        const login = OAuthLogin.fromTokens(runtime, body, { host: pending.host, projectId, scopes: pending.scopes })
+        await refuseWithoutRequiredScopes(runtime, login, pending.requiredScopes, command)
+        return { state: 'approved', value: login }
     }
     const body = OAuthErrorBody.safeParse(response.json).data
     switch (body?.error) {

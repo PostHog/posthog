@@ -15,24 +15,20 @@ type AddResult =
           previousProjectId: string | null
           // Every scope the login has now.
           scopes: string[]
+          // False when PostHog didn't revoke the login this one replaced, which then works until it expires.
+          replacedRevoked: boolean | null
       }
 
-// Saves the approved login in place of the stored one. In the same project it keeps the stored
-// login's id, so commands still running on it pick up the new tokens. Only an OAuth login's key is
-// an id: a personal API key's key is the secret itself, which settings.json must never hold.
+// Saves the approved login in place of the stored one.
 async function finish(ctx: Context, approved: OAuthLogin): Promise<AddResult> {
-    const saved = await saveLogin(ctx.runtime, approved, {
-        replace: (stored) =>
-            stored.status().kind === 'oauth' && stored.projectId === approved.projectId
-                ? approved.continuing(stored.loginKey)
-                : approved,
-    })
+    const saved = await saveLogin(ctx.runtime, approved, { replace: (stored) => approved.continuing(stored) })
     return {
         status: 'added',
         host: saved.host,
         projectId: saved.projectId,
         previousProjectId: saved.previousProjectId,
         scopes: saved.status.scopes ?? [],
+        replacedRevoked: saved.replacedRevoked,
     }
 }
 
@@ -102,6 +98,7 @@ export default defineCommand({
                 projectId: key.projectId,
                 previousProjectId: null,
                 scopes: held,
+                replacedRevoked: null,
             }
         }
         refuseInCi(
@@ -132,6 +129,14 @@ export default defineCommand({
                     out.line(
                         out.style(
                             `The login now works in project ${result.projectId} instead of ${result.previousProjectId}.`,
+                            'yellow'
+                        )
+                    )
+                }
+                if (result.replacedRevoked === false) {
+                    out.line(
+                        out.style(
+                            "PostHog didn't revoke the login this one replaced. It stops working when it expires, or remove it under Settings, Connected apps.",
                             'yellow'
                         )
                     )

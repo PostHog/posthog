@@ -20,9 +20,9 @@ export function parseScope(raw: string): Scope {
     throw new HogError(
         'unknown_scope',
         `PostHog has no scope named "${raw}".`,
-        raw.includes(':')
-            ? 'A scope is an object and an access level, such as insight:read or insight:write.'
-            : `Add the access level, as in \`hog auth add ${raw}:write\`.`
+        ScopeSchema.safeParse(`${raw}:read`).success
+            ? `Add the access level, as in \`hog auth add ${raw}:write\`.`
+            : 'A scope is an object and an access level, such as insight:read or insight:write.'
     )
 }
 

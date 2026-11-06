@@ -31,6 +31,13 @@ export interface LoggedIn {
     status: AccessKeyStatus
     // The project of the login this one replaced, when the person picked another one. Null otherwise.
     previousProjectId: ProjectId | null
+    // Whether PostHog revoked the login this one replaced. Null when it replaced none, or a key hog
+    // can't revoke.
+    replacedRevoked: boolean | null
+}
+
+function sameScopes(a: readonly string[], b: readonly string[]): boolean {
+    return [...a].sort().join(' ') === [...b].sort().join(' ')
 }
 
 // What `<command> --wait` needs to finish the login a previous run of `command` started.
@@ -56,8 +63,8 @@ export function loginFlow(
         start: () => startDeviceLogin(runtime, host, { scopes, requiredScopes, command }),
         reuse: (existing) =>
             existing.host === host &&
-            existing.scopes.join(' ') === scopes.join(' ') &&
-            existing.requiredScopes.join(' ') === requiredScopes.join(' '),
+            sameScopes(existing.scopes, scopes) &&
+            sameScopes(existing.requiredScopes, requiredScopes),
     }
 }
 
@@ -82,7 +89,10 @@ export async function saveLogin(
     const replaced = await withLoginLock(runtime, host, async () => {
         // Read inside the lock, so the login revoked below is the one this replaces, not one a
         // renewal already rotated.
-        const stored = replace && (await readLogin(runtime, await readSettings(runtime), host))?.key
+        // PostHog already issued the new tokens, so a keychain that can't be read must not lose them:
+        // the login is saved, and the old one stays in PostHog until it expires.
+        const stored =
+            replace && (await readLogin(runtime, await readSettings(runtime), host).catch(() => undefined))?.key
         if (stored) {
             key = replace(stored)
             previousProjectId = stored.projectId === key.projectId ? null : stored.projectId
@@ -110,7 +120,10 @@ export async function saveLogin(
     // Outside the lock: once the new login is stored, no renewal can rotate the replaced one. A
     // failed revoke leaves the replaced login working until it expires, which is no reason to fail a
     // step-up that already saved its tokens.
-    await Promise.all([replaced?.logout(runtime), ...LOGIN_COMMANDS.map((command) => clearPending(runtime, command))])
+    const [revoked] = await Promise.all([
+        replaced?.logout(runtime),
+        ...LOGIN_COMMANDS.map((command) => clearPending(runtime, command)),
+    ])
     return {
         host,
         projectId: key.projectId,
@@ -119,5 +132,6 @@ export async function saveLogin(
         keychainError,
         status: key.status(),
         previousProjectId,
+        replacedRevoked: revoked?.revoked ?? null,
     }
 }

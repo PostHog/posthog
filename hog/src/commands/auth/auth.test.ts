@@ -845,6 +845,35 @@ describe('hog auth login', () => {
         expect(result.files[ADD_PENDING_FILE]).toBeUndefined()
     })
 
+    test('add --wait keeps the current login when PostHog drops a required scope', async () => {
+        const result = await runHog(['auth', 'add', '--wait'], {
+            env: { CLAUDECODE: '1' },
+            files: {
+                ...OAUTH_LOGIN.files,
+                [ADD_PENDING_FILE]: JSON.stringify({
+                    ...(readJson(PENDING) as object),
+                    scopes: ['openid', 'insight:read', 'insight:write'],
+                    requiredScopes: ['insight:write'],
+                }),
+            },
+            keychain: OAUTH_LOGIN.keychain,
+            respond: deviceFlow(0, {
+                status: 200,
+                body: {
+                    ...APPROVED,
+                    access_token: STEPPED_UP_ACCESS,
+                    refresh_token: STEPPED_UP_REFRESH,
+                    scope: 'openid insight:read',
+                },
+            }),
+        })
+
+        expect(result.error()).toMatchObject({ code: 'scopes_not_granted' })
+        expect(result.keychain[EU]).toBe(OAUTH_LOGIN.keychain[EU])
+        const revoke = result.requests.find((request) => request.url.endsWith('/oauth/revoke/'))
+        expect((revoke?.body as { token?: string } | undefined)?.token).toBe(STEPPED_UP_REFRESH)
+    })
+
     test.each([
         [
             'an object without an access level',
