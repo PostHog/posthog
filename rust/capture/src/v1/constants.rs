@@ -12,7 +12,6 @@ pub const POSTHOG_SDK_INFO: &str = "PostHog-Sdk-Info";
 /// so an oversized header can't be amplified into every event of a batch.
 pub(super) const MAX_SDK_INFO_LEN: usize = 200;
 
-/// Gauge: 1 when this pod splices server-side values into v1 event properties, else 0.
 pub const CAPTURE_V1_LEGACY_PROPERTY_SPLICE: &str = "capture_v1_legacy_property_splice";
 
 /// Header indicating the SDK retry attempt number.
