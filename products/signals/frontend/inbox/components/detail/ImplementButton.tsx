@@ -130,9 +130,10 @@ export function ImplementButton({
                 size="small"
                 className="[--lemon-button-hover-depth:0px]"
                 icon={<IconPullRequest />}
-                onClick={() => setChoicesOpen(true)}
+                onClick={() => submit(instructions)}
                 loading={isCreatingPr}
-                tooltip="Choose how to implement this report"
+                disabledReason={disabledReason}
+                tooltip="Start a PostHog agent to implement this report"
                 data-attr={surface === 'triage_mode' ? 'inbox-triage-create-pr' : 'inbox-report-create-pr'}
                 sideAction={{
                     tooltip: 'More implementation options',
