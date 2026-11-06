@@ -6,7 +6,6 @@ import { BudgetExceededError } from '@/api/budget'
 import { markInsightViewed } from '@/api/insights'
 import { stableStringify } from '@/api/query'
 import { serverNow } from '@/api/serverClock'
-import { webOverviewQuery } from '@/api/webAnalytics'
 import { DEMO_READ_MS, demoActorsResponse } from '@/demo/views'
 import { sleep } from '@/lib/sleep'
 import { ignoresRangeOverride } from '@/model/adapters/insightSnapshot'
@@ -23,7 +22,6 @@ import type {
     SavedRange,
     ViewEntry,
     ViewKind,
-    WebOverviewSnapshot,
 } from '@/model/views'
 
 import {
@@ -42,8 +40,6 @@ import {
     insightItemKey,
     insightQueryKey,
     tileTarget,
-    webOverviewItem,
-    webQueryKey,
 } from './items'
 import { useRecordRecentView, useVisibility } from './pinHooks'
 import {
@@ -53,18 +49,9 @@ import {
     dashboardOverride,
     rangeOverride,
     supportsCompare,
-    WEB_ANALYTICS_SAVED_RANGE,
-    webAnalyticsRange,
 } from './rangeOverride'
 import { rangeValues } from './rangePresets'
-import {
-    dashboardRangeKey,
-    insightRangeKey,
-    useViewRange,
-    useViewRangeStore,
-    type ViewRange,
-    webAnalyticsRangeKey,
-} from './rangeStore'
+import { dashboardRangeKey, insightRangeKey, useViewRange, useViewRangeStore, type ViewRange } from './rangeStore'
 import { viewsQueue } from './refreshQueue'
 import { type RefreshItem, useViewRefresh, type ViewRefresh } from './useViewRefresh'
 import { reportScopeError, type ViewsAccess } from './useViewsAccess'
@@ -93,7 +80,7 @@ export function itemErrorMessage(kind: ItemErrorKind): string {
 }
 
 /** `busy`: a read of the screen runs, such as after "Try again", so the screen shows its skeleton, not the error. */
-function viewState<T>(
+export function viewState<T>(
     data: T | undefined,
     error: ItemErrorKind | null,
     ready: boolean,
@@ -110,7 +97,7 @@ function viewState<T>(
     return ready ? connectionLoadingQuery<T>(offline, refetch) : loadingQuery()
 }
 
-interface Held<T> {
+export interface Held<T> {
     value: T | undefined
     /** True while `value` belongs to an earlier range. */
     held: boolean
@@ -120,7 +107,7 @@ interface Held<T> {
  * The last value a screen showed, kept while the value for a new range loads. The screen then keeps its header and
  * range control instead of falling back to the loading skeleton. An error for the new range drops the old value.
  */
-function useHeldWhileLoading<T>(identity: string, value: T | undefined, error: ItemErrorKind | null): Held<T> {
+export function useHeldWhileLoading<T>(identity: string, value: T | undefined, error: ItemErrorKind | null): Held<T> {
     const owner = useRef(identity)
     const last = useRef<T | undefined>(value)
     if (owner.current !== identity) {
@@ -150,7 +137,7 @@ export interface ViewOpenOptions {
 }
 
 /** Sends `mobile_view_opened` once per screen, with the age of the cached data at that moment. */
-function useViewOpenedEvent(
+export function useViewOpenedEvent(
     viewType: ViewKind,
     options: ViewOpenOptions,
     snapshots: () => readonly (Freshness | undefined)[]
@@ -480,63 +467,6 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
         refresh,
         queryKey: shown.value?.queryKey ?? currentKey,
         itemKey,
-    }
-}
-
-const HOURLY_FROM = new Set(['dStart', '-1dStart', '-1h', '-24h', '-48h'])
-
-export interface WebAnalyticsScreenState {
-    access: ViewsAccess
-    overview: QueryState<WebOverviewSnapshot>
-    error: ItemErrorKind | null
-    range: ViewRange
-    /** True while `overview` still shows the previous range because the new one has not loaded. */
-    rangeLoading: boolean
-    refresh: ViewRefresh
-}
-
-/** The web analytics overview: one `WebOverviewQuery` with compare on, as the web's overview tile sends it. */
-export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScreenState {
-    const context = useViewsContext()
-    const range = useViewRange(webAnalyticsRangeKey(context.dataScope), 'web_analytics', WEB_ANALYTICS_SAVED_RANGE)
-    const values = webAnalyticsRange(range.choice)
-    const query = webOverviewQuery({
-        dateFrom: values.date_from,
-        dateTo: values.date_to,
-        explicitDate: values.explicitDate,
-        compare: true,
-        interval: HOURLY_FROM.has(values.date_from) ? 'hour' : 'day',
-    })
-    const queryId = stableStringify(query)
-    // biome-ignore lint/correctness/useExhaustiveDependencies: `queryId` stands for `query`.
-    const items = useMemo(() => [webOverviewItem(context.item, query)], [context.item, queryId])
-    const snapshot = useSnapshot<WebOverviewSnapshot>(webQueryKey(context.scope, query))
-    const refresh = useViewRefresh({
-        screen: 'web_analytics',
-        dataScope: context.dataScope,
-        screenKey: 'web',
-        items,
-        enabled: context.ready && !context.offline,
-        rangeKey: queryId,
-    })
-    const error = useItemError(items[0]?.key ?? null)
-    useRecordRecentView({ kind: 'web_analytics', ref: null, name: 'Web analytics' })
-    useViewOpenedEvent('web_analytics', options, () => [snapshot])
-    const shown = useHeldWhileLoading(`${context.identity}|web`, snapshot, error)
-    return {
-        access: context.access,
-        overview: viewState(
-            error && shown.value && !shown.value.lastRefreshAt ? undefined : shown.value,
-            error,
-            context.ready,
-            refresh.busy,
-            refresh.retry,
-            context.offline
-        ),
-        error,
-        range,
-        rangeLoading: shown.held,
-        refresh,
     }
 }
 

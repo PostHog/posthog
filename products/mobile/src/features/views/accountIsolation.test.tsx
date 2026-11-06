@@ -8,7 +8,8 @@ import { insightSnapshot } from '@/model/adapters/insightSnapshot'
 import { webOverviewSnapshot } from '@/model/adapters/webOverview'
 import { dashboardQueryKey, insightQueryKey, webQueryKey } from './items'
 import { viewsQueue } from './refreshQueue'
-import { useDashboardScreen, useInsightScreen, useWebAnalyticsScreen } from './viewHooks'
+import { useDashboardScreen, useInsightScreen } from './viewHooks'
+import { useWebAnalyticsScreen } from './webAnalytics/hooks'
 
 let mockScope = { host: 'https://example.com', projectId: 1 }
 jest.mock('expo-router', () => ({ useFocusEffect: () => {}, useIsFocused: () => false }))

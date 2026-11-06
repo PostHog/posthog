@@ -1,15 +1,16 @@
+import { useRouter } from 'expo-router'
 import { type ReactElement, useState } from 'react'
 import { RefreshControl, ScrollView, Text, View } from 'react-native'
-import { formatMetricValue } from '@/model/adapters/metric'
-import type { NumberDelta, ViewEntry, WebOverviewMetric } from '@/model/views'
+
+import type { ViewEntry, WebTileId } from '@/model/views'
 import { useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
+import { Eyebrow } from '@/ui/Eyebrow'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
-import { layout, radii, type } from '@/ui/tokens'
+import { layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { type ScrollTitleState, useScrollTitle } from '@/ui/useScrollTitle'
 
-import { DeltaPill } from '../DeltaPill'
 import { ViewRangeControl } from '../range/ViewRangeControl'
 import { RefreshFailedBanner } from '../screen/RefreshFailedBanner'
 import { ViewChrome } from '../screen/ViewChrome'
@@ -21,10 +22,23 @@ import { ViewTitle } from '../screen/ViewTitle'
 import { resolvedRangeText } from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
 import { ViewsReauthState } from '../ViewsReauthState'
-import { useWebAnalyticsScreen, type WebAnalyticsScreenState } from '../viewHooks'
+import { useToasts, ViewsToast } from '../ViewsToast'
+import { webAnalyticsListHref } from '../viewRoutes'
 import { viewWebUrl } from '../webLinks'
+import { ActiveHoursCard } from './ActiveHoursCard'
+import { trackWebListOpened } from './analytics'
+import { BreakdownCard } from './BreakdownCard'
+import { BreakdownSheet } from './BreakdownSheet'
+import { FilterChips } from './FilterChips'
+import { useWebAnalyticsActions, useWebAnalyticsScreen, type WebAnalyticsScreenState } from './hooks'
+import { MoreOnWeb } from './MoreOnWeb'
+import { OverviewGrid } from './OverviewGrid'
+import { RetentionCard } from './RetentionCard'
+import { TrendCard } from './TrendCard'
 
-/** The web analytics overview numbers, each with its change from the previous period, as the web's overview tile. */
+/** A pushed screen has no bottom bar, so the toast sits low. */
+const TOAST_BOTTOM = 48
+
 export function WebAnalyticsScreen({ from }: { from: ViewEntry }): ReactElement {
     const screen = useWebAnalyticsScreen({ from })
     const scrollTitle = useScrollTitle('Web analytics')
@@ -70,18 +84,24 @@ function WebAnalyticsBody({
     const styles = useStyles()
     const insets = useScreenInsets()
     const motion = useChartListMotion()
+    const router = useRouter()
+    const { scope } = useViewsContext()
+    const toasts = useToasts()
+    const actions = useWebAnalyticsActions(toasts)
+    const [tabsFor, setTabsFor] = useState<WebTileId | null>(null)
     const { refresh } = screen
     const overview = screen.overview.data
     const contentTop = topOffset(insets, SCREEN_CONTENT_TOP)
     const contentStyle = [styles.content, { paddingTop: contentTop, paddingBottom: bottomOffset(insets, 48) }]
     const rangeDetail = overview ? resolvedRangeText(overview.resolvedRange, 'day') : null
+    const sheetTile = screen.tiles.find((tile) => tile.def.id === tabsFor) ?? null
     const title = (
         <ViewTitle
             onTitleLayout={scrollTitle.onTitleLayout}
             title="Web analytics"
             refresh={refresh}
             range={
-                // No compare row: the overview always compares with the previous period, as the web's overview tile does.
+                // No compare row: every card compares with the previous period, as the web's tiles do.
                 <ViewRangeControl
                     range={screen.range}
                     resolved={overview?.resolvedRange ?? null}
@@ -106,94 +126,89 @@ function WebAnalyticsBody({
                         onBack={onBack}
                     />
                 ) : (
-                    <ViewSkeleton cards={2} />
+                    <ViewSkeleton cards={3} />
                 )}
             </ScrollView>
         )
     }
 
     return (
-        <ScrollView
-            contentContainerStyle={contentStyle}
-            onScroll={(event) => {
-                motion.onScroll()
-                scrollTitle.onScroll(event)
-            }}
-            scrollEventThrottle={16}
-            refreshControl={
-                <RefreshControl
-                    refreshing={refresh.pulling}
-                    onRefresh={refresh.onPull}
-                    tintColor={colors.tertiary}
-                    progressBackgroundColor={colors.surface}
-                    colors={[colors.tertiary]}
-                    progressViewOffset={contentTop}
-                />
-            }
-            testID="web-analytics-scroll"
-        >
-            {title}
-            <RefreshFailedBanner status={refresh.status} />
-            {overview.metrics.length === 0 ? (
-                <Text style={styles.empty}>No web analytics data for this range.</Text>
-            ) : (
-                <View style={[styles.grid, overview.refreshFailed && styles.dimmed]}>
-                    {pairs(overview.metrics).map(([left, right]) => (
-                        <View key={left.key} style={styles.gridRow}>
-                            <MetricCard metric={left} />
-                            {right ? <MetricCard metric={right} /> : <View style={styles.cardSpacer} />}
+        <>
+            <ScrollView
+                contentContainerStyle={contentStyle}
+                onScroll={(event) => {
+                    motion.onScroll()
+                    scrollTitle.onScroll(event)
+                }}
+                scrollEventThrottle={16}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refresh.pulling}
+                        onRefresh={refresh.onPull}
+                        tintColor={colors.tertiary}
+                        progressBackgroundColor={colors.surface}
+                        colors={[colors.tertiary]}
+                        progressViewOffset={contentTop}
+                    />
+                }
+                testID="web-analytics-scroll"
+            >
+                {title}
+                <RefreshFailedBanner status={refresh.status} />
+                <FilterChips filters={screen.filters} onRemove={actions.removeFilter} onClear={actions.clearFilters} />
+                {overview.metrics.length === 0 ? (
+                    <Text style={styles.empty}>No web analytics data for this range.</Text>
+                ) : (
+                    <OverviewGrid
+                        metrics={overview.metrics}
+                        selected={screen.metric}
+                        onSelect={actions.selectMetric}
+                        stale={overview.refreshFailed}
+                    />
+                )}
+                <View style={styles.cards}>
+                    <TrendCard
+                        data={screen.trend}
+                        metric={screen.metric}
+                        interval={screen.interval}
+                        rangeText={rangeDetail}
+                    />
+                    {screen.tiles.map((tile) => (
+                        <View key={tile.def.id} style={styles.section}>
+                            <Eyebrow>{tile.def.title}</Eyebrow>
+                            <BreakdownCard
+                                tile={tile}
+                                filters={screen.filters}
+                                onOpenTabs={() => setTabsFor(tile.def.id)}
+                                onPressRow={(row) => {
+                                    if (row.filter) {
+                                        actions.tapRow(tile.def.id, tile.breakdown, row.filter, 'card')
+                                    }
+                                }}
+                                onOpenList={() => {
+                                    trackWebListOpened({ tile: tile.def.id, breakdown: tile.breakdown })
+                                    router.push(webAnalyticsListHref(tile.def.id, tile.breakdown))
+                                }}
+                            />
                         </View>
                     ))}
+                    <RetentionCard data={screen.retention} />
+                    <ActiveHoursCard data={screen.activeHours} />
+                    <MoreOnWeb webUrl={viewWebUrl(scope, '/web')} />
                 </View>
-            )}
-            {overview.metrics.length > 0 ? (
-                <Text style={styles.footnote}>Changes compare with the previous period of the same length.</Text>
-            ) : null}
-        </ScrollView>
-    )
-}
-
-/** Two cards per row, so an odd last card keeps the width of the others. */
-function pairs(metrics: WebOverviewMetric[]): [WebOverviewMetric, WebOverviewMetric | undefined][] {
-    const rows: [WebOverviewMetric, WebOverviewMetric | undefined][] = []
-    for (let index = 0; index < metrics.length; index += 2) {
-        const left = metrics[index]
-        if (left) {
-            rows.push([left, metrics[index + 1]])
-        }
-    }
-    return rows
-}
-
-function changeDelta(metric: WebOverviewMetric): NumberDelta | null {
-    if (metric.value === null || metric.previous === null || metric.changePercent === null) {
-        return null
-    }
-    return {
-        previous: metric.previous,
-        change: metric.value - metric.previous,
-        percent: metric.changePercent,
-        unit: 'percent',
-        basis: 'compare',
-        previousAt: null,
-    }
-}
-
-function MetricCard({ metric }: { metric: WebOverviewMetric }): ReactElement {
-    const styles = useStyles()
-    const formatValue = (value: number): string =>
-        formatMetricValue(value, metric.format.valueFormat, metric.format.unit)
-    const delta = changeDelta(metric)
-    return (
-        <View style={styles.card} testID={`web-metric-${metric.key.replace(/\s+/g, '-')}`}>
-            <Text style={styles.cardTitle} numberOfLines={1}>
-                {metric.label}
-            </Text>
-            <Text style={styles.cardValue} numberOfLines={1} adjustsFontSizeToFit>
-                {metric.value === null ? '–' : formatValue(metric.value)}
-            </Text>
-            {delta ? <DeltaPill delta={delta} formatValue={formatValue} basis="vs previous period" /> : null}
-        </View>
+            </ScrollView>
+            <BreakdownSheet
+                tile={sheetTile?.def ?? null}
+                selected={sheetTile?.breakdown ?? null}
+                onPick={(breakdown) => {
+                    if (sheetTile) {
+                        actions.setTab(sheetTile.def.id, breakdown, 'card')
+                    }
+                }}
+                onClose={() => setTabsFor(null)}
+            />
+            <ViewsToast toast={toasts.toast} onHide={toasts.hide} bottom={TOAST_BOTTOM} />
+        </>
     )
 }
 
@@ -204,52 +219,17 @@ const useStyles = createStyles(({ colors }) => ({
     grow: {
         flexGrow: 1,
     },
-    grid: {
-        gap: 10,
+    cards: {
+        gap: 16,
+        marginTop: 16,
     },
-    gridRow: {
-        flexDirection: 'row',
-        gap: 10,
-    },
-    cardSpacer: {
-        flex: 1,
-    },
-    dimmed: {
-        opacity: 0.5,
-    },
-    card: {
-        flex: 1,
-        minWidth: 0,
-        gap: 6,
-        padding: 12,
-        borderRadius: radii.card,
-        borderWidth: 1,
-        borderColor: colors.hairline,
-        backgroundColor: colors.surface,
-        alignItems: 'flex-start',
-    },
-    cardTitle: {
-        ...type.meta,
-        color: colors.muted,
-    },
-    cardValue: {
-        fontSize: 24,
-        lineHeight: 29,
-        fontWeight: '700',
-        letterSpacing: -0.4,
-        color: colors.ink,
-        fontVariant: ['tabular-nums'],
+    section: {
+        gap: 8,
     },
     empty: {
         ...type.bodySmall,
         color: colors.muted,
         textAlign: 'center',
         paddingVertical: 32,
-    },
-    footnote: {
-        ...type.meta,
-        color: colors.tertiary,
-        marginTop: 14,
-        paddingHorizontal: 2,
     },
 }))
