@@ -339,7 +339,7 @@ describe('messageTemplateTestSendLogic', () => {
             }).toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
             templateLogic.actions.setTemplateValue('content.email.text', 'Hello!')
             logic.actions.setRecipientEmail('rose.dawson@posthog.com')
-            await expectLogic(logic).toMatchValues({ recipientNotSuggested: false })
+            await expectLogic(logic).toMatchValues({ recipientWarning: null })
 
             useMocks({
                 get: {
@@ -356,7 +356,7 @@ describe('messageTemplateTestSendLogic', () => {
                 logic.actions.setModalOpen(true)
             })
                 .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
-                .toMatchValues({ recipientNotSuggested: true })
+                .toMatchValues({ recipientWarning: 'not-member' })
             expect(logic.values.recipientSuggestions).not.toContain('rose.dawson@posthog.com')
         })
 
@@ -420,25 +420,25 @@ describe('messageTemplateTestSendLogic', () => {
             })
                 .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
                 .toMatchValues({
-                    recipientNotSuggested: true,
+                    recipientWarning: 'not-member',
                     sendDisabledReason: undefined,
                     recipientSuggestions: expect.arrayContaining(['rose.dawson@posthog.com']),
                 })
 
             logic.actions.setRecipientEmail('Rose.Dawson@posthog.com')
-            await expectLogic(logic).toMatchValues({ recipientNotSuggested: false, sendDisabledReason: undefined })
+            await expectLogic(logic).toMatchValues({ recipientWarning: null, sendDisabledReason: undefined })
 
             logic.actions.setRecipientEmail('unverified@example.com')
-            await expectLogic(logic).toMatchValues({ recipientNotSuggested: true })
+            await expectLogic(logic).toMatchValues({ recipientWarning: 'not-member' })
             expect(logic.values.recipientSuggestions).not.toContain('unverified@example.com')
 
             logic.actions.setRecipientEmail('unknown@example.com')
-            await expectLogic(logic).toMatchValues({ recipientNotSuggested: true })
+            await expectLogic(logic).toMatchValues({ recipientWarning: 'not-member' })
             expect(logic.values.recipientSuggestions).not.toContain('unknown@example.com')
 
             logic.actions.setRecipientEmail('outsider@example.com')
             logic.actions.setSenderIntegrationId(5)
-            await expectLogic(logic).toMatchValues({ recipientNotSuggested: false, sendDisabledReason: undefined })
+            await expectLogic(logic).toMatchValues({ recipientWarning: null, sendDisabledReason: undefined })
         })
 
         it.each([
@@ -447,53 +447,50 @@ describe('messageTemplateTestSendLogic', () => {
                 verified: false,
                 recipient: 'John.Doe@posthog.com',
                 sender: 7,
-                expected: true,
+                expected: 'unverified-self',
             },
             {
                 description: 'a verified user sending to their own address',
                 verified: true,
                 recipient: 'john.doe@posthog.com',
                 sender: 7,
-                expected: false,
+                expected: null,
             },
             {
                 description: 'an unverified user sending to another address',
                 verified: false,
                 recipient: 'rose.dawson@posthog.com',
                 sender: 7,
-                expected: false,
+                expected: null,
             },
             {
                 description: 'an unverified user sending from their own sender',
                 verified: false,
                 recipient: 'john.doe@posthog.com',
                 sender: 5,
-                expected: false,
+                expected: null,
             },
             {
                 description: 'a user whom the reloaded member list shows as verified',
                 verified: false,
                 recipient: 'john.doe@posthog.com',
                 sender: 7,
-                expected: false,
+                expected: null,
                 membersLoaded: true,
             },
-        ])(
-            'flags $description as an unverified self send: $expected',
-            async ({ verified, recipient, sender, expected, membersLoaded }) => {
-                userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: verified })
-                await loadIntegrations([SANDBOX_SENDER, VERIFIED_OWN_SENDER])
-                if (membersLoaded) {
-                    await expectLogic(logic, () => {
-                        logic.actions.setModalOpen(true)
-                    }).toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
-                }
-                logic.actions.setSenderIntegrationId(sender)
-                logic.actions.setRecipientEmail(recipient)
-
-                await expectLogic(logic).toMatchValues({ recipientIsUnverifiedSelf: expected })
+        ])('warns about $description: $expected', async ({ verified, recipient, sender, expected, membersLoaded }) => {
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: verified })
+            await loadIntegrations([SANDBOX_SENDER, VERIFIED_OWN_SENDER])
+            if (membersLoaded) {
+                await expectLogic(logic, () => {
+                    logic.actions.setModalOpen(true)
+                }).toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
             }
-        )
+            logic.actions.setSenderIntegrationId(sender)
+            logic.actions.setRecipientEmail(recipient)
+
+            await expectLogic(logic).toMatchValues({ recipientWarning: expected })
+        })
 
         it('suggests the verified user first even when the member list leaves them out', async () => {
             useMocks({ get: { '/api/organizations/:organization_id/members/': { results: [VERIFIED_MEMBERS[1]] } } })
@@ -516,11 +513,11 @@ describe('messageTemplateTestSendLogic', () => {
             })
                 .toDispatchActions(membersLogic, ['loadAllMembers'])
                 .toMatchValues({
-                    recipientNotSuggested: false,
+                    recipientWarning: null,
                     sendDisabledReason: 'Checking your organization members',
                 })
                 .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
-                .toMatchValues({ recipientNotSuggested: true, sendDisabledReason: undefined })
+                .toMatchValues({ recipientWarning: 'not-member', sendDisabledReason: undefined })
 
             await expectLogic(logic, () => {
                 logic.actions.setModalOpen(false)
