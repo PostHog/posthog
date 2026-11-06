@@ -762,11 +762,7 @@ def _group_type_indexes_for_condition_property(
     if not isinstance(condition_index, int) or not 0 <= condition_index < len(groups):
         return {None}
     condition = groups[condition_index] or {}
-    aggregation = (
-        condition.get("aggregation_group_type_index")
-        if "aggregation_group_type_index" in condition
-        else filters.get("aggregation_group_type_index")
-    )
+    aggregation = flag_filters.condition_aggregation(condition, filters.get("aggregation_group_type_index"))
     indexes = {
         aggregation if prop.get("group_type_index") is None else prop["group_type_index"]
         for prop in condition.get("properties") or []
@@ -790,20 +786,19 @@ def _redact_restricted_actual_values(
         indexes = _group_type_indexes_for_condition_property(filters, condition_index, key)
         return any(restricted.is_group_property_restricted(key, index) for index in indexes)
 
-    return [
-        {
-            **condition,
-            "properties": [
-                {**prop, "actual_value": None}
-                if isinstance(prop, dict) and is_restricted(condition.get("index"), prop)
-                else prop
-                for prop in condition["properties"]
-            ],
-        }
-        if isinstance(condition, dict) and isinstance(condition.get("properties"), list)
-        else condition
-        for condition in conditions
-    ]
+    redacted: list[Any] = []
+    for condition in conditions:
+        if not isinstance(condition, dict) or not isinstance(condition.get("properties"), list):
+            redacted.append(condition)
+            continue
+        properties: list[Any] = []
+        for prop in condition["properties"]:
+            if isinstance(prop, dict) and is_restricted(condition.get("index"), prop):
+                properties.append({**prop, "actual_value": None})
+            else:
+                properties.append(prop)
+        redacted.append({**condition, "properties": properties})
+    return redacted
 
 
 def check_flag_limits_for_team(
@@ -3664,7 +3659,13 @@ class FeatureFlagConditionPropertyAnalysisSerializer(serializers.Serializer):
     operator = serializers.CharField(help_text="Comparison operator")
     value = serializers.JSONField(help_text="Expected property value")
     type = serializers.CharField(help_text="Property type (person, group, etc.)")
-    actual_value = serializers.JSONField(allow_null=True, help_text="Actual property value from user")
+    actual_value = serializers.JSONField(
+        allow_null=True,
+        help_text=(
+            "Actual property value from user. Null when the property is not set, "
+            "or when property access control hides it from the requesting user."
+        ),
+    )
     matched = serializers.BooleanField(help_text="Whether this property condition matched")
     explanation = serializers.CharField(help_text="Human-readable explanation of the match result")
 
@@ -3723,7 +3724,10 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
     )
     payload = serializers.JSONField(allow_null=True, help_text="Payload associated with the flag result, if any")
     person_properties = serializers.DictField(
-        help_text="Person properties at the time of evaluation (for historical evaluations)"
+        help_text=(
+            "Person properties at the time of evaluation (for historical evaluations). "
+            "Properties that property access control hides from the requesting user are omitted."
+        )
     )
     evaluation_distinct_id = serializers.CharField(
         allow_null=True,

@@ -15607,14 +15607,18 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
                             {"key": "plan", "type": "person", "value": "pro"},
                             {"key": "industry", "type": "group", "group_type_index": 0, "value": "retail"},
                         ]
-                    }
+                    },
+                    {
+                        "aggregation_group_type_index": 0,
+                        "properties": [{"key": "industry", "type": "group", "value": "retail"}],
+                    },
                 ]
             },
         )
         properties = {"email": "test@example.com", "plan": "pro"}
-        condition_values = [
-            *(("person", key, value) for key, value in properties.items()),
-            ("group", "industry", "retail"),
+        conditions_values = [
+            [*(("person", key, value) for key, value in properties.items()), ("group", "industry", "retail")],
+            [("group", "industry", "retail")],
         ]
         create_person(team=self.team, distinct_ids=["test-user"], properties=properties)
         mock_build_props.return_value = properties
@@ -15627,8 +15631,8 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
                     "metadata": {},
                     "conditions": [
                         {
-                            "index": 0,
-                            "matched": True,
+                            "index": index,
+                            "matched": index == 0,
                             "explanation": "Condition matched",
                             "rollout_percentage": 100.0,
                             "rollout_excluded": False,
@@ -15646,6 +15650,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
                                 for prop_type, key, value in condition_values
                             ],
                         }
+                        for index, condition_values in enumerate(conditions_values)
                     ],
                 }
             }
@@ -15672,6 +15677,10 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
                 "plan": "pro",
                 "industry": "retail" if group_visible else None,
             },
+        )
+        self.assertEqual(
+            [prop["actual_value"] for prop in data["conditions"][1]["properties"]],
+            ["retail" if group_visible else None],
         )
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
