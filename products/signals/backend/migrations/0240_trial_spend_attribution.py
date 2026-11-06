@@ -5,9 +5,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("signals", "0237_one_time_trial"),
-    ]
+    dependencies = [("signals", "0239_one_time_trial")]
 
     operations = [
         migrations.AddField(
