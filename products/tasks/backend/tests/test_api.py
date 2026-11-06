@@ -6996,6 +6996,20 @@ class TestTaskAPI(BaseTaskAPITest):
         response = self.client.get("/api/projects/@current/tasks/?status=not_a_real_status")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand([("running", ["running"]), ("idle", ["idle"]), ("done", [])])
+    def test_filter_by_task_status(self, task_status: str, expected: list[str]) -> None:
+        for value in ("queued", "running", "idle"):
+            task = self.create_task(value)
+            Task.objects.filter(pk=task.pk).update(status=value, status_reason=None)
+
+        response = self.client.get(f"/api/projects/@current/tasks/?task_status={task_status}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [(row["title"], row["status"]) for row in response.json()["results"]],
+            [(title, title) for title in expected],
+        )
+
     def test_filter_by_pr_state(self):
         open_pr = self.create_task("Open PR task")
         TaskRun.objects.create(
@@ -8034,6 +8048,8 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         "updated_at",
         "origin_product",
         "latest_run",
+        "status",
+        "status_reason",
     }
 
     def post_summaries(self, ids):

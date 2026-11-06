@@ -440,14 +440,13 @@ Use this tool when the user wants to:
                 else:
                     qs = qs.filter(repository__iendswith=f"/{repo_str}")
 
-            tasks = list(qs.prefetch_related("runs")[:limit])
+            tasks = list(qs[:limit])
 
             task_list = []
             lines = [f"Found {len(tasks)} task(s):\n"] if tasks else []
 
             for task in tasks:
-                latest_run = task.latest_run
-                status = latest_run.get_status_display() if latest_run else "Not run"
+                status = task.get_status_display() if task.status else "Unknown"
 
                 lines.append(f"- {task.slug} (ID: {task.id}): {task.title}")
                 lines.append(f"  Status: {status} | Repository: {task.repository or 'N/A'}")
@@ -459,7 +458,8 @@ Use this tool when the user wants to:
                         "title": task.title,
                         "repository": task.repository,
                         "origin_product": task.origin_product,
-                        "status": latest_run.status if latest_run else None,
+                        "status": task.status,
+                        "status_reason": task.status_reason,
                     }
                 )
 

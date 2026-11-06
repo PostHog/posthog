@@ -713,16 +713,17 @@ class TestListTasksTool(BaseTaskToolTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_list_tasks_includes_run_status(self):
+    async def test_list_tasks_includes_task_status(self):
         task = await self._create_task("Task with run")
         await self._create_task_run(task, status=TaskRun.Status.COMPLETED)
+        await Task.objects.filter(pk=task.pk).aupdate(status=Task.Status.RUNNING)
 
         tool = self._create_tool(ListTasksTool)
 
         content, artifact = await tool._arun_impl()
 
-        assert "Completed" in content
-        assert artifact["tasks"][0]["status"] == TaskRun.Status.COMPLETED
+        assert "Running" in content
+        assert artifact["tasks"][0]["status"] == Task.Status.RUNNING
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

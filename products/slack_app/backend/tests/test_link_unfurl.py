@@ -980,12 +980,15 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 TaskRun.objects.create(
                     task=task,
                     team=self.team,
-                    status=TaskRun.Status.COMPLETED,
+                    status=TaskRun.Status.FAILED,
                     output={"pr_url": "https://github.com/example/repo/pull/7"},
+                )
+                Task.objects.filter(pk=task.pk).update(
+                    status=Task.Status.IDLE, status_reason=Task.StatusReason.UNEXPECTED_FAILURE
                 )
                 return f"http://testserver/code/task/{task.id}", [
                     "Fix checkout",
-                    "*Completed*",
+                    "*Idle (unexpected failure)*",
                     "View pull request",
                 ]
             case "task_artifacts_tab":

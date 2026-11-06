@@ -179,6 +179,11 @@
             "description": "Filter tasks by the status of their most recent run.\n\n* `not_started` - not_started\n* `queued` - queued\n* `in_progress` - in_progress\n* `completed` - completed\n* `failed` - failed\n* `cancelled` - cancelled",
             "enum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
             "type": "string"
+        },
+        "task_status": {
+            "description": "Filter tasks by their own status: queued, running, idle or done.\n\n* `queued` - Queued\n* `running` - Running\n* `idle` - Idle\n* `done` - Done",
+            "enum": ["queued", "running", "idle", "done"],
+            "type": "string"
         }
     },
     "type": "object"

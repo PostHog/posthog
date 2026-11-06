@@ -864,7 +864,7 @@ def _task_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipRe
     return _UnfurlCard(
         label="Task",
         title=task.title,
-        status=task.latest_run_status,
+        status=task.status,
         details=(*((dto.repository,) if dto and dto.repository else ()), *_by(_user(task.created_by_id))),
         button=_CardButton(label="View pull request", url=pr_url) if pr_url else None,
         timestamp=dto.updated_at if dto else None,
