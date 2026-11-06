@@ -134,7 +134,6 @@ def rank_incremental_fields(incremental_fields: list[IncrementalField]) -> list[
     real = [f for f in incremental_fields if (f.get("field_type") or f["type"]) != IncrementalFieldType.XID]
 
     ranked: list[IncrementalField] = []
-    # Two stable sorts: the exact-name preference breaks ties left by the score.
     by_preferred_name = sorted(real, key=_exact_name_preference)
     for position, candidate in enumerate(sorted(by_preferred_name, key=_rank_score, reverse=True)):
         notes = []
