@@ -30,9 +30,11 @@ export function WorkflowSandboxSwitchBanner(props: WorkflowLogicProps): JSX.Elem
                 data-attr="workflow-sandbox-switch-banner"
             >
                 <span className="min-w-0 flex-1">
-                    {verifiedOwnSenders.length > 1
-                        ? 'Your project has verified email senders.'
-                        : 'Your project has a verified email sender.'}{' '}
+                    <span>
+                        {verifiedOwnSenders.length > 1
+                            ? 'Your project has verified email senders.'
+                            : 'Your project has a verified email sender.'}
+                    </span>{' '}
                     This workflow still sends from the sandbox sender, which delivers only to verified members of your
                     organization.
                 </span>
