@@ -1081,7 +1081,9 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(discover_state.flow, FlowKind.OAUTH_DISCOVER)
         self.assertEqual(discover_state.connect_from, "posthog_code")
 
-    @parameterized.expand([("no_policy",), ("allowed",), ("blocked",), ("removed_member",), ("demoted",)])
+    @parameterized.expand(
+        [("no_policy",), ("allowed",), ("blocked",), ("removed_member",), ("demoted",), ("missing_team",)]
+    )
     @override_settings(
         GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret", IS_BEHIND_PROXY=False
     )
@@ -1130,7 +1132,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
                 token=state,
                 flow=FlowKind.TEAM_OAUTH,
                 user_id=self.user.id,
-                team_id=self.team.pk,
+                team_id=None if policy == "missing_team" else self.team.pk,
                 installation_id="12345",
                 next_url="/project/{}/integrations/github".format(self.team.pk),
             ),
@@ -1156,7 +1158,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             REMOTE_ADDR="203.0.113.7" if policy == "allowed" else "198.51.100.7",
         )
 
-        if policy in ("blocked", "removed_member", "demoted"):
+        if policy in ("blocked", "removed_member", "demoted", "missing_team"):
             self.assertEqual(response.status_code, 403 if policy == "blocked" else 302)
             mock_user_from_code.assert_not_called()
             mock_integration_from_install.assert_not_called()

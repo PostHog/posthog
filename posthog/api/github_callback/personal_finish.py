@@ -62,7 +62,10 @@ def finish_personal(request: HttpRequest) -> FinishResult:
         return _error("invalid_state")
 
     if authorize_state.flow.creates_team_integration:
-        team = user.teams.select_related("organization").filter(id=authorize_state.team_id).first()
+        team_id = authorize_state.team_id
+        if team_id is None:
+            return _error("invalid_state")
+        team = user.teams.select_related("organization").filter(id=team_id).first()
         if team is None or not state.has_team_management_access(user, team):
             return _error("insufficient_permissions")
         try:
