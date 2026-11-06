@@ -1,5 +1,6 @@
 import json
 import time
+import dataclasses
 from datetime import timedelta
 from typing import Any
 
@@ -28,7 +29,11 @@ from posthog.redis import TEST_clear_clients
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.test.authentication_checks import covers_authentication
 from posthog.token_bucket import Budget, TEST_reset_scripts
-from posthog.workload_identity.test.fixtures import FAKE_WORKLOAD_ISSUER, with_fake_workload_provider
+from posthog.workload_identity.test.fixtures import (
+    FAKE_WORKLOAD_ISSUER,
+    FAKE_WORKLOAD_PROVIDER,
+    with_fake_workload_provider,
+)
 from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 
 from products.annotations.backend.models import Annotation
@@ -237,6 +242,40 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert second.json()["error_code"] == "workload_rate_limited"
         assert second["Retry-After"] == str(second.json()["retry_after"])
+
+    def test_exchange_budget_is_shared_only_by_workloads_with_the_same_required_claims(self) -> None:
+        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, required_condition_claims=("environment",))
+        self.policy.delete()
+        for environment in ("production", "staging"):
+            self._create_policy(conditions={"ref": "refs/heads/main", "environment": environment})
+
+        with (
+            patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)),
+            patch("posthog.workload_identity.token_exchange.WORKLOAD_EXCHANGE_BUDGET", Budget(burst=1, per_hour=60)),
+        ):
+            production = self._exchange(_oidc_token(environment="production"))
+            staging = self._exchange(_oidc_token(environment="staging"))
+            production_again = self._exchange(_oidc_token(environment="production"))
+
+        assert production.status_code == status.HTTP_200_OK, production.json()
+        assert staging.status_code == status.HTTP_200_OK, staging.json()
+        assert production_again.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    @parameterized.expand([("default_cap", None, False), ("provider_cap", 32, True)])
+    def test_exchange_takes_a_large_key_set_only_from_a_provider_that_allows_it(
+        self, _name: str, jwks_max_keys: int | None, accepted: bool
+    ) -> None:
+        other = json.loads(jwk_from_pem(_OTHER_KEY_PEM).export_public())
+        keys = _jwks()["keys"] + [{**other, "kid": f"rotated-{i}", "alg": "RS256", "use": "sig"} for i in range(13)]
+        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, jwks_max_keys=jwks_max_keys)
+
+        with (
+            patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)),
+            patch("posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=({"keys": keys}, None)),
+        ):
+            response = self._exchange()
+
+        assert (response.status_code == status.HTTP_200_OK) is accepted, response.json()
 
     def test_exchange_refuses_a_token_signed_by_another_key(self) -> None:
         response = self._exchange(_oidc_token(signing_key=_OTHER_KEY_PEM))

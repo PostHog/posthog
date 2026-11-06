@@ -84,6 +84,9 @@ class WorkloadProvider:
     condition_presets: tuple[ConditionPreset, ...] = ()
     # Condition claims every policy must set, for a subject that is unique only together with them.
     required_condition_claims: tuple[str, ...] = ()
+    subject_lookup_conditions: tuple[tuple[str, str], ...] = ()
+    # The registry pins the JWKS URL, so the cap against a hostile client key set can be raised here.
+    jwks_max_keys: int | None = None
     # The CI config a job needs, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
     setup_snippet: str = ""
 
@@ -106,6 +109,8 @@ class WorkloadProvider:
                 raise ValueError(f"{self.key}: templates can only use recorded claims, not {unknown}.")
         if not set(self.required_condition_claims) <= set(condition_names):
             raise ValueError(f"{self.key}: required condition claims must be condition claims.")
+        if not {claim for claim, _ in self.subject_lookup_conditions} <= set(condition_names):
+            raise ValueError(f"{self.key}: subject lookup conditions must use condition claims.")
         preset_keys = [preset.key for preset in self.condition_presets]
         if len(set(preset_keys)) != len(preset_keys):
             raise ValueError(f"{self.key}: condition presets must have unique keys.")
@@ -116,6 +121,14 @@ class WorkloadProvider:
             if any(value.count(PRESET_VALUE) > 1 for _, value in preset.conditions):
                 raise ValueError(f"{self.key}: preset {preset.key} can use {PRESET_VALUE} once per value.")
 
+
+_ACTIONS_JOB_SNIPPET = f"""permissions:
+  id-token: write # lets hog get an OIDC token for PostHog
+  contents: read
+env:
+  HOG_HOST: {SNIPPET_HOST}
+  HOG_PROJECT_ID: "{SNIPPET_PROJECT_ID}"
+"""
 
 GITHUB_ACTIONS = WorkloadProvider(
     key="github_actions",
@@ -214,13 +227,7 @@ GITHUB_ACTIONS = WorkloadProvider(
             default_value="production",
         ),
     ),
-    setup_snippet=f"""permissions:
-  id-token: write # lets hog get an OIDC token for PostHog
-  contents: read
-env:
-  HOG_HOST: {SNIPPET_HOST}
-  HOG_PROJECT_ID: "{SNIPPET_PROJECT_ID}"
-""",
+    setup_snippet=_ACTIONS_JOB_SNIPPET,
 )
 
 GITLAB = WorkloadProvider(
@@ -391,6 +398,9 @@ DEPOT_CI = WorkloadProvider(
     run_url_template=None,
     docs_url="https://posthog.com/docs/api/workload-identity/depot",
     resolve_subject=resolve_github_repository,
+    # The lookup asks GitHub, which knows nothing about another forge's repository IDs.
+    subject_lookup_conditions=(("forge", "github"),),
+    jwks_max_keys=32,
     condition_presets=(
         ConditionPreset(
             key="organization",
@@ -408,13 +418,7 @@ DEPOT_CI = WorkloadProvider(
             default_value="main",
         ),
     ),
-    setup_snippet=f"""permissions:
-  id-token: write # lets hog get an OIDC token for PostHog
-  contents: read
-env:
-  HOG_HOST: {SNIPPET_HOST}
-  HOG_PROJECT_ID: "{SNIPPET_PROJECT_ID}"
-""",
+    setup_snippet=_ACTIONS_JOB_SNIPPET,
 )
 
 # Can't be supported with this design:

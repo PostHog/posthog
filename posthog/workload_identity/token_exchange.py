@@ -29,7 +29,12 @@ from jwt import PyJWK
 from rest_framework import status
 
 from posthog.api.id_jag import sign_access_token
-from posthog.api.oauth.client_assertion import ClientAssertionError, JWKSUnavailableError, select_signing_key
+from posthog.api.oauth.client_assertion import (
+    JWKS_MAX_KEYS,
+    ClientAssertionError,
+    JWKSUnavailableError,
+    select_signing_key,
+)
 from posthog.auth import WORKLOAD_ACCESS_TOKEN_TYPE
 from posthog.dataclasses import frozen
 from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
@@ -237,7 +242,7 @@ def _required_claim(token_claims: dict[str, Any], claim: WorkloadClaim) -> str:
 
 def _signing_key(provider: WorkloadProvider, subject_token: str) -> PyJWK:
     try:
-        key = select_signing_key(provider.jwks_url, subject_token)
+        key = select_signing_key(provider.jwks_url, subject_token, max_keys=provider.jwks_max_keys or JWKS_MAX_KEYS)
     except JWKSUnavailableError:
         raise WorkloadExchangeError(
             WorkloadExchangeErrorCode.PROVIDER_UNAVAILABLE,
@@ -313,7 +318,11 @@ def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tup
 
 def _charge_exchange(provider: WorkloadProvider, workload: VerifiedWorkload) -> None:
     """Charged only after the token verified, so nobody can use up another workload's budget."""
-    decision = consume(f"workload_exchange_rate:{provider.key}:{workload.subject}", WORKLOAD_EXCHANGE_BUDGET)
+    identity = [
+        workload.subject,
+        *(workload.condition_claims.get(name, "") for name in provider.required_condition_claims),
+    ]
+    decision = consume(f"workload_exchange_rate:{provider.key}:{':'.join(identity)}", WORKLOAD_EXCHANGE_BUDGET)
     match decision:
         case BucketUnavailable():
             logger.warning("workload_exchange_rate_limit_unavailable", error=decision.error)

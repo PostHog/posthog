@@ -118078,6 +118078,11 @@ export namespace Schemas {
       placeholder: string;
     }
 
+    /**
+     * Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works.
+     */
+    export type WorkloadProviderSubjectLookupConditions = {[key: string]: string};
+
     export interface WorkloadProvider {
       /** Stable identifier of the provider. */
       key: string;
@@ -118099,6 +118104,8 @@ export namespace Schemas {
       condition_presets: ConditionPreset[];
       /** Whether PostHog can look up the subject from its name with resolve_subject. */
       readonly can_resolve_subject: boolean;
+      /** Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works. */
+      readonly subject_lookup_conditions: WorkloadProviderSubjectLookupConditions;
       /** The CI config a job of this project needs, empty when the provider has none. */
       readonly setup_snippet: string;
     }

@@ -13,6 +13,14 @@ export function WorkloadSubjectFields(): JSX.Element {
     const { lookUpSubject } = useActions(workloadTrustPoliciesLogic)
 
     const canLookUp = !!editingProvider?.can_resolve_subject
+    const [lookupClaim, lookupValue] =
+        Object.entries(editingProvider?.subject_lookup_conditions ?? {}).find(
+            ([claim, value]) => editingPolicy.conditions[claim] !== value
+        ) ?? []
+    const lookupLabel = editingProvider?.condition_claims.find((claim) => claim.name === lookupClaim)?.label
+    const lookupBlocked = lookupClaim
+        ? `PostHog can look up the ID only when ${lookupLabel ?? lookupClaim} is ${lookupValue}. Enter it by hand.`
+        : undefined
     const found = subjectLookup && subjectLookup.subject === editingPolicy.subject ? subjectLookup : null
 
     return (
@@ -27,7 +35,9 @@ export function WorkloadSubjectFields(): JSX.Element {
                         <LemonInput
                             value={value}
                             onChange={onChange}
-                            onPressEnter={canLookUp && !subjectLookupLoading ? lookUpSubject : undefined}
+                            onPressEnter={
+                                canLookUp && !lookupBlocked && !subjectLookupLoading ? lookUpSubject : undefined
+                            }
                             placeholder={editingProvider?.subject_name_claim.placeholder || undefined}
                             className="flex-1"
                             data-attr="workload-trust-policy-subject-name"
@@ -39,9 +49,10 @@ export function WorkloadSubjectFields(): JSX.Element {
                                 onClick={lookUpSubject}
                                 loading={subjectLookupLoading}
                                 disabledReason={
-                                    !editingPolicy.subject_name.trim()
+                                    lookupBlocked ??
+                                    (!editingPolicy.subject_name.trim()
                                         ? `Enter the ${claimLabels.subjectName.toLowerCase()} first`
-                                        : undefined
+                                        : undefined)
                                 }
                                 data-attr="workload-trust-policy-look-up-subject"
                             >

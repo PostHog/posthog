@@ -50,6 +50,7 @@ const PROVIDER = {
     ],
     can_resolve_subject: true,
     required_condition_claims: [],
+    subject_lookup_conditions: {},
     setup_snippet: 'HOG_HOST: {host}\nHOG_PROJECT_ID: "{project_id}"',
 } as WorkloadProviderApi
 

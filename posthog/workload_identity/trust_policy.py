@@ -361,12 +361,19 @@ class WorkloadProviderSerializer(serializers.Serializer):
     can_resolve_subject = serializers.SerializerMethodField(
         help_text="Whether PostHog can look up the subject from its name with resolve_subject."
     )
+    subject_lookup_conditions = serializers.SerializerMethodField(
+        help_text="Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works."
+    )
     setup_snippet = serializers.SerializerMethodField(
         help_text="The CI config a job of this project needs, empty when the provider has none."
     )
 
     def get_can_resolve_subject(self, provider: WorkloadProvider) -> bool:
         return provider.resolve_subject is not None
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_subject_lookup_conditions(self, provider: WorkloadProvider) -> dict[str, str]:
+        return dict(provider.subject_lookup_conditions)
 
     def get_setup_snippet(self, provider: WorkloadProvider) -> str:
         # The token's audience is SITE_URL, so the job has to send it there.
