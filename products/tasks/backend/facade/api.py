@@ -12903,15 +12903,18 @@ def is_current_task_run_actor(team_id: int, run_id: UUID, user_id: int) -> bool:
     return actor is not None and actor.id == user_id and user_has_current_team_access(actor, run.team)
 
 
-def record_task_client(*, task_id: str, team_id: int, client: TaskClient | TaskClientProvenance | None) -> None:
+def record_task_client(
+    *, task_id: str, team_id: int, client: TaskClient | TaskClientProvenance | None
+) -> datetime | None:
     if client is None:
-        return
+        return None
+    recorded_at = django_timezone.now()
     try:
-        Task.objects.filter(id=task_id, team_id=team_id).update(
-            last_client=client, last_client_at=django_timezone.now()
-        )
+        Task.objects.filter(id=task_id, team_id=team_id).update(last_client=client, last_client_at=recorded_at)
     except Exception:
         logger.warning("Failed to record the last client for task %s", task_id, exc_info=True)
+        return None
+    return recorded_at
 
 
 def record_task_mobile_pickup(*, task_id: str, team_id: int, user_id: int | None) -> None:

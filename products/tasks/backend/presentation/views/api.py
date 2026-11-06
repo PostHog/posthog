@@ -2,6 +2,7 @@ import os
 import re
 import json
 import asyncio
+import dataclasses
 from collections.abc import AsyncGenerator, Iterable
 from datetime import datetime
 from time import perf_counter
@@ -1599,16 +1600,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if result.error is not None:
             return self._task_error_response(result.error)
+        task = result.task
         if not result.run_error and result.run_id is not None:
             if request.headers.get("X-PostHog-Client-Platform") == "mobile":
                 tasks_facade.record_task_mobile_pickup(task_id=str(pk), team_id=self.team_id, user_id=self._user_id())
             if request.validated_data.get("pending_user_message") or request.validated_data.get(
                 "pending_user_artifact_ids"
             ):
-                tasks_facade.record_task_client(
-                    task_id=str(pk), team_id=self.team_id, client=get_task_client_provenance(request)
-                )
-        response_data = TaskSerializer(result.task).data
+                client = get_task_client_provenance(request)
+                recorded_at = tasks_facade.record_task_client(task_id=str(pk), team_id=self.team_id, client=client)
+                if task is not None and recorded_at is not None:
+                    task = dataclasses.replace(task, last_client=client, last_client_at=recorded_at)
+        response_data = TaskSerializer(task).data
         if result.run_error:
             response_data["run_error"] = result.run_error
         response_data["run"] = self._created_run_payload(result, response_data, task_id=pk)
