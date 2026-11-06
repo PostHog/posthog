@@ -982,41 +982,7 @@ class TaskWriteSerializer(serializers.Serializer):
 
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
-        reserved_origins = {
-            tasks_facade.TaskOriginProduct.SPACE_SETUP,
-            tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
-            tasks_facade.TaskOriginProduct.EXPERIMENTS,
-            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
-            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-            tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
-            # Only the autoresearch training loop creates these, in-process. Nothing legitimately
-            # sets the origin from outside, so reserve it before anything starts depending on it.
-            tasks_facade.TaskOriginProduct.AUTORESEARCH,
-            # Routes the run's LLM traffic to the unbilled `onboarding` gateway product, so a
-            # forged origin would be free model access. Only create_wizard_cloud_run sets it,
-            # behind its own rate limits and daily cap.
-            tasks_facade.TaskOriginProduct.ONBOARDING,
-            tasks_facade.TaskOriginProduct.ACCOUNT_AUDIT,
-            # Exempt from the Desktop code-access gate on run endpoints, so a forged origin
-            # would bypass the waitlist. Only the signals scout-chat endpoint sets it.
-            tasks_facade.TaskOriginProduct.SIGNALS_CHAT,
-            # Attributes the task to a workflow, which the workflow_tasks endpoint proves
-            # via its service JWT. A forged origin would fake that provenance.
-            tasks_facade.TaskOriginProduct.WORKFLOW,
-            # Maps to the mintable `review_hog` gateway product, so a forged origin would
-            # mint an internally funded scoped token. Only ReviewHog's executor sets it.
-            tasks_facade.TaskOriginProduct.REVIEW_HOG,
-            tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
-            # Maps to the mintable `slack_app` gateway product. Only the Slack app's server flows set it.
-            tasks_facade.TaskOriginProduct.SLACK,
-            # Internal business-knowledge sandbox runs. Only that product's sandbox endpoint sets it.
-            tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
-            # Maps to the billed `posthog_ai` gateway product. Only the metrics dashboard import sets it.
-            tasks_facade.TaskOriginProduct.METRICS_IMPORT,
-            # Owns the docs repository branch it pushes to. Only the knowledge writer intake sets it.
-            tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
-        }
-        if value in reserved_origins:
+        if value in tasks_facade.TASK_SERVER_ONLY_ORIGIN_PRODUCTS:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
         return value
 
@@ -2466,6 +2432,22 @@ class ChannelSerializer(DataclassSerializer):
         ]
 
 
+class ChannelPageSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Number of channels the requester can access.")
+    next = serializers.URLField(allow_null=True, help_text="URL of the next page, or null on the last page.")
+    previous = serializers.URLField(allow_null=True, help_text="URL of the previous page, or null on the first page.")
+    results = ChannelSerializer(many=True, help_text="Channels on this page.")
+
+
+# The channel list is an array without `limit` and a page with `limit`, so its schema is one of the two.
+ChannelListResponseSerializer = PolymorphicProxySerializer(
+    component_name="ChannelListResponse",
+    serializers=[ChannelSerializer(many=True), ChannelPageSerializer],
+    resource_type_field_name=None,
+    many=False,
+)
+
+
 class ChannelContributorsSerializer(DataclassSerializer):
     """The people who own at least one task or canvas in a channel."""
 
@@ -3052,10 +3034,22 @@ class TaskActivityPageSerializer(DataclassSerializer):
         required=False,
         help_text="Activity ID to pass as before_id for the next page, or null on the final page.",
     )
+    next = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="URL of the next page, with before and before_id set, or null on the final page.",
+    )
+    previous = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="Always null: the feed pages forward only.",
+    )
 
     class Meta:
         dataclass = TaskActivityPageDTO
-        fields = ["results", "unread_count", "next_before", "next_before_id"]
+        fields = ["results", "unread_count", "next_before", "next_before_id", "next", "previous"]
 
 
 class TaskActivityReadMarkerSerializer(serializers.Serializer):

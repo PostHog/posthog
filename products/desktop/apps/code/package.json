@@ -6,7 +6,7 @@
   "main": ".vite/build/bootstrap.js",
   "versionHash": "dynamic",
   "engines": {
-    "node": ">=22.19.0",
+    "node": ">=24.19.0",
     "pnpm": ">=9.0.0"
   },
   "scripts": {
@@ -129,7 +129,7 @@
     "node-addon-api": "^8.5.0",
     "node-machine-id": "^1.1.12",
     "node-pty": "1.1.0",
-    "posthog-node": "^5.57.0",
+    "posthog-node": "^5.61.2",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "react-grab": "^0.2.0",

@@ -16,10 +16,11 @@ Do not use it for attribution, conversion goals, or channel performance. Use `ma
 Each result has:
 
 - `rule` — the check that produced it, for example `spend_without_conversions`, `brand_leak`, `budget_constrained`, `scale_campaign`, `review_campaign`, `brand_overlap`, `content_gap`, `keyword_gap`, `striking_distance` or `policy_limited`.
-- `level` — `campaign` or `search_term`. `subject` is the campaign name or the search term, and `campaign` is the campaign a search term belongs to.
+- `level` — `campaign` or `search_term`. `subject` is the campaign name or the search term, and `campaign` is the campaign a search term belongs to. For `keyword_gap`, `campaign` is the campaign to add the keyword to, because the search is not bought yet.
 - `action` and `reason` — what to do and the numbers behind it. Quote them instead of inventing your own advice.
 - `impact` — the monthly money impact in `currency`, or null. `impactDirection` says how to read it: `save` is spend to cut, `invest` is extra budget to add, `gain` is value to win, and `keep` is spend to protect.
 - `impactType` — `measured` comes straight from the data. `estimated` is a projection, so present it as an estimate.
+- `steps` — how to apply the recommendation, in order. A step's `copyValue` is the exact text to paste, such as a campaign name, a keyword in match type syntax (`[term]` is exact match, `"term"` is phrase match) or a page URL. A step's `url` opens what `linkText` names: a Google Ads section for the whole account, Google Search Console, or the page on the user's site that ranks for the search. When the user asks how to make a change, walk them through these steps. Some rules have no steps yet.
 
 Totals in different currencies come from different ad accounts. Never add them together.
 

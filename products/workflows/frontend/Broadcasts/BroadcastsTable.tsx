@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
+import { emailEngagement } from './broadcastPerformanceLogic'
 import { BroadcastsEmptyState } from './BroadcastsEmptyState'
 import {
     BROADCASTS_PAGE_SIZE,
@@ -81,7 +82,8 @@ export function BroadcastsTable(): JSX.Element {
             title: 'Status',
             width: 0,
             render: (_, item) => {
-                return <BroadcastStatusTag status={getBroadcastStatus(item, rowDetailsById[item.id])} />
+                const details = rowDetailsById[item.id]
+                return <BroadcastStatusTag status={getBroadcastStatus(item, details)} />
             },
         },
         {
@@ -125,7 +127,17 @@ export function BroadcastsTable(): JSX.Element {
                 if (!details?.totals) {
                     return <span className="text-muted">…</span>
                 }
-                return <span>{humanFriendlyNumber(details.totals[metric] ?? 0)}</span>
+                const engagement =
+                    metric === 'email_opened' ? 'opened' : metric === 'email_link_clicked' ? 'clicked' : null
+                return (
+                    <span>
+                        {humanFriendlyNumber(
+                            engagement
+                                ? emailEngagement(details.totals, engagement, details.latestBatchJob?.created_at)
+                                : (details.totals[metric] ?? 0)
+                        )}
+                    </span>
+                )
             },
         })),
         createdByColumn() as LemonTableColumns<HogFlowMinimalApi>[number],
@@ -215,6 +227,7 @@ export function BroadcastsTable(): JSX.Element {
                             { label: 'Scheduled', value: 'scheduled' },
                             { label: 'Sending', value: 'sending' },
                             { label: 'Sent', value: 'sent' },
+                            { label: 'Partly failed', value: 'partially_failed' },
                             { label: 'Failed', value: 'failed' },
                             { label: 'Archived', value: 'archived' },
                         ]}

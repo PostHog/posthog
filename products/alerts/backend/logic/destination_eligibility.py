@@ -174,6 +174,7 @@ def _classify(
                 function, first_revisions.get(function.id), _template_stock(source_stock, function.template_id)
             ),
             code_hash=hashlib.md5((function.hog or "").encode(), usedforsecurity=False).hexdigest(),
+            event_ids=_filter_event_ids(function.filters),
         )
         for function in functions
     )
@@ -232,6 +233,13 @@ def unbound_alert_destinations(
         .values_list("id", "filters")
     )
     return tuple(function_id for function_id, filters in candidates if not _bound_to_one_alert(filters))
+
+
+def _filter_event_ids(filters: Any) -> frozenset[str]:
+    events = filters.get("events") if isinstance(filters, dict) else None
+    return frozenset(
+        event["id"] for event in events or () if isinstance(event, dict) and isinstance(event.get("id"), str)
+    )
 
 
 def _named_alert_ids(filters: Any) -> set[str]:

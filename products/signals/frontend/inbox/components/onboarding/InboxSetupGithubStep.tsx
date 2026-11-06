@@ -10,6 +10,7 @@ import { IntegrationAccessRequest } from 'scenes/integrations/components/Integra
 import { urls } from 'scenes/urls'
 
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
+import { InboxGithubAccessExplanation } from './InboxGithubAccessExplanation'
 import { InboxSetupImplementation } from './InboxSetupImplementation'
 
 export function InboxSetupGithubStep(): JSX.Element {
@@ -43,6 +44,11 @@ export function InboxSetupGithubStep(): JSX.Element {
                     />
                 )}
             </GuidedWizardSection>
+            {!hasGithubIntegration && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 empty:hidden">
+                    <InboxGithubAccessExplanation />
+                </div>
+            )}
             {featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP] && <InboxSetupImplementation />}
         </>
     )

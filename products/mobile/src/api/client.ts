@@ -1,10 +1,12 @@
 import { fetch as streamingFetch } from 'expo/fetch'
 
+import { abortError } from '@/lib/abort'
 import { withAppReloadBlocked } from '@/lib/appReload'
 import { isRecord } from '@/lib/records'
 
 import { BudgetExceededError, type BudgetFamily, budgetFamilyFor, trySpend } from './budget'
 import { recordServerDate } from './serverClock'
+import { requestWithDeadline, transport } from './transport'
 
 export interface ApiAuth {
     host: string
@@ -155,7 +157,17 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
         throw new BudgetExceededError(family)
     }
     const sent = auth.accessToken as string
-    let response = await fetcher(url, buildInit(init, sent, accept))
+    const fetchResponse = (token: string): Promise<Response> => {
+        if (init.signal?.aborted) {
+            throw abortError()
+        }
+        const options = buildInit(init, token, accept)
+        return transport(() => fetcher(url, options))
+    }
+    let response = await fetchResponse(sent)
+    if (init.signal?.aborted) {
+        throw abortError()
+    }
     noteServerDate(response)
     if (response.status === 401 && provider) {
         // The retry goes to `url`, which belongs to the session that sent the request. If the user signed out or
@@ -175,14 +187,14 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
         if (!token || !isSameSession(auth, provider.getAuth())) {
             throw new NotSignedInError()
         }
-        response = await fetcher(url, buildInit(init, token, accept))
+        response = await fetchResponse(token)
         noteServerDate(response)
     }
     return response
 }
 
 async function parseBody(response: Response): Promise<unknown> {
-    const text = await response.text()
+    const text = await transport(() => response.text())
     if (!text) {
         return undefined
     }
@@ -193,14 +205,29 @@ async function parseBody(response: Response): Promise<unknown> {
     }
 }
 
-/** Sends a request and returns the raw response. Refreshes the token once on a 401. */
-export async function apiFetch(path: string, init: ApiInit = {}): Promise<Response> {
-    return withAppReloadBlocked(() => send((url, options) => fetch(url, options), path, init, 'application/json'))
+export async function apiReadResponse<T>(
+    path: string,
+    init: ApiInit,
+    read: (response: Response) => Promise<T>
+): Promise<T> {
+    return withAppReloadBlocked(() =>
+        requestWithDeadline(async (signal) => {
+            const response = await send(
+                (url, options) => fetch(url, options),
+                path,
+                { ...init, signal },
+                'application/json'
+            )
+            if (signal.aborted) {
+                throw abortError()
+            }
+            return read(response)
+        }, init.signal)
+    )
 }
 
 export async function apiJson<T>(path: string, init: ApiInit = {}): Promise<T> {
-    return withAppReloadBlocked(async () => {
-        const response = await apiFetch(path, init)
+    return apiReadResponse(path, init, async (response) => {
         const body = await parseBody(response)
         if (!response.ok) {
             throw new ApiError(response.status, body, response.headers)

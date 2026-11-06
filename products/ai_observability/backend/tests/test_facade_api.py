@@ -298,6 +298,24 @@ class TestGetTraceEvaluationResults(ClickhouseTestMixin, BaseTest):
 
         assert result.outcome == outcome
 
+    def test_applies_the_stored_output_config_to_every_spelling_of_its_id(self) -> None:
+        evaluation_id = self._detector()
+        bulk_create_events(
+            [
+                make_evaluation_result_event(
+                    uuid=f"00000000-0000-0000-0000-00000000000{index}",
+                    team=self.team,
+                    timestamp=T0 + timedelta(seconds=index),
+                    properties={"$ai_evaluation_id": spelling},
+                )
+                for index, spelling in enumerate((evaluation_id, evaluation_id.upper()), start=1)
+            ]
+        )
+
+        results = api.get_trace_evaluation_results(self.team, self.user, "trace-1").results
+
+        assert [result.outcome for result in results] == ["fail", "fail"]
+
     def test_reads_a_registered_boolean_property_like_its_ingested_value(self) -> None:
         PropertyDefinition.objects.create(
             team=self.team,

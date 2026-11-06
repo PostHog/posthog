@@ -1,8 +1,11 @@
 import base64
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
@@ -24,7 +27,9 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.ai_observability.backend.logic.traces import trace_queries
 from products.ai_observability.backend.logic.traces.summary import ReadySummary, SummaryItem
 from products.ai_observability.backend.logic.traces.summary_store import summary_key, write_summary
-from products.ai_observability.backend.models.review_queues import ReviewQueue
+from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
+from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.engineering_analytics.backend.facade import api as engineering_analytics_api
 from products.engineering_analytics.backend.facade.contracts import ENGINEERING_ANALYTICS_FEATURE_FLAG, BranchPRMatch
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -144,6 +149,90 @@ def _encode(trace_id: str) -> str:
 class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
     def _url(self, segment: str) -> str:
         return f"/api/projects/{self.team.id}/ai_observability/traces/{segment}/"
+
+    @time_machine.travel(T0 + timedelta(days=1), tick=False)
+    def test_availability_reads_both_tables_with_a_read_key_and_stays_in_the_project(self) -> None:
+        _create_trace(self.team, "application,trace")
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        bulk_create_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "event_uuid": event_id,
+                    "distinct_id": "user-1",
+                    "team": team,
+                    "timestamp": T0,
+                    "properties": {"$ai_trace_id": trace_id},
+                }
+                for event_id, team, trace_id in [
+                    (GENERATION, self.team, "evaluator/trace"),
+                    (TRACE_EVENT, other_team, "other-trace"),
+                ]
+            ]
+        )
+        key = self.create_personal_api_key_with_scopes(["llm_analytics:read"])
+        self.client.logout()
+        headers = {"authorization": f"Bearer {key}"}
+
+        with self.capture_select_queries() as queries:
+            response = self.client.post(
+                self._url("availability"),
+                {"trace_ids": ["application,trace", "evaluator/trace"]},
+                format="json",
+                headers=headers,
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"available_trace_ids": ["application,trace", "evaluator/trace"]}
+        probes = [query for query in queries if "FROM system.columns" not in query]
+        assert len(probes) == 2
+        for query in probes:
+            self.assertQueryMatchesSnapshot(query)
+
+        with self.capture_select_queries() as queries:
+            response = self.client.post(
+                self._url("availability"),
+                {"trace_ids": ["missing", "other-trace"]},
+                format="json",
+                headers=headers,
+            )
+        assert response.status_code == 200
+        assert response.json() == {"available_trace_ids": []}
+        probes = [query for query in queries if "FROM system.columns" not in query]
+        assert len(probes) == 2
+        for query in probes:
+            self.assertQueryMatchesSnapshot(query)
+
+        with self.capture_select_queries() as queries:
+            response = self.client.post(
+                self._url("availability"),
+                {"trace_ids": ["application,trace", "application,trace"]},
+                format="json",
+                headers=headers,
+            )
+        assert response.status_code == 200
+        assert response.json() == {"available_trace_ids": ["application,trace"]}
+        assert len([query for query in queries if "FROM system.columns" not in query]) == 1
+
+    def test_availability_rejects_more_than_two_traces(self) -> None:
+        response = self.client.post(self._url("availability"), {"trace_ids": ["one", "two", "three"]}, format="json")
+
+        assert response.status_code == 400
+
+    def test_availability_preserves_known_traces_when_the_fallback_times_out(self) -> None:
+        with patch.object(
+            trace_queries,
+            "execute_hogql_query",
+            side_effect=[SimpleNamespace(results=[["application,trace"]]), ClickHouseQueryTimeOut()],
+        ):
+            response = self.client.post(
+                self._url("availability"),
+                {"trace_ids": ["application,trace", "evaluator/trace"]},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"available_trace_ids": ["application,trace"]}
 
     @parameterized.expand([("plain id", "trace-1"), ("id with a dot", "run.42"), ("id with a slash", "a/b")])
     def test_returns_the_trace_in_camel_case(self, _name: str, trace_id: str) -> None:
@@ -526,6 +615,57 @@ class TestTraceFeedbackView(ClickhouseTestMixin, APIBaseTest):
         assert (len(body["scores"]), body["responses"]) == (1, [])
 
 
+class TestTraceReviewView(APIBaseTest):
+    def _url(self, segment: str) -> str:
+        return f"/api/projects/{self.team.id}/ai_observability/traces/{segment}/review/"
+
+    def _review_and_queue(self) -> ReviewQueueItem:
+        review = TraceReview.objects.create(
+            team=self.team, trace_id="trace-1", reviewed_by=self.user, created_by=self.user
+        )
+        definition = ScoreDefinition.objects.create(team=self.team, name="Tone", kind="numeric", created_by=self.user)
+        version = definition.create_new_version(config={}, created_by=self.user)
+        TraceReviewScore.objects.create(
+            team=self.team,
+            review=review,
+            definition=definition,
+            definition_version=version.id,
+            definition_version_number=version.version,
+            definition_config=version.config,
+            numeric_value=Decimal("4.5"),
+            created_by=self.user,
+        )
+        queue = ReviewQueue.objects.create(team=self.team, name="Support QA", created_by=self.user)
+        return ReviewQueueItem.objects.create(team=self.team, queue=queue, trace_id="trace-1", created_by=self.user)
+
+    def test_returns_the_status_in_camel_case(self) -> None:
+        item = self._review_and_queue()
+
+        response = self.client.get(self._url(_encode("trace-1")))
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["review"]["reviewedBy"] == (self.user.first_name or self.user.email)
+        assert body["review"]["scores"] == [{"name": "Tone", "value": "4.5", "label": "Tone: 4.5"}]
+        assert body["queue"] == {"id": str(item.queue_id), "name": "Support QA", "itemId": str(item.id)}
+
+    def test_an_unreviewed_trace_has_neither(self) -> None:
+        response = self.client.get(self._url(_encode("trace-1")))
+
+        assert (response.status_code, response.json()) == (200, {"review": None, "queue": None})
+
+    def test_rejects_an_unencoded_trace_id(self) -> None:
+        assert self.client.get(self._url("trace-1")).status_code == 400
+
+    def test_a_personal_api_key_with_the_trace_scope_can_read(self) -> None:
+        self.client.logout()
+        key = self.create_personal_api_key_with_scopes(["llm_analytics:read"])
+
+        response = self.client.get(self._url(_encode("trace-1")), headers={"authorization": f"Bearer {key}"})
+
+        assert response.status_code == 200, response.content
+
+
 class TestTraceSearchView(ClickhouseTestMixin, APIBaseTest):
     def _url(self, trace_id: str) -> str:
         return f"/api/projects/{self.team.id}/ai_observability/traces/{_encode(trace_id)}/search/"
@@ -573,7 +713,9 @@ class TestTraceSearchView(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):
-    @parameterized.expand([("the trace", "get", ""), ("an export", "post", "exports/")])
+    @parameterized.expand(
+        [("the trace", "get", ""), ("an export", "post", "exports/"), ("its review", "get", "review/")]
+    )
     def test_a_grant_on_one_object_does_not_open_traces(self, _name: str, method: str, path: str) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -804,17 +946,27 @@ class TestTraceExportViews(APIBaseTest):
         assert (export["status"], export["exception"]) == expected
         assert (status["status"], status["exception"]) == expected
 
+    @parameterized.expand([("a download", "", True), ("a copy", "?purpose=copy", False)])
     @patch("products.ai_observability.backend.presentation.views.report_user_action")
-    def test_tracks_a_download(self, report_user_action: MagicMock) -> None:
+    def test_tracks_only_downloads(self, _name: str, query: str, tracked: bool, report_user_action: MagicMock) -> None:
         export_id = self._create()["id"]
         ExportedAsset.objects.filter(id=export_id).update(content=b'{"trace":{},"nodes":[]}')
 
         with self.captureOnCommitCallbacks(execute=True):
-            self.client.get(self._url(_encode("a/b"), export_id, "content/"))
+            response = self.client.get(self._url(_encode("a/b"), export_id, f"content/{query}"))
 
-        report_user_action.assert_called_once_with(
-            self.user, "llma trace export downloaded", {"export_id": export_id}, team=self.team, request=ANY
-        )
+        assert (response.status_code, response.content) == (200, b'{"trace":{},"nodes":[]}')
+        if tracked:
+            report_user_action.assert_called_once_with(
+                self.user, "llma trace export downloaded", {"export_id": export_id}, team=self.team, request=ANY
+            )
+        else:
+            report_user_action.assert_not_called()
+
+    def test_rejects_an_unknown_content_purpose(self) -> None:
+        export_id = self._create()["id"]
+
+        assert self.client.get(self._url(_encode("a/b"), export_id, "content/?purpose=print")).status_code == 400
 
     def test_a_failed_export_reports_its_reason(self) -> None:
         export_id = self._create()["id"]

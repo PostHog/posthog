@@ -1,5 +1,4 @@
 import json
-from ipaddress import ip_address
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -15,6 +14,7 @@ from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.provider_keys import LLMProviderKeySerializer
@@ -250,7 +250,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
         mock_validate.assert_called_once_with(provider, "sk-test-key-12345", team_id=self.team.id, **expected_config)
 
-    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")})
+    @mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"])
     @patch("httpx.AsyncHTTPTransport.handle_async_request")
     def test_custom_system_one_connection_round_trip(self, request: Mock, _dns: Mock) -> None:
         body = json.dumps(
@@ -1416,6 +1416,26 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         super().setUp()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+
+    @parameterized.expand([("key_in_the_url_project", True, 200), ("key_from_another_project", False, 404)])
+    def test_models_follow_the_project_in_the_url(self, _name: str, key_in_url_project: bool, expected: int) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        key = LLMProviderKey.objects.create(
+            team=other_team if key_in_url_project else self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test-key"},
+        )
+        # The user's current project stays self.team, as when a second tab switched it.
+        with patch("products.ai_observability.backend.api.proxy.Client.list_models", return_value=["gpt-5-mini"]):
+            response = self.client.get(
+                f"/api/environments/{other_team.id}/llm_analytics/provider_keys/{key.id}/models/"
+            )
+
+        self.assertEqual(response.status_code, expected, response.json())
+        if expected == 200:
+            self.assertIn("gpt-5-mini", [model["id"] for model in response.json()])
 
     def test_dependent_configs_returns_evaluations_using_key(self):
         key = LLMProviderKey.objects.create(

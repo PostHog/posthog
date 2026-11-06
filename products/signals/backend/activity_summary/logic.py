@@ -213,6 +213,9 @@ def _inputs_used(rendered: RenderedInput, limits: RenderLimits, mcp: McpRead | N
         used.update(
             {
                 "mcp_sessions": rendered.mcp_pool,
+                "mcp_burst_cap_drops": rendered.mcp_burst_cap_drops,
+                "mcp_sample_cap_drops": rendered.mcp_sample_cap_drops,
+                "mcp_budget_drops": rendered.mcp_budget_drops,
                 "mcp_lines": rendered.n_mcp_lines,
                 "mcp_chars": rendered.mcp_chars,
                 "mcp_records": len(mcp.records),
@@ -253,13 +256,17 @@ def _back_off(
     stored: UserActivitySummary | None,
     now: datetime.datetime,
     max_skip_backoff: datetime.timedelta,
+    *,
+    rebuild: bool,
 ) -> None:
     skips = stored.consecutive_skips if stored is not None else 0
     next_eligible_at = now + skip_backoff(skips, max_skip_backoff)
     # `update()` leaves `updated_at` alone, so the daily caps do not count a skip as a model call.
     if stored is not None:
+        # A skipped rebuild leaves no current summary, so the read stops serving the stale one.
+        status = {"status": UserActivitySummary.Status.SKIPPED} if rebuild else {}
         UserActivitySummary.objects.for_team(team_id).filter(id=stored.id).update(
-            next_eligible_at=next_eligible_at, consecutive_skips=min(skips + 1, _MAX_SKIP_DOUBLINGS)
+            next_eligible_at=next_eligible_at, consecutive_skips=min(skips + 1, _MAX_SKIP_DOUBLINGS), **status
         )
         return
     UserActivitySummary.objects.for_team(team_id).get_or_create(
@@ -386,6 +393,7 @@ def update_activity_summary(
     A failed update sets `next_eligible_at` to `RETRY_BACKOFF` from now. A skip for too few units or for an
     empty first profile sets it to `skip_backoff` from now, which doubles with each skip until a good update
     resets it. An empty first profile keeps the cost of its model call.
+    A skip of a stale summary's rebuild keeps the stored summary, but sets the status, so the read stops serving it.
     A successful update also appends a `UserActivitySummaryVersion` and keeps the latest `max_versions`.
     With `mcp_buffer_days`, the update also reads up to that many UTC days of the MCP intent buffer.
     """
@@ -406,7 +414,7 @@ def update_activity_summary(
     rendered = _render(team_id, user_id, tasks, activity, views, as_of=now, limits=limits, mcp=window.mcp_records)
     if rendered is None or rendered.units < min_units:
         if not dry_run:
-            _back_off(team_id, user_id, stored, now, max_skip_backoff)
+            _back_off(team_id, user_id, stored, now, max_skip_backoff, rebuild=rebuild)
         return ActivitySummaryUpdate(
             status=UpdateStatus.SKIPPED_TOO_FEW_UNITS,
             rendered_input=rendered.text if rendered else None,

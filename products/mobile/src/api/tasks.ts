@@ -1,4 +1,5 @@
-import { ApiError, apiFetch, apiJson, apiStream, projectPath } from './client'
+import { ApiError, apiJson, apiReadResponse, apiStream, projectPath } from './client'
+import { transport } from './transport'
 
 // Shapes follow `products/tasks/backend/presentation/serializers.py`, keeping the fields the app reads.
 
@@ -319,15 +320,17 @@ export function getTaskRun(taskId: string, runId: string, signal?: AbortSignal):
 
 /** The stored run log, one JSON record per line. A resumed run's log starts with its ancestors' logs, oldest first. */
 export async function getTaskRunLogs(taskId: string, runId: string, signal?: AbortSignal): Promise<unknown[]> {
-    const response = await apiFetch(
+    return apiReadResponse(
         projectPath(`tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/logs/`),
-        { signal }
+        { signal },
+        async (response) => {
+            const text = await transport(() => response.text())
+            if (!response.ok) {
+                throw new ApiError(response.status, parseJsonLine(text), response.headers)
+            }
+            return parseJsonLines(text)
+        }
     )
-    const text = await response.text()
-    if (!response.ok) {
-        throw new ApiError(response.status, parseJsonLine(text), response.headers)
-    }
-    return parseJsonLines(text)
 }
 
 function parseJsonLine(line: string): unknown {

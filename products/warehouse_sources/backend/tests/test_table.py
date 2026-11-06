@@ -277,6 +277,16 @@ class TestWarehouseReadErrorClassification:
                 "doesn't exist in the container",
             ),
             (
+                ServerException(
+                    "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
+                    "HTTP response code: 404: while reading 'exports/my_table/' in bucket 'my-bucket' on disk "
+                    "'StorageS3': The table structure cannot be extracted from a CSV format file. You can "
+                    "specify the structure manually.",
+                    code=499,
+                ),
+                "doesn't exist in the bucket",
+            ),
+            (
                 ServerException("DB::Exception: A failure shape nobody has classified yet.", code=999),
                 None,
             ),

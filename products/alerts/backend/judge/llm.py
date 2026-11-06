@@ -13,7 +13,7 @@ import json
 import uuid
 import hashlib
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.core.cache import cache
 
@@ -27,7 +27,7 @@ from products.alerts.backend.judge.contract import (
     MAX_CONCURRENT_MODEL_CALLS,
     MAX_PROMPT_POINTS,
     JudgeAttribution,
-    LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
     SeriesContext,
     SeriesJudgment,
@@ -40,6 +40,9 @@ from products.alerts.backend.judge.prompt import (
 )
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.llm_detector_limits import llm_detector_access_error
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -58,6 +61,17 @@ LLM_DETECTOR_MODEL = "claude-haiku-5-5"
 # Own product key in LLM analytics, so this judge's spend is separable from the
 # investigation agent's.
 LLM_DETECTOR_AI_PRODUCT = "alert_llm_detector"
+
+LLM_DETECTOR_PAUSED_SUFFIX = (
+    "This alert is still on and starts checking again once that changes. To keep it running now, "
+    "switch it to a statistical detector."
+)
+
+LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE = (
+    "This alert can't be checked because your organization has used all its AI credits. Add credits in "
+    "billing settings, or switch the alert to a statistical detector. The alert is still on and starts "
+    "checking again once credits are available."
+)
 
 # The verdict schema is a handful of fields; this only needs to cover that.
 MAX_OUTPUT_TOKENS = 1024
@@ -116,6 +130,19 @@ def _verdict_memo_key(
         ).encode()
     )
     return f"alerts:llm_detector:verdict:{fingerprint.hexdigest()}"
+
+
+def _is_over_ai_credit_budget(team: "Team") -> bool:
+    from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing query stack off the facade import path
+        is_team_over_ai_credit_budget,
+    )
+
+    try:
+        return is_team_over_ai_credit_budget(team.api_token)
+    except Exception:
+        # A Redis outage must not error every AI alert of a team that has credits, so this fails open.
+        logger.warning("alerts.llm_detector.ai_credit_check_failed", team_id=team.pk, exc_info=True)
+        return False
 
 
 def _memoized_verdict(memo_key: str | None) -> LLMDetectionVerdict | None:
@@ -183,10 +210,10 @@ class LLMSeriesJudge:
             distinct_id=str(attribution.user.distinct_id), organization=attribution.team.organization
         )
         if access_error:
-            raise LLMDetectorMisconfiguredError(
-                f"{access_error} This alert cannot be checked until that changes. Switch it to a statistical "
-                "detector to keep it running."
-            )
+            raise LLMDetectorPausedError(f"{access_error} {LLM_DETECTOR_PAUSED_SUFFIX}")
+        # A call that is not billable charges no credits, so only a billable call needs them.
+        if attribution.is_agent_billable and _is_over_ai_credit_budget(attribution.team):
+            raise LLMDetectorPausedError(LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE)
 
         memo_key = _verdict_memo_key(series, attribution, data=data, window=window)
         memoized = _memoized_verdict(memo_key)

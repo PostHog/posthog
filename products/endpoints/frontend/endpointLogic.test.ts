@@ -1,6 +1,6 @@
 import { router } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
@@ -9,16 +9,29 @@ import { expectLogic } from '~/test/keaTestUtils'
 
 import { endpointLogic } from './endpointLogic'
 
-jest.mock('lib/api', () => ({
-    __esModule: true,
-    default: {
-        endpoint: {
-            delete: jest.fn(),
-            list: jest.fn().mockResolvedValue({ results: [] }),
-            update: jest.fn(),
+jest.mock('lib/api', () => {
+    class ApiError extends Error {
+        status?: number
+
+        constructor(message?: string, status?: number) {
+            super(message)
+            this.status = status
+        }
+    }
+
+    return {
+        __esModule: true,
+        default: {
+            endpoint: {
+                delete: jest.fn(),
+                get: jest.fn(),
+                list: jest.fn().mockResolvedValue({ results: [] }),
+                update: jest.fn(),
+            },
         },
-    },
-}))
+        ApiError,
+    }
+})
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },
@@ -28,6 +41,20 @@ describe('endpointLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         initKeaTests()
+    })
+
+    it.each([
+        ['a missing endpoint', 404, true, 'loadEndpointSuccess'],
+        ['a server failure', 500, false, 'loadEndpointFailure'],
+    ])('handles %s', async (_, status, endpointMissing, expectedAction) => {
+        ;(api.endpoint.get as jest.Mock).mockRejectedValue(new ApiError('No endpoint', status))
+        const logic = endpointLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.loadEndpoint('example-endpoint'))
+            .toDispatchActions([expectedAction])
+            .toFinishAllListeners()
+            .toMatchValues({ endpoint: null, endpointLoading: false, endpointMissing })
     })
 
     it('shows the API detail when an endpoint update fails', async () => {

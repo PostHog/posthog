@@ -54,9 +54,9 @@ _DEFAULT_REPOSITORY = "posthog/posthog"
 # states reachable from in_progress without extra side effects; READY dominates since it's the
 # actionable inbox state users actually triage.
 _FINAL_STATES = [
-    SignalReport.Status.READY,
-    SignalReport.Status.READY,
     SignalReport.Status.PENDING_INPUT,
+    SignalReport.Status.READY,
+    SignalReport.Status.READY,
     SignalReport.Status.READY,
     SignalReport.Status.RESOLVED,
 ]
@@ -131,7 +131,7 @@ class Command(BaseCommand):
 
             self._add_extra_log_artefacts(team.id, str(report.id), repository, index)
             self._add_suggested_reviewers(team.id, str(report.id), repository, index, user_uuid)
-            if options["with_runs"] and repository is not None:
+            if options["with_runs"] and repository is not None and report.status != SignalReport.Status.PENDING_INPUT:
                 self._seed_task_run(team, user_id, report, repository, index)
             created += 1
 
@@ -231,6 +231,17 @@ class Command(BaseCommand):
     ) -> None:
         with transaction.atomic():
             report.refresh_from_db()
+            if final_status == SignalReport.Status.PENDING_INPUT:
+                # Only in_progress leads to pending_input, and that step carries the question the user must answer.
+                report.save(
+                    update_fields=report.transition_to(
+                        final_status,
+                        title=result.title,
+                        summary=result.summary,
+                        error="Choose the success metric for this change before an agent implements it.",
+                    )
+                )
+                return
             report.save(
                 update_fields=report.transition_to(
                     SignalReport.Status.READY, title=result.title, summary=result.summary

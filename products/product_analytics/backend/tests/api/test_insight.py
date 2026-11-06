@@ -69,7 +69,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query, insight_query
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -679,7 +679,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # never execute the body of. A 200 alone doesn't prove this: insight_result's
         # broad except Exception swallows calculation crashes into a query_status error
         # and still renders 200, so assert the embedded result actually computed.
-        action = Action.objects.create(team=self.team, name="Viewed a page", steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, name="Viewed a page", steps_json=[{"event": "$pageview"}])
         query = default_pageview_query()
         query["source"]["series"] = [{"kind": "ActionsNode", "id": action.id}]
         insight_id, _ = self.dashboard_api.create_insight({"name": "insight", "query": query})
@@ -1583,7 +1583,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ]
         ]
 
-    def test_adding_insight_to_dashboard_updates_activity_log(self) -> None:
+    @parameterized.expand([("insight_dashboards_field",), ("dashboard_tile_actions",)])
+    def test_adding_insight_to_dashboard_updates_activity_log(self, write_path: str) -> None:
         dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dash 1"})
         dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dash 2"})
 
@@ -1594,21 +1595,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         )
 
-        # then remove from one of them
-        self.dashboard_api.update_insight(
-            insight_id,
-            {
-                "dashboards": [dashboard_one_id],
-            },
-        )
-
-        # then add one
-        self.dashboard_api.update_insight(
-            insight_id,
-            {
-                "dashboards": [dashboard_one_id, dashboard_two_id],
-            },
-        )
+        # then remove from one of them, then add it back
+        if write_path == "insight_dashboards_field":
+            self.dashboard_api.update_insight(insight_id, {"dashboards": [dashboard_one_id]})
+            self.dashboard_api.update_insight(insight_id, {"dashboards": [dashboard_one_id, dashboard_two_id]})
+        else:
+            tile_id = next(
+                tile["id"] for tile in insight_json["dashboard_tiles"] if tile["dashboard_id"] == dashboard_two_id
+            )
+            dashboards_url = f"/api/projects/{self.team.id}/dashboards/{dashboard_two_id}"
+            response = self.client.post(f"{dashboards_url}/delete_tile/", {"tile_id": tile_id})
+            assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+            response = self.client.post(f"{dashboards_url}/add_insight/", {"insight_id": insight_id})
+            assert response.status_code == status.HTTP_200_OK, response.content
 
         self.assert_insight_activity(
             # expected activity is
@@ -1720,7 +1719,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
     @patch("posthog.resource_limits.evaluator.report_user_action")
-    @patch("products.product_analytics.backend.presentation.insight.active_tile_count", return_value=99)
+    @patch("products.dashboards.backend.facade.api.active_tile_count", return_value=99)
     def test_insight_dashboard_limit_includes_dashboard_context(
         self, _mock_active_tile_count: mock.Mock, mock_report_user_action: mock.Mock
     ) -> None:
@@ -4473,7 +4472,7 @@ class TestInsightExportCacheShortcut(APIBaseTest):
     def test_an_entry_cached_without_action_names_takes_them_from_the_query(
         self, mock_query_cache: mock.MagicMock
     ) -> None:
-        action = Action.objects.create(team=self.team, name="Completed checkout")
+        action = create_action(team=self.team, name="Completed checkout")
         query = default_pageview_query()
         query["source"]["series"] = [{"kind": "ActionsNode", "id": action.id}]
         insight = Insight.objects.create(team=self.team, query=query)

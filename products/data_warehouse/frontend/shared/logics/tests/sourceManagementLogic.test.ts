@@ -219,7 +219,8 @@ describe('sourceManagementLogic', () => {
     it.each([
         ['no linked tables', [], ['orders', 'users', 'events']],
         ['one linked table', ['t-orders'], ['users', 'events']],
-        ['every self-managed table linked', ['t-orders', 't-users'], ['events']],
+        ['all but one table linked', ['t-orders', 't-users'], ['events']],
+        ['every self-managed table linked', ['t-orders', 't-users', 't-events'], []],
         ['id of an unknown table', ['t-missing'], ['orders', 'users', 'events']],
     ])('hides tables a managed source will import from the self-managed list: %s', async (_, linkedIds, expected) => {
         ;(warehouseTablesList as jest.Mock).mockResolvedValue({
@@ -250,5 +251,7 @@ describe('sourceManagementLogic', () => {
             expect.objectContaining({ pending_source: true })
         )
         expect(logic.values.selfManagedTables.map((table) => table.name)).toEqual(expected)
+        // The sources list shows its self-managed section only while one of these tables is left.
+        expect(logic.values.hasSelfManagedTables).toBe(expected.length > 0)
     })
 })

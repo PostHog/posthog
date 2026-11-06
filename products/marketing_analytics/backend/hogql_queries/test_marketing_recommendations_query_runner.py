@@ -84,6 +84,30 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         budget = [(rec.subject, rec.action) for rec in response.results if rec.rule == "budget_constrained"]
         assert budget == ([("Campaign 101", "Raise the daily budget from $100 to $300")] if has_status else [])
 
+    def test_ranking_page_is_the_page_with_most_impressions_for_the_query(self) -> None:
+        query_page = self._table(
+            "search_analytics_by_query_page",
+            {"date": "Date", "query": "String", "page": "String", "impressions": "Float64"},
+            "date,query,page,impressions\n"
+            "2026-01-10,Funnel Analysis,https://example.com/blog,600\n"
+            "2026-01-11,funnel analysis,https://example.com/funnels,400\n"
+            "2026-01-12,funnel analysis,https://example.com/funnels,400\n"
+            "2025-12-01,funnel analysis,https://example.com/old,5000\n",
+        )
+        runner = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(
+                dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30")
+            ),
+            team=self.team,
+            user=self.user,
+        )
+
+        pages = runner._ranking_pages(
+            MarketingAnalyticsRecommendationsSource(sourceType="GoogleSearchConsole", queryPageTable=query_page)
+        )
+
+        assert [(page.query, page.page) for page in pages] == [("funnel analysis", "https://example.com/funnels")]
+
 
 class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
     def _source(self, source_type: str, prefix: str, schemas: dict[str, bool]) -> None:
@@ -133,6 +157,7 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
             {
                 "sourceType": "GoogleSearchConsole",
                 "queryTable": "googlesearchconsole.organic.search_analytics_by_query_page",
+                "queryPageTable": "googlesearchconsole.organic.search_analytics_by_query_page",
                 "sitesTable": "googlesearchconsole.organic.sites",
             },
         ]

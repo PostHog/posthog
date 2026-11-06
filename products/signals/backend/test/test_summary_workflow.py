@@ -81,6 +81,14 @@ async def ateam(aorganization):
 # ---------------------------------------------------------------------------
 
 
+def test_legacy_quota_gate_payload_requires_admission() -> None:
+    payloads = pydantic_data_converter.payload_converter.to_payloads(
+        [{"team_id": 1, "report_id": str(uuid.uuid4()), "stage": "summary_entry"}]
+    )
+    (decoded,) = pydantic_data_converter.payload_converter.from_payloads(payloads, [CheckReportQuotaGateInput])
+    assert decoded.admitted is False
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("enforced", [True, False])
@@ -111,14 +119,44 @@ async def test_check_activity_pauses_on_daily_limit_with_billing_clear(ateam):
         patch("products.signals.backend.daily_limit.posthoganalytics.capture") as capture,
     ):
         result = await check_report_quota_gate_activity(
-            CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage="pre_research")
+            CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage="summary_entry")
         )
     assert result is True
     assert capture.call_args.kwargs["event"] == "signal_report_daily_limit_paused"
     properties = capture.call_args.kwargs["properties"]
-    assert properties["stage"] == "pre_research"
+    assert properties["stage"] == "summary_entry"
     assert properties["limit"] == 3
     assert properties["reports_today"] == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "stage,admitted,paused",
+    [
+        ("summary_entry", False, True),
+        ("pre_repo_selection", False, False),
+        ("pre_research", False, False),
+        ("summary_entry", True, False),
+    ],
+)
+async def test_limits_only_block_admission_not_later_stages(ateam, stage, admitted, paused):
+    with (
+        patch(
+            f"{SUMMARY_MODULE_PATH}.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
+        ),
+        patch(
+            f"{SUMMARY_MODULE_PATH}.daily_report_limit_gate",
+            return_value=DailyReportLimitGate(limited=True, limit=3, reports_today=3),
+        ),
+    ):
+        assert (
+            await check_report_quota_gate_activity(
+                CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage=stage, admitted=admitted)
+            )
+            is paused
+        )
 
 
 @pytest.mark.asyncio
@@ -188,6 +226,7 @@ class _Recorder:
         gate_answers: dict[str, bool] | None = None,
         # Signals returned by successive fetches; the last entry repeats once exhausted.
         fetch_results: list[list[SignalData]] | None = None,
+        fetch_failures: int = 0,
         has_assigned_signals: bool = True,
         research_choice: ActionabilityChoice = ActionabilityChoice.NOT_ACTIONABLE,
         research_metrics: list[dict[str, object]] | None = None,
@@ -215,6 +254,9 @@ class _Recorder:
         self.github_optional = github_optional
         self.gate_checks: list[str] = []
         self.fetches = 0
+        self.fetch_failures = fetch_failures
+        self.fetch_required_ids: list[str | None] = []
+        self.preserved_pending: list[bool] = []
         self.claimed_before_fetch: list[bool] = []
         self.assigned_signal_checks = 0
         self.failure_reasons: list[str | None] = []
@@ -230,6 +272,7 @@ class _Recorder:
         self.failures = 0
         self.pending_inputs: list[MarkReportPendingInput] = []
         self.ready_inputs: list[MarkReportReadyInput] = []
+        self.processed_pending_signal_id: str | None = None
 
 
 def _signal_data() -> SignalData:
@@ -278,8 +321,13 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_fetch(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
         signals = recorder.fetch_results[min(recorder.fetches, len(recorder.fetch_results) - 1)]
         recorder.fetches += 1
+        recorder.fetch_required_ids.append(input.required_signal_id)
         recorder.claimed_before_fetch.append(recorder.marks_in_progress > 0)
-        return FetchSignalsForReportOutput(signals=signals)
+        if recorder.fetches <= recorder.fetch_failures:
+            raise ApplicationError("Required signal is not visible yet", type="RequiredReportSignalNotVisible")
+        return FetchSignalsForReportOutput(
+            signals=signals, processed_pending_signal_id=recorder.processed_pending_signal_id
+        )
 
     @activity.defn(name="report_has_assigned_signals_activity")
     async def fake_has_assigned_signals(input: ReportHasAssignedSignalsInput) -> bool:
@@ -295,6 +343,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="mark_report_in_progress_activity")
     async def fake_mark_in_progress(input: MarkReportInProgressInput) -> None:
         recorder.marks_in_progress += 1
+        recorder.preserved_pending.append(input.preserve_pending_refresh)
 
     @activity.defn(name="report_safety_judge_activity")
     async def fake_safety(input: SafetyJudgeInput) -> SafetyJudgeOutput:
@@ -426,7 +475,8 @@ async def test_entry_gate_stops_run_before_any_work():
 
 
 @pytest.mark.asyncio
-async def test_pre_research_gate_reverts_report_and_skips_research():
+async def test_historical_pre_research_pause_still_reverts_report():
+    # Old activity results can still return True during replay; retain their command sequence.
     recorder = _Recorder(gate_answers={"pre_research": True})
     await _run_summary_workflow(recorder)
     assert recorder.gate_checks == ["summary_entry", "pre_repo_selection", "pre_research"]
@@ -536,6 +586,7 @@ async def test_metric_payload_reaches_the_report_transition(choice, target, chec
     recorder.checks_summary = "Expected impact matches the reconciled checks."
     recorder.checks_error = checks_error
     recorder.checks_monitoring_enabled = True
+    recorder.processed_pending_signal_id = str(uuid.uuid4())
 
     await _run_summary_workflow(recorder)
 
@@ -545,6 +596,8 @@ async def test_metric_payload_reaches_the_report_transition(choice, target, chec
     assert inputs[0].checks_snapshot == snapshot
     assert inputs[0].checks_monitoring_enabled is True
     assert inputs[0].checks_summary == recorder.checks_summary
+    if target == "ready":
+        assert recorder.ready_inputs[0].processed_pending_signal_id == recorder.processed_pending_signal_id
     assert inputs[0].checks_error == checks_error
 
 
@@ -592,10 +645,26 @@ async def test_summary_without_an_open_spend_owner_makes_no_paid_calls():
 
 
 @pytest.mark.asyncio
-async def test_empty_first_fetch_is_retried_and_run_proceeds():
-    recorder = _Recorder(fetch_results=[[], [], [_signal_data()]])
+@pytest.mark.parametrize("fetch_failures", [0, 4, 1000])
+async def test_incomplete_first_snapshot_is_retried_before_research(fetch_failures: int) -> None:
+    recorder = _Recorder(
+        fetch_results=[[_signal_data()]] if fetch_failures else [[], [], [_signal_data()]],
+        fetch_failures=fetch_failures,
+    )
+    if fetch_failures == 1000:
+        with pytest.raises(WorkflowFailureError):
+            await _run_summary_workflow(recorder)
+        assert recorder.failures == 1
+        assert recorder.researches == 0
+        assert recorder.safety_checks == 0
+        assert recorder.assigned_signal_checks == 0
+        return
     await _run_summary_workflow(recorder)
-    assert recorder.fetches == 3
+    assert recorder.fetches == (5 if fetch_failures else 3)
+    if fetch_failures:
+        assert all(recorder.fetch_required_ids)
+        assert len(set(recorder.fetch_required_ids)) == 1
+        assert all(recorder.preserved_pending)
     assert all(recorder.claimed_before_fetch)
     assert recorder.researches == 1
     assert recorder.spend_publications == 1

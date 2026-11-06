@@ -45,6 +45,7 @@ from posthog.exceptions import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.models.event.new_events_schema import events_read_settings
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
@@ -59,6 +60,7 @@ from posthog.schema_migrations.upgrade import upgrade
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.dependencies import get_cohort_dependents
+from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.models.sql import GET_COHORT_SIZE_SQL, RECALCULATE_COHORT_BY_ID
 
 if TYPE_CHECKING:
@@ -183,6 +185,42 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
 COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
 
 logger = structlog.get_logger(__name__)
+
+
+def _normalize_legacy_operators(properties: dict) -> None:
+    # Legacy groups store operators that filters validation rejects: person properties often omit
+    # `operator`, which every evaluator reads as exact, and cohort references use in/not_in where
+    # filters use `negation`.
+    for leaf in walk_filter_leaves(properties):
+        if leaf.get("type") in ("person", "person_metadata") and leaf.get("operator") is None:
+            leaf["operator"] = "exact"
+        elif leaf.get("type") == "cohort" and leaf.get("operator") in ("in", "not_in", None):
+            # Legacy readers negate when either `negation` or `not_in` is set, so the two never cancel out.
+            if leaf.pop("operator", None) == "not_in":
+                leaf["negation"] = True
+
+
+def legacy_groups_to_filters(groups: list[dict] | None) -> dict | None:
+    """Convert legacy `groups` into `filters`, or return None if they're empty or any group can't be converted.
+
+    Copies `groups` first, because `Cohort.properties` rewrites them in place.
+    """
+    if not groups:
+        return None
+    try:
+        dummy_cohort = Cohort(filters=None, groups=copy.deepcopy(groups))
+        prop_group = dummy_cohort.properties
+        if prop_group and prop_group.values:
+            properties = prop_group.to_dict()
+            # parse_property_group_data swallows an invalid group into an empty one, so reject any
+            # empty group rather than store filters that match nobody.
+            if not all(properties.get("values") or []):
+                return None
+            _normalize_legacy_operators(properties)
+            return {"properties": properties}
+    except Exception:
+        logger.warning("cohort_legacy_groups_conversion_failed", exc_info=True)
+    return None
 
 
 def close_open_population_attempts(
@@ -698,6 +736,9 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
         # Format settings as key=value pairs
         settings_pairs = {k: str(v) for k, v in settings.model_dump().items() if v is not None}
+        settings_pairs.update(
+            {key: str(value) for key, value in events_read_settings(hogql_context.uses_new_events_schema()).items()}
+        )
         settings_clause = ""
         if settings_pairs:
             settings_str = ", ".join([f"{key}={value}" for key, value in settings_pairs.items()])
@@ -925,6 +966,7 @@ def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, history: CohortCalculationHistory
 ) -> int:
     cohort_params: dict[str, Any]
+    hogql_context: HogQLContext | None = None
     if cohort.is_static:
         cohort_query, cohort_params = format_static_cohort_query(cohort, 0, prepend="")
     elif not cohort.properties.values:
@@ -964,6 +1006,8 @@ def _recalculate_cohortpeople_for_team_hogql(
                 **COHORT_QUERY_SPILL_SETTINGS,
             }
         )
+        if hogql_context is not None:
+            settings.update(events_read_settings(hogql_context.uses_new_events_schema()))
 
         return sync_execute(
             recalculate_cohortpeople_sql,
@@ -1331,6 +1375,9 @@ def insert_actors_into_cohort_by_query(
         settings={
             **COHORT_QUERY_TIMEOUT_SETTINGS,
             **COHORT_QUERY_SPILL_SETTINGS,
+            # A SELECT compiled from cohort filters arrives without its SETTINGS clause (hogql_cohort_subquery_sql
+            # trims it so the query can be embedded), so the native read settings travel on the INSERT.
+            **events_read_settings(context.uses_new_events_schema()),
         },
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.COHORTS,

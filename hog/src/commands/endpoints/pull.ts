@@ -6,9 +6,9 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 import { Output } from '@/core/output'
 import { absolutePath } from '@/core/paths'
 import { plural } from '@/core/text'
-import { listEndpoints, listInsightVariables } from '@/endpoints/api'
+import { findEndpoints, findInsightVariables, getInsightVariable, readAllEndpoints } from '@/endpoints/api'
 import { readEndpointFiles, type FileProblem } from '@/endpoints/files'
-import { fileFromEndpoint, remoteVariableNames } from '@/endpoints/model'
+import { fileFromEndpoint, remoteVariableIds, type Endpoint } from '@/endpoints/model'
 import { planPull, type PullItem } from '@/endpoints/plan'
 import { ApiError, type PostHogApi } from '@/posthog/api'
 
@@ -36,15 +36,35 @@ function pullPlanLines(plan: PlannedItem[], style: Styler): string[] {
 
 // posthog-cli pulls with only endpoint:read. A key that can't read the project's variables gets
 // each type from the variable's value instead, as posthog-cli does.
-async function variableTypes(api: PostHogApi): Promise<Map<string, string>> {
+// A variable past the lookup's page cap is fetched by the ID the endpoint's query holds.
+async function variableTypes(api: PostHogApi, ids: ReadonlyMap<string, string>): Promise<Map<string, string>> {
     try {
-        return new Map((await listInsightVariables(api)).map((variable) => [variable.code_name, variable.type]))
+        const { found, complete } = await findInsightVariables(api, [...ids.keys()])
+        const types = new Map([...found].map(([name, variable]) => [name, variable.type]))
+        if (!complete) {
+            for (const [name, id] of ids) {
+                if (!types.has(name)) {
+                    const variable = await getInsightVariable(api, id).catch(missingAsUndefined)
+                    if (variable) {
+                        types.set(name, variable.type)
+                    }
+                }
+            }
+        }
+        return types
     } catch (error) {
         if (error instanceof ApiError && error.status === 403) {
             return new Map()
         }
         throw error
     }
+}
+
+function missingAsUndefined(error: unknown): undefined {
+    if (error instanceof ApiError && error.status === 404) {
+        return undefined
+    }
+    throw error
 }
 
 export function endpointYaml(path: string, item: PullItem, types: ReadonlyMap<string, string>): string {
@@ -92,12 +112,14 @@ export default defineCommand({
                   : ctx.runtime.cwd()
         const fileTarget = isYamlFile(target)
 
-        const remotes = await listEndpoints(await ctx.posthog())
+        const api = await ctx.posthog()
         const problems: FileProblem[] = []
-        let selected = remotes
-        if (!options.all) {
-            const known = new Set(remotes.map((endpoint) => endpoint.name))
-            const missing = args.names.filter((name) => !known.has(name))
+        let selected: Endpoint[]
+        if (options.all) {
+            selected = await readAllEndpoints(api)
+        } else {
+            const found = await findEndpoints(api, args.names)
+            const missing = args.names.filter((name) => !found.has(name))
             if (missing.length === args.names.length) {
                 throw new HogError(
                     'endpoint_not_found',
@@ -106,7 +128,7 @@ export default defineCommand({
                 )
             }
             problems.push(...missing.map((name) => ({ path: name, message: 'PostHog has no endpoint with this name' })))
-            selected = remotes.filter((endpoint) => args.names.includes(endpoint.name))
+            selected = [...found.values()]
         }
         if (fileTarget && selected.length > 1) {
             throw new HogError(
@@ -163,9 +185,7 @@ export default defineCommand({
         if (!(await confirm(ctx, options, pullPlanLines(plan, style), `Write ${plural(pending.length, 'file')}?`))) {
             return { status: 'cancelled', plan, written: [], problems }
         }
-        const types = pending.some((item) => remoteVariableNames(item.endpoint).length > 0)
-            ? await variableTypes(await ctx.posthog())
-            : new Map<string, string>()
+        const types = await variableTypes(api, new Map(pending.flatMap((item) => remoteVariableIds(item.endpoint))))
         for (const item of pending) {
             await ctx.runtime.writeFile(item.path, endpointYaml(item.path, item, types))
         }

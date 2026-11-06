@@ -1,4 +1,3 @@
-import { hasInvalidRegexFilter } from '~/queries/nodes/DataNode/hasInvalidRegexFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { FunnelsQuery, Node, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightType } from '~/types'
@@ -68,7 +67,7 @@ describe('validateQuery', () => {
             kind: NodeKind.FunnelsQuery,
             series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
         }
-        expect(validateQuery(funnelQuery, hasInvalidRegexFilter)).toBe(false)
+        expect(validateQuery(funnelQuery)).toBe(false)
     })
 
     it('returns true for funnels with 2+ steps', () => {
@@ -79,7 +78,7 @@ describe('validateQuery', () => {
                 { kind: NodeKind.EventsNode, event: '$signup' },
             ],
         }
-        expect(validateQuery(funnelQuery, hasInvalidRegexFilter)).toBe(true)
+        expect(validateQuery(funnelQuery)).toBe(true)
     })
 
     it('returns false for funnels with incomplete data warehouse step', () => {
@@ -95,34 +94,7 @@ describe('validateQuery', () => {
                 { kind: NodeKind.EventsNode, event: '$signup' },
             ],
         }
-        expect(validateQuery(funnelQuery, hasInvalidRegexFilter)).toBe(false)
-    })
-
-    it('returns false for query with invalid regex property filter', () => {
-        const trendsQuery = {
-            kind: NodeKind.TrendsQuery,
-            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
-            properties: [{ type: 'event', key: 'url', operator: 'regex', value: '(?=lookahead)' }],
-        }
-        expect(validateQuery(trendsQuery, hasInvalidRegexFilter)).toBe(false)
-    })
-
-    it('returns true for query with valid regex property filter', () => {
-        const trendsQuery = {
-            kind: NodeKind.TrendsQuery,
-            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
-            properties: [{ type: 'event', key: 'url', operator: 'regex', value: '^/api/.*' }],
-        }
-        expect(validateQuery(trendsQuery, hasInvalidRegexFilter)).toBe(true)
-    })
-
-    it('returns true for query without regex filters', () => {
-        const trendsQuery = {
-            kind: NodeKind.TrendsQuery,
-            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
-            properties: [{ type: 'event', key: 'url', operator: 'exact', value: '/home' }],
-        }
-        expect(validateQuery(trendsQuery, hasInvalidRegexFilter)).toBe(true)
+        expect(validateQuery(funnelQuery)).toBe(false)
     })
 })
 

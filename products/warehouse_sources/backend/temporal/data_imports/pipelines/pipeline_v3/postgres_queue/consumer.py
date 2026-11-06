@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     update_should_sync,
 )
+from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
@@ -173,6 +174,9 @@ DISABLE_SCHEMA_ERROR_PATTERNS: tuple[str, ...] = (
     # incoming values no longer fit the stored Delta column type
     # (SchemaColumnTypeChangedException) — only a reset and full re-sync can fix it
     "Source column type changed",
+    # the access rules changed after the migration linked a self-managed table, so the first sync
+    # must not replace it — only an admin can fix the rules
+    ADOPTION_ACCESS_ERROR,
 )
 
 # The schema or job row was deleted mid-sync — no retry can bring it back, and no more of that

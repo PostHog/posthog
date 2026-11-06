@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
 
+import { toDisplayEntityFilter } from 'lib/components/EntityFilterInfo'
 import { getDisplayNameFromEntityFilter } from 'lib/insights/entityFilterNames'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -9,17 +10,18 @@ import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { BreakdownFilter, FunnelsQuery } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelTooltipHeaderLabel, hasBreakdown } from '../funnelUtils'
-import { getActionFilterFromFunnelStep } from './funnelStepTableUtils'
+import { getFunnelStepEntity } from './funnelStepSeries'
 
 export interface FunnelStepTooltipProps {
     showPersonsModal: boolean
     stepIndex: number
     series: FunnelStepWithConversionMetrics
     groupTypeLabel: string
+    querySource: FunnelsQuery | null
     breakdownFilter: BreakdownFilter | null | undefined
     comparePeriodDateRange?: string | null
     aggregateConversionRate?: number | null
@@ -36,6 +38,7 @@ export function FunnelStepTooltip({
     stepIndex,
     series,
     groupTypeLabel,
+    querySource,
     breakdownFilter,
     comparePeriodDateRange,
     aggregateConversionRate,
@@ -47,7 +50,8 @@ export function FunnelStepTooltip({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const eventName =
-        getDisplayNameFromEntityFilter(getActionFilterFromFunnelStep(series)) ?? series.name ?? series.action_id
+        getDisplayNameFromEntityFilter(toDisplayEntityFilter(getFunnelStepEntity(querySource, stepIndex, series))) ??
+        series.name
 
     const breakdownLabel = hasBreakdown(series.breakdown_value)
         ? formatBreakdownLabel(

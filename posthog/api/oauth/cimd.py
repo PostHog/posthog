@@ -30,11 +30,14 @@ from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import (
+    OIDC_SIGNING_KEY_MISSING_MESSAGE,
     CIMDVerificationToken,
     OAuthApplication,
     TokenEndpointAuthMethod,
     find_cimd_verification_token,
     normalize_cimd_url,
+    oidc_signing_key_configured,
+    revoke_application_sessions,
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
@@ -85,6 +88,17 @@ class CIMDValidationError(Exception):
     """Raised when the CIMD metadata document fails validation."""
 
     pass
+
+
+class CIMDSigningKeyMissingError(CIMDValidationError):
+    """The instance cannot store any CIMD client, so the metadata document is not at fault.
+
+    Subclasses CIMDValidationError so every caller that already handles a rejected document also
+    handles this case without a 500. The /authorize path catches it first to answer server_error.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(OIDC_SIGNING_KEY_MISSING_MESSAGE)
 
 
 class CIMDBurstThrottle(IPThrottle):
@@ -219,6 +233,95 @@ def is_cimd_client_id(client_id: str | None) -> bool:
     """Cheap format check: is this a valid CIMD URL shape?"""
     valid, _ = validate_cimd_url(client_id)
     return valid
+
+
+# A CIMD client is trusted because it serves its metadata document from its client_id URL. Each
+# of these services gives anyone a public HTTPS URL with content they choose in seconds, so a
+# document served from one does not show that an accountable party controls the client.
+_TUNNEL_HOST_SUFFIXES = frozenset(
+    {
+        "trycloudflare.com",  # Cloudflare quick tunnels
+        "ngrok.io",
+        "ngrok.app",
+        "ngrok.dev",
+        "ngrok-free.app",
+        "ngrok-free.dev",
+        "loca.lt",  # localtunnel
+        "localtunnel.me",
+        "lhr.life",  # localhost.run
+        "localhost.run",
+        "pinggy.io",
+        "pinggy.link",
+        "pinggy.online",
+        "pinggy-free.link",
+        "serveo.net",
+        "serveousercontent.com",
+        "devtunnels.ms",  # Microsoft dev tunnels
+        "ts.net",  # Tailscale Funnel
+        "tunnelmole.net",
+        "loclx.io",  # LocalXpose
+        "zrok.io",
+        "sharedwithexpose.com",  # Expose
+        "localto.net",  # Localtonet
+        "tunnelto.dev",
+    }
+)
+
+_REQUEST_BIN_HOST_SUFFIXES = frozenset(
+    {
+        "webhook.site",
+        "m.pipedream.net",  # RequestBin
+        "requestcatcher.com",
+        "beeceptor.com",
+        "mocky.io",
+        "mockbin.io",
+        "mockbin.org",
+        "postb.in",
+        "hookbin.com",
+        "requestinspector.com",
+        "httpbin.org",
+        "quickmock.dev",
+    }
+)
+
+_JSON_AND_PASTE_HOST_SUFFIXES = frozenset(
+    {
+        "jsonbin.io",
+        "npoint.io",
+        "jsonblob.com",
+        "jsonkeeper.com",
+        "jsonstorage.net",
+        "extendsclass.com",
+        "gist.githubusercontent.com",
+        "raw.githubusercontent.com",
+        "pastebin.com",
+        "paste.rs",
+        "rentry.co",
+        "rentry.org",
+        "dpaste.org",
+        "dpaste.com",
+        "hastebin.com",
+        "surge.sh",
+        "tiiny.site",
+    }
+)
+
+THROWAWAY_HOST_SUFFIXES: frozenset[str] = (
+    _TUNNEL_HOST_SUFFIXES | _REQUEST_BIN_HOST_SUFFIXES | _JSON_AND_PASTE_HOST_SUFFIXES
+)
+
+THROWAWAY_HOST_MESSAGE = (
+    "PostHog doesn't accept client metadata from this host. "
+    "Host your client metadata document on a domain you control and use that URL as your client_id."
+)
+
+
+def is_throwaway_host(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").rstrip(".")
+    except ValueError:
+        return False
+    return any(host == suffix or host.endswith(f".{suffix}") for suffix in THROWAWAY_HOST_SUFFIXES)
 
 
 def _cache_key(url: str) -> str:
@@ -362,6 +465,24 @@ def fetch_client_json_document(
     return parsed, response
 
 
+def _resolve_grant_type(metadata: CIMDMetadataDocument) -> str:
+    """The one grant type the application row gets, from the document's `grant_types`.
+
+    An application holds a single grant type. `authorization_code` wins whenever the document
+    declares it, and a document without `grant_types` means `authorization_code` (RFC 7591
+    section 2), so every client registered before the device grant keeps its grant. Only a
+    document that declares the device grant without `authorization_code` gets the device grant.
+    """
+    grant_types = metadata.get("grant_types")
+    if (
+        isinstance(grant_types, list)
+        and AbstractApplication.GRANT_DEVICE_CODE in grant_types
+        and "authorization_code" not in grant_types
+    ):
+        return AbstractApplication.GRANT_DEVICE_CODE
+    return AbstractApplication.GRANT_AUTHORIZATION_CODE
+
+
 def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     """
     Fetch and validate a CIMD metadata document.
@@ -378,9 +499,11 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     if metadata.get("client_id") != url:
         raise CIMDValidationError("client_id in the metadata document does not match the URL it was fetched from")
 
-    # redirect_uris required
-    redirect_uris = metadata.get("redirect_uris")
-    if not redirect_uris or not isinstance(redirect_uris, list) or len(redirect_uris) == 0:
+    # A client that only uses the device grant never receives a redirect, so it may leave
+    # redirect_uris out.
+    device_only = _resolve_grant_type(metadata) == AbstractApplication.GRANT_DEVICE_CODE
+    redirect_uris = metadata.get("redirect_uris", [])
+    if not isinstance(redirect_uris, list) or (not redirect_uris and not device_only):
         raise CIMDValidationError("Metadata document must contain a non-empty redirect_uris array")
 
     for uri in redirect_uris:
@@ -657,7 +780,7 @@ def _create_cimd_application(
     # Escape the partner-controlled name so the stored value is HTML-safe in any sink.
     client_name = sanitize_client_name(client_name)
 
-    redirect_uris = " ".join(metadata.get("redirect_uris", []))
+    redirect_uris = " ".join(metadata.get("redirect_uris") or [])
     logo_uri = _logo_uri_for(metadata, url)
     verification = _resolve_verification_token(metadata, url, capture_ph_event=capture_ph_event)
     resolved_scopes = _resolve_scopes(metadata)
@@ -676,7 +799,7 @@ def _create_cimd_application(
         client_type=client_type,
         jwks_uri=jwks_uri,
         client_secret="",
-        authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
+        authorization_grant_type=_resolve_grant_type(metadata),
         algorithm="RS256",
         skip_authorization=False,
         is_cimd_client=True,
@@ -751,7 +874,9 @@ def _update_cimd_application(
         except Exception:
             pass  # Keep existing name if new one is invalid
 
-    app.redirect_uris = " ".join(metadata.get("redirect_uris", []))
+    app.redirect_uris = " ".join(metadata.get("redirect_uris") or [])
+    previous_grant_type = app.authorization_grant_type
+    app.authorization_grant_type = _resolve_grant_type(metadata)
     # A document without a logo keeps the stored one, and only an app with none gets the host icon
     if metadata.get("logo_uri") is not None or not app.logo_uri:
         app.logo_uri = _logo_uri_for(metadata, app.client_id)
@@ -773,6 +898,7 @@ def _update_cimd_application(
     update_fields = [
         "name",
         "redirect_uris",
+        "authorization_grant_type",
         "logo_uri",
         "cimd_metadata_last_fetched",
         "client_type",
@@ -797,7 +923,14 @@ def _update_cimd_application(
 
     try:
         app.full_clean()
-        app.save(update_fields=update_fields)
+        # One transaction, so a failed cleanup can't leave the new grant type saved while the sessions
+        # issued under the old one stay alive.
+        with transaction.atomic():
+            app.save(update_fields=update_fields)
+            if app.authorization_grant_type != previous_grant_type:
+                # The grant type decides how refresh tokens rotate and how a revoke sweeps them, and
+                # sessions issued under the old rule don't follow the new one. They end here.
+                revoke_application_sessions(app)
     except ValidationError as e:
         logger.warning("cimd_update_validation_failed", url=app.client_id, error=str(e))
         capture_exception(e)
@@ -885,6 +1018,18 @@ def fetch_and_upsert_cimd_application(
     that fails model validation a ``CIMDValidationError`` rather than a kept row, so nothing is
     granted off metadata we could not store; see ``_update_cimd_application``.
     """
+    if not oidc_signing_key_configured():
+        raise CIMDSigningKeyMissingError()
+
+    # Refused before the fetch so that PostHog sends no request to the host.
+    if is_throwaway_host(url):
+        capture_ph_event(
+            distinct_id=url,
+            event="cimd_throwaway_host_refused",
+            properties={"cimd_url": url, "registering_partner": register_provisioning},
+        )
+        raise CIMDValidationError(THROWAWAY_HOST_MESSAGE)
+
     fetch_lock = _fetch_lock_key(url)
     if not cache.add(fetch_lock, True, timeout=CIMD_FETCH_TIMEOUT_SECONDS * 3):
         return None

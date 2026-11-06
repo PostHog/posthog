@@ -22,10 +22,10 @@ export interface NormalizedDomainInput {
 export const normalizeDomainInput = (raw: string): NormalizedDomainInput => {
     let value = raw.trim().toLowerCase()
     let localPart: string | null = null
-    if (value.includes('@')) {
-        const [local, host] = value.split('@')
-        localPart = local || null
-        value = host ?? ''
+    const atIndex = value.lastIndexOf('@')
+    if (atIndex !== -1) {
+        localPart = value.slice(0, atIndex) || null
+        value = value.slice(atIndex + 1)
     }
     value = value.replace(/^[a-z]+:\/\//, '')
     value = value.split('/')[0].split('?')[0].split(':')[0]

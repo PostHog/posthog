@@ -19,8 +19,6 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.utils import RootTeamMixin, UUIDModel, UUIDTModel
 from posthog.storage.hypercache import HyperCache
 
-from products.actions.backend.models.action import Action
-
 # we have seen users accidentally set a huge value for iteration count
 # and cause performance issues, so we are extra careful with this value
 # NB this is enforced in the UI too
@@ -304,7 +302,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     # Not sealed: the resource transfer graph walks reverse descriptors, so hiding
     # survey_set would silently drop the survey link from Action-rooted duplications
     # (test_relation_fields_Action locks the field list).
-    actions = models.ManyToManyField(Action)
+    actions = models.ManyToManyField("actions.Action")
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Survey"]:

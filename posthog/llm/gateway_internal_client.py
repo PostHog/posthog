@@ -6,11 +6,13 @@ from django.conf import settings
 import httpx
 
 INTERNAL_API_TIMEOUT_SECONDS = 5.0
+REPORTED_SPEND_TIMEOUT_SECONDS = 2.0
 IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 INTERNAL_ACTOR_HEADER = "X-Internal-Actor"
 # Ledger provenance tag (meta.source): admin-originated vs the billing path's
 # "billing". The acting human is audited in ActivityLog, not here.
 ADMIN_ACTOR = "posthog-admin"
+TASKS_COMPUTE_ACTOR = "tasks-compute"
 
 
 class AIGatewayInternalError(Exception):
@@ -50,6 +52,13 @@ class CreditResult:
     amount_usd: str
     balance_usd: str
     duplicate: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class ReportedSpendResponse:
+    status_code: int
+    body: dict[str, Any] | None
+    text: str
 
 
 def _config() -> tuple[str, str]:
@@ -140,6 +149,46 @@ def add_credit(team_id: int, amount_usd: str, reason: str, idempotency_key: str)
         balance_usd=data.get("balance_usd", ""),
         duplicate=bool(data.get("duplicate", False)),
     )
+
+
+def report_spend(wallet_team_id: int, body: dict[str, Any]) -> ReportedSpendResponse:
+    url, token = _config()
+    response = httpx.post(
+        f"{url}/internal/teams/{wallet_team_id}/reported-spend",
+        headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: TASKS_COMPUTE_ACTOR}),
+        json=body,
+        timeout=REPORTED_SPEND_TIMEOUT_SECONDS,
+        trust_env=False,
+    )
+    try:
+        parsed: Any = response.json()
+    except ValueError:
+        parsed = None
+    return ReportedSpendResponse(
+        status_code=response.status_code,
+        body=parsed if isinstance(parsed, dict) else None,
+        text=response.text,
+    )
+
+
+def get_usage_report(params: dict[str, str]) -> list[dict[str, Any]]:
+    url, token = _config()
+    try:
+        response = httpx.get(
+            f"{url}/internal/usage/report",
+            headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: TASKS_COMPUTE_ACTOR}),
+            params=params,
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+        response.raise_for_status()
+        data: Any = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise AIGatewayInternalError(f"usage report read failed: {exc}") from exc
+    rows = data.get("rows") if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        raise AIGatewayInternalError("usage report response had no rows")
+    return [row for row in rows if isinstance(row, dict)]
 
 
 def _error_detail(response: httpx.Response) -> str:

@@ -11,6 +11,7 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.engineering_analytics.backend.facade import contracts
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     AUTHORIZED_SOURCES_CONFIG_KEY,
@@ -25,6 +26,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
 )
 from products.signals.backend.models import SignalSourceConfig
 from products.warehouse_sources.backend.facade.contracts import GitHubSourceCredential
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 
 class TestScopeEnrollment(SimpleTestCase):
@@ -800,11 +802,27 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
-    def test_requires_rollout_feature_flag(self) -> None:
-        # The whole viewset is gated on the engineering-analytics rollout flag (which the
-        # conftest fixture enables); with the flag off, every endpoint must 403.
+    @parameterized.expand([("sources", "get"), ("enable", "post")])
+    def test_requires_rollout_feature_flag(self, action: str, method: str) -> None:
+        # The conftest fixture enables the rollout flag; with it off, every endpoint must 403.
         with mock.patch("posthoganalytics.feature_enabled", return_value=False):
-            response = self.client.get(self._url("sources"))
+            response = getattr(self.client, method)(self._url(action))
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "engineering-analytics" in response.json()["detail"]
+
+    def test_enable_is_idempotent(self) -> None:
+        with mock.patch.object(DataWarehouseManagedViewSet, "sync_views") as mock_sync:
+            first = self.client.post(self._url("enable"))
+            second = self.client.post(self._url("enable"))
+
+        assert first.status_code == status.HTTP_204_NO_CONTENT
+        assert second.status_code == status.HTTP_204_NO_CONTENT
+        # The views sync once, on creation; the post-load hook keeps them current afterwards.
+        mock_sync.assert_called_once()
+        assert (
+            DataWarehouseManagedViewSet.objects.filter(
+                team=self.team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS
+            ).count()
+            == 1
+        )

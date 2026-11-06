@@ -291,6 +291,7 @@ def _make_endpoint_resource(resource: str | EndpointResource, default_config: En
 
 def _bind_path_params(resource: EndpointResource) -> None:
     path_params: dict[str, Any] = {}
+    deferred: list[str] = []
     assert isinstance(resource["endpoint"], dict)
     resolve_params = [r.param_name for r in _find_resolved_params(resource["endpoint"])]
     path = resource["endpoint"]["path"]
@@ -316,13 +317,28 @@ def _bind_path_params(resource: EndpointResource) -> None:
                             f"The path {path} defined in resource {resource['name']} tries to bind param {name} with type {param_type}. Paths can only bind 'resource' type params."
                         )
                     path_params[name] = "{" + name + "}"
+                    deferred.append(name)
 
     if len(resolve_params) > 0:
         raise NotImplementedError(
             f"Resource {resource['name']} defines resolve params {resolve_params} that are not bound in path {path}. Resolve query params not supported yet."
         )
 
-    resource["endpoint"]["path"] = path.format(**path_params)
+    if not deferred:
+        resource["endpoint"]["path"] = path.format(**path_params)
+        return
+
+    # The fan-out formats this path a second time to bind the resolve params, so every
+    # other brace must stay escaped through this first pass.
+    markers = {name: f"\x00{name}\x00" for name in deferred}
+    bound = _escape_braces(path.format(**{**path_params, **markers}))
+    for name, marker in markers.items():
+        bound = bound.replace(marker, "{" + name + "}")
+    resource["endpoint"]["path"] = bound
+
+
+def _escape_braces(text: str) -> str:
+    return text.replace("{", "{{").replace("}", "}}")
 
 
 def _setup_single_entity_endpoint(endpoint: Endpoint) -> Endpoint:
