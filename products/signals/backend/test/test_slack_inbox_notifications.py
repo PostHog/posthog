@@ -200,6 +200,7 @@ def test_build_message_blocks_shows_only_the_impact_section(summary: str, expect
     ("reviewer_labels", "expected"),
     [
         (["<@U1>", "<@U2>"], "👤 Suggested owners: <@U1> <@U2>"),
+        (["<@U1>", "@here @channel"], "👤 Suggested owners: <@U1> @here @channel"),
         (["a" * 2980], "👤 Suggested owner: " + "a" * 2980),
         (["a" * 2981], "👤 Suggested owner: (+1 more)"),
         (["🚀" * 1490], "👤 Suggested owner: " + "🚀" * 1490),
@@ -213,6 +214,7 @@ def test_build_message_blocks_shows_only_the_impact_section(summary: str, expect
     ],
     ids=[
         "mentions",
+        "literal_names",
         "at_limit",
         "long_name",
         "unicode_at_limit",
@@ -231,6 +233,7 @@ def test_build_message_blocks_bounds_owner_labels(
     body = blocks[1]["text"]["text"] if use_section_blocks else blocks[1]["text"]
     assert body == ("*Shared channel*" if use_section_blocks else "**Shared channel**")
     assert blocks[2]["elements"][0]["text"] == expected
+    assert blocks[2]["elements"][0].get("verbatim") is True
     assert len(blocks[2]["elements"][0]["text"].encode("utf-16-le")) // 2 <= 3000
 
 

@@ -469,7 +469,7 @@ def _build_message_blocks(
         prefix_length = slack_text_length(" · ".join(context_parts) + " · ") if context_parts else 0
         context_parts.append(_owner_context_text(reviewer_labels, max_length=_SLACK_CONTEXT_MAX_LEN - prefix_length))
     if context_parts:
-        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(context_parts)}]})
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(context_parts), "verbatim": True}]})
 
     action_elements: list[dict] = []
     # A link, not an interactive button: the inbox runs its own access, quota and repository checks.
