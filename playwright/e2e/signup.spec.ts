@@ -61,7 +61,9 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-role-at-organization]').click()
         await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
+        const signupPromise = page.waitForResponse('/api/signup/')
         await page.locator('[data-attr=signup-submit]').click()
+        await signupPromise
 
         const parsedBody = JSON.parse(signupRequestBody!)
         expect(parsedBody.first_name).toEqual('Alice')

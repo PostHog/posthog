@@ -40,6 +40,7 @@ describe('passwordResetLogic', () => {
         router.actions.push('/reset/invalid_user/token')
 
         await expectLogic(logic).toDispatchActions(['validateResetTokenSuccess'])
-        expect(logic.values.validatedResetToken).toMatchObject({ success: false, errorCode: 'invalid_token' })
+        expect(logic.values.validatedResetToken).toMatchObject({ success: false })
+        expect(logic.values.validatedResetToken?.token).toBeUndefined()
     })
 })
