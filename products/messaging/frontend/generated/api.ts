@@ -44,6 +44,15 @@ import type {
     StartProviderImportApi,
     SupabaseAuthEmailSettingsApi,
     TopicPreferencesApi,
+    TransactionalEmailLogDetailApi,
+    TransactionalEmailLogListApi,
+    TransactionalEmailLogListParams,
+    TransactionalEmailLogResultsRetrieveParams,
+    TransactionalEmailLogStatsOverTimeRetrieveParams,
+    TransactionalEmailLogStatsRetrieveParams,
+    TransactionalEmailResultsApi,
+    TransactionalEmailStatsApi,
+    TransactionalEmailStatsOverTimeApi,
     WebhookUrlApi,
 } from './api.schemas'
 
@@ -962,7 +971,7 @@ export const getMessagingTemplatesMakeTransactionalCreateUrl = (projectId: strin
 }
 
 /**
- * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing.
+ * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
  * @summary Make a template transactional
  */
 export const messagingTemplatesMakeTransactionalCreate = async (
@@ -999,4 +1008,159 @@ export const messagingTemplatesSendCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sendTransactionalEmailApi),
     })
+}
+
+export const getTransactionalEmailLogListUrl = (projectId: string, params?: TransactionalEmailLogListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/`
+}
+
+/**
+ * List the project's transactional email sends, newest first. The log keeps sends for 30 days.
+ * @summary List transactional email sends
+ */
+export const transactionalEmailLogList = async (
+    projectId: string,
+    params?: TransactionalEmailLogListParams,
+    options?: RequestInit
+): Promise<TransactionalEmailLogListApi> => {
+    return apiMutator<TransactionalEmailLogListApi>(getTransactionalEmailLogListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalEmailLogRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_email_log/${id}/`
+}
+
+/**
+ * Get one send with its timeline: when it was queued, sent, delivered, opened and clicked.
+ * @summary Get a transactional email send
+ */
+export const transactionalEmailLogRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TransactionalEmailLogDetailApi> => {
+    return apiMutator<TransactionalEmailLogDetailApi>(getTransactionalEmailLogRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalEmailLogResultsRetrieveUrl = (
+    projectId: string,
+    params: TransactionalEmailLogResultsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/results/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/results/`
+}
+
+/**
+ * Of the people a transactional email was sent to, count those who did an event within a window after their first send, and add up the revenue on those events.
+ * @summary Get what happened after a transactional email
+ */
+export const transactionalEmailLogResultsRetrieve = async (
+    projectId: string,
+    params: TransactionalEmailLogResultsRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailResultsApi> => {
+    return apiMutator<TransactionalEmailResultsApi>(getTransactionalEmailLogResultsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalEmailLogStatsRetrieveUrl = (
+    projectId: string,
+    params?: TransactionalEmailLogStatsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/stats/`
+}
+
+/**
+ * Count sends by delivery status, opens and clicks, per template or per sending domain.
+ * @summary Get transactional email delivery stats
+ */
+export const transactionalEmailLogStatsRetrieve = async (
+    projectId: string,
+    params?: TransactionalEmailLogStatsRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailStatsApi> => {
+    return apiMutator<TransactionalEmailStatsApi>(getTransactionalEmailLogStatsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalEmailLogStatsOverTimeRetrieveUrl = (
+    projectId: string,
+    params?: TransactionalEmailLogStatsOverTimeRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/stats_over_time/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/stats_over_time/`
+}
+
+/**
+ * Count sends by delivery status per time bucket, with totals for the period before.
+ * @summary Get transactional email delivery stats over time
+ */
+export const transactionalEmailLogStatsOverTimeRetrieve = async (
+    projectId: string,
+    params?: TransactionalEmailLogStatsOverTimeRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailStatsOverTimeApi> => {
+    return apiMutator<TransactionalEmailStatsOverTimeApi>(
+        getTransactionalEmailLogStatsOverTimeRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }

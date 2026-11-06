@@ -26,6 +26,17 @@ The daily snapshots and selectable scoring-moment and report grains remain avail
 
 See the [ranking DAG README](../../products/signals/dags/inbox_ranking/README.md) for the feature-set contract and operating instructions.
 
+## Cached Inbox ordering
+
+The `inbox-sort-cache` flag controls reads from the cached priority and ranking columns.
+The flag stays off during deployment. API processes and workers update the cache even when the flag is off.
+
+After every API process and worker uses the new cache writers, run `python manage.py backfill_inbox_sort_cache --team-id <team-id>` for each team in the rollout.
+The command uses locked batches and can run again after an interruption.
+Complete the backfill for every team in an organization before you enable the flag for that organization.
+Keep the flag off if any old writer remains. Old writers do not update the cache.
+Disable the flag to return to artefact queries if ordering differs during rollout.
+
 ## What each probability means
 
 Each head is conditioned on its cohort (`training/heads.py`).

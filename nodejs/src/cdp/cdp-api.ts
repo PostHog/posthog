@@ -294,7 +294,8 @@ export class CdpApi {
             services.teamWorkflowsConfigService,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
             services.emailSuppressionService,
-            services.emailStatusService
+            services.emailStatusService,
+            services.redis
         )
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
@@ -361,6 +362,7 @@ export class CdpApi {
             this.rerunJobManager = new RerunJobManager({
                 dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
                 maxCount: this.config.HOG_INVOCATION_RERUN_MAX_COUNT,
+                runStartPagingTeams: this.config.CDP_RERUN_RUN_START_PAGING_TEAMS,
             })
             await this.rerunJobManager.connect()
         }
@@ -1377,7 +1379,13 @@ export class CdpApi {
                     await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
                 }
                 stages.start('metrics_flush')
-                this.emailStatusService.queue({ teamId: team.id, messageId: invocation.id, status: 'queued' })
+                this.emailStatusService.queue({
+                    teamId: team.id,
+                    messageId: invocation.id,
+                    status: 'queued',
+                    recipient: to,
+                    functionId: hogFlow.id,
+                })
                 // Best-effort rows, so the 202 waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
                 const warnTelemetryFlushFailed = (error: unknown) =>
                     logger.warn('⚠️', 'Transactional email telemetry flush failed', {

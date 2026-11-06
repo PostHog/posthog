@@ -125,6 +125,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'session_recording_playlist:write',
     'signal_scout:read',
     'signal_scout:write',
+    'signal_usage:read',
     'stamphog:read',
     'stamphog:write',
     'streamlit_app:read',
