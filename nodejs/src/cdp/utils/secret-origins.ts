@@ -5,7 +5,7 @@ import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclot
 import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 
-import { HogFunctionType } from '../types'
+import { HogFunctionInputSchemaType, HogFunctionType } from '../types'
 
 type SecretOriginCheckMode = 'observe' | 'enforce'
 
@@ -33,7 +33,7 @@ type CarriedSecret = { inputKey: string; origin: string; outcome: SecretOriginOu
 
 type CheckedHogFunction = Pick<
     HogFunctionType,
-    'id' | 'team_id' | 'template_id' | 'bytecode' | 'inputs' | 'mappings' | 'encrypted_inputs'
+    'id' | 'team_id' | 'template_id' | 'bytecode' | 'inputs' | 'inputs_schema' | 'mappings' | 'encrypted_inputs'
 >
 
 // A shorter value matches too much unrelated text in a URL, header or body, such as a JSON key or a path segment.
@@ -95,17 +95,36 @@ function textLeaves(value: unknown): string[] {
     return isRecord(value) ? Object.values(value).flatMap(textLeaves) : []
 }
 
-function inputTexts(inputs: Record<string, unknown> | null | undefined): string[] {
-    return Object.values(inputs ?? {}).flatMap((input) => textLeaves(isRecord(input) ? input.value : null))
+function inputTexts(
+    inputs: Record<string, unknown> | null | undefined,
+    schema: HogFunctionInputSchemaType[] | undefined
+): string[] {
+    // A secret saved before inputs were encrypted still sits in plain `inputs`, so it is not a public value.
+    const secretKeys = new Set((schema ?? []).filter((field) => field.secret).map((field) => field.key))
+    return Object.entries(inputs ?? {})
+        .filter(([key]) => !secretKeys.has(key))
+        .flatMap(([, input]) => textLeaves(isRecord(input) ? input.value : null))
 }
 
-// The bytecode holds every string literal of the hog code, and the source is not loaded for a destination.
-function publicTexts(hogFunction: CheckedHogFunction): Set<string> {
+// The hog source is not loaded for a destination.
+function computePublicTexts(hogFunction: CheckedHogFunction): Set<string> {
     return new Set([
         ...textLeaves(hogFunction.bytecode),
-        ...inputTexts(hogFunction.inputs),
-        ...(hogFunction.mappings ?? []).flatMap((mapping) => inputTexts(mapping.inputs)),
+        ...inputTexts(hogFunction.inputs, hogFunction.inputs_schema),
+        ...(hogFunction.mappings ?? []).flatMap((mapping) => inputTexts(mapping.inputs, mapping.inputs_schema)),
     ])
+}
+
+// The manager loads a new object when a function changes, so the set stays valid for the life of the object.
+const publicTextsByFunction = new WeakMap<CheckedHogFunction, Set<string>>()
+
+function publicTexts(hogFunction: CheckedHogFunction): Set<string> {
+    let texts = publicTextsByFunction.get(hogFunction)
+    if (!texts) {
+        texts = computePublicTexts(hogFunction)
+        publicTextsByFunction.set(hogFunction, texts)
+    }
+    return texts
 }
 
 function originOutcome(allowedOrigins: unknown, origin: string): SecretOriginOutcome {
@@ -156,8 +175,6 @@ function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRe
     return carried
 }
 
-const UNCHECKED: SecretOriginCheck = { mode: 'observe', outcomes: [], refusal: null }
-
 // Fails open on an internal error, because a refused request is a lost delivery.
 export class SecretOriginGuard {
     private readonly observedForTeam: (teamId: number) => boolean
@@ -173,7 +190,7 @@ export class SecretOriginGuard {
     check(hogFunction: CheckedHogFunction, request: SecretOriginRequest): SecretOriginCheck {
         const enforced = this.enforcedForTeam(hogFunction.team_id)
         if (!enforced && !this.observedForTeam(hogFunction.team_id)) {
-            return UNCHECKED
+            return { mode: 'observe', outcomes: [], refusal: null }
         }
         const mode = enforced ? 'enforce' : 'observe'
         try {
