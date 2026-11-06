@@ -110,8 +110,14 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                 interval: metric.interval,
             })
         )
-    const { highlightsLoading, highlights, highlightsFailed, pulsePins, pulsePinsUnavailableReason } =
-        useValues(todayHighlightsLogic)
+    const {
+        highlightsLoading,
+        highlights,
+        highlightsFailed,
+        pulsePins,
+        pulsePinsUnavailableReason,
+        pulseHideUnavailableReason,
+    } = useValues(todayHighlightsLogic)
     const listRef = useRef<HTMLUListElement>(null)
     useSettleOnReorder(listRef, cards.map((tile) => tile.key).join('|'))
     const { baseCurrency } = useValues(teamLogic)
@@ -220,6 +226,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                                             'hover_card'
                                         )
                                     }
+                                    hideDisabledReason={pulseHideUnavailableReason ?? undefined}
                                     onHide={() => hidePulseMetric(metric, position)}
                                 />
                             }

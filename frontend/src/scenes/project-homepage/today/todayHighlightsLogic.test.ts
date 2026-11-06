@@ -116,6 +116,43 @@ describe('todayHighlightsLogic', () => {
         expect(logic.values.hiddenPulseMetrics).toEqual({ [key]: true })
     })
 
+    it('blocks a hide until the saved choices load, and shows a hidden number in the last free place', async () => {
+        let releasePins: () => void = () => undefined
+        useMocks({
+            get: {
+                '/api/projects/:team_id/today/pulse_pins/': () =>
+                    new Promise((resolve) => {
+                        releasePins = () => resolve([200, { pins: [], hidden: [{ key: 'insight:e', name: 'E' }] }])
+                    }),
+            },
+        })
+        const save = jest
+            .spyOn(todayApi, 'todayPulsePinsHiddenUpdate')
+            .mockImplementation(async (_projectId, { keys }) => ({ hidden: keys.map((key) => ({ key, name: key })) }))
+        const pulse = ['a', 'b', 'c', 'd', 'e', 'f'].map((key) => makePulseMetric({ key: `insight:${key}` }))
+        highlightResponses = [
+            [200, makeHighlights({ pulse: pulse.filter((metric) => metric.key !== 'insight:e') })],
+            [200, makeHighlights({ pulse })],
+        ]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadHighlightsSuccess'])
+        const shown = (): string[] => logic.values.pulseTiles.map((metric) => metric.key)
+
+        logic.actions.hidePulseMetric(pulse[0], 0)
+        releasePins()
+        await expectLogic(logic).toDispatchActions(['loadPulsePinsSuccess']).toFinishAllListeners()
+        expect([save.mock.calls.length, shown()]).toEqual([0, ['insight:a', 'insight:b', 'insight:c', 'insight:d']])
+
+        logic.actions.showHiddenPulseNumber({ key: 'insight:e', name: 'E' })
+        expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:d'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect([save.mock.calls[0][1], shown()]).toEqual([
+            { keys: [] },
+            ['insight:a', 'insight:b', 'insight:c', 'insight:e'],
+        ])
+    })
+
     it('keeps numbers in their places when a later result reorders or drops them, and starts fresh on a new visit', async () => {
         const [a, b, c, d, e] = ['a', 'b', 'c', 'd', 'e'].map((key) => makePulseMetric({ key: `insight:${key}` }))
         highlightResponses = [[200, makeHighlights({ pulse: [a, b, c, d] })]]

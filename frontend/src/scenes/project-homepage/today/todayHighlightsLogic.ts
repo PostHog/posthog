@@ -232,6 +232,7 @@ export interface todayHighlightsLogicValues {
     highlightsPending: boolean
     highlightsWaitOver: boolean
     pulseHidden: HiddenPulseNumberApi[]
+    pulseHideUnavailableReason: string | null
     pulseInsightResults: PulsePinApi[]
     pulseInsightResultsLoading: boolean
     pulseInsightSearchFailed: boolean
@@ -410,6 +411,7 @@ export interface todayHighlightsLogicMeta {
             pulsePinsLoadFailed: boolean,
             pulsePinsSaving: boolean
         ) => string | null
+        pulseHideUnavailableReason: (pulsePinsLoaded: boolean, pulsePinsLoadFailed: boolean) => string | null
         pulsePinsSettled: (pulsePinsLoaded: boolean, pulsePinsLoadFailed: boolean) => boolean
         pulsePlacement: (
             pulsePins: PulsePinApi[],
@@ -622,6 +624,15 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                       : pulsePinsLoaded
                         ? null
                         : 'Loading your pins…',
+        ],
+        pulseHideUnavailableReason: [
+            (s) => [s.pulsePinsLoaded, s.pulsePinsLoadFailed],
+            (pulsePinsLoaded: boolean, pulsePinsLoadFailed: boolean): string | null =>
+                pulsePinsLoaded
+                    ? null
+                    : pulsePinsLoadFailed
+                      ? "Couldn't load your hidden numbers. Reload the page to try again."
+                      : 'Loading your hidden numbers…',
         ],
         pulsePinsSettled: [
             (s) => [s.pulsePinsLoaded, s.pulsePinsLoadFailed],
@@ -973,6 +984,14 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             actions.loadHighlights()
         },
         showHiddenPulseNumber: ({ hidden }) => {
+            const places = values.pulsePlacement.places
+            const free = PULSE_TILES - Math.min(values.pulsePins.length, PULSE_TILES)
+            const last = places[free - 1]
+            actions.setPulsePlaces(
+                places.length < free || !last
+                    ? [...places, { key: hidden.key, standIn: null }]
+                    : [...places.slice(0, free - 1), { key: hidden.key, standIn: last.standIn ?? last.key }]
+            )
             actions.savePulseHidden(values.pulseHidden.filter((number) => number.key !== hidden.key))
             actions.forgetLocalPulseHidden([hidden.key])
             posthog.capture('today pulse metric unhidden', { kind: pulseKind(hidden.key), source: 'editor' })
@@ -989,6 +1008,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             }, 'pulsePinsLoadRetry')
         },
         hidePulseMetric: ({ metric, position }) => {
+            if (values.pulseHideUnavailableReason) {
+                return
+            }
             actions.savePulseHidden([
                 ...values.pulseHidden.filter((hidden) => hidden.key !== metric.key),
                 { key: metric.key, name: metric.name },

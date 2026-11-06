@@ -34,6 +34,7 @@ from ..highlight_rules import short
 from ..highlight_series import pretty, usable_series
 from ..highlight_trends import complete, detect
 from ..highlight_types import Context, Found, Source
+from ..pulse_pins import INSIGHT_PREFIX
 
 FRECENCY_HALF_LIFE_DAYS = 14
 FRECENCY_LOOKBACK_DAYS = VIEW_DAYS_KEPT
@@ -93,7 +94,7 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
         return []
     deadline = monotonic() + BLOCKING_SECONDS
     candidates: list[PulseCandidate] = []
-    for item in _own_candidates(context):
+    for item in _own_candidates(context, excluded):
         if item.kind == "insight":
             candidates.append(PulseCandidate(viewed=item, short_id=item.ref))
         elif item.ref.isdigit():
@@ -237,14 +238,18 @@ def frecency(view_days: Collection[date], today: date) -> float:
     return sum(0.5 ** (age / FRECENCY_HALF_LIFE_DAYS) for age in ages if 0 <= age <= FRECENCY_LOOKBACK_DAYS)
 
 
-def _own_candidates(context: Context) -> list[ViewedItem]:
+def _own_candidates(context: Context, excluded: Collection[str]) -> list[ViewedItem]:
     none: list[str] = []
-    used = [item for item in _frecent_views(context) if _repeated(item.days, context.today)]
+    skipped = {key.removeprefix(INSIGHT_PREFIX) for key in excluded if key.startswith(INSIGHT_PREFIX)}
+    limit = SIGNAL_CANDIDATES + len(skipped)
+    used = [
+        item
+        for item in _frecent_views(context)
+        if _repeated(item.days, context.today) and not (item.kind == "insight" and item.ref in skipped)
+    ]
     alerted = context.guard(
         "alerted insights",
-        partial(
-            insight_short_ids_watched_by, team_id=context.team.id, user_id=context.user.id, limit=SIGNAL_CANDIDATES
-        ),
+        partial(insight_short_ids_watched_by, team_id=context.team.id, user_id=context.user.id, limit=limit),
         none,
     )
     subscribed = context.guard(
@@ -255,7 +260,7 @@ def _own_candidates(context: Context) -> list[ViewedItem]:
             user_id=context.user.id,
             email=context.user.email,
             now=timezone.now(),
-            limit=SIGNAL_CANDIDATES,
+            limit=limit,
         ),
         none,
     )
@@ -266,11 +271,12 @@ def _own_candidates(context: Context) -> list[ViewedItem]:
             team=context.team,
             user_id=context.user.id,
             since=timezone.now() - timedelta(days=BUILT_DAYS),
-            limit=SIGNAL_CANDIDATES,
+            limit=limit,
         ),
         none,
     )
-    watched = [*alerted, *subscribed]
+    watched = [ref for ref in (*alerted, *subscribed) if ref not in skipped]
+    built = [ref for ref in built if ref not in skipped]
     groups = [
         used,
         [
