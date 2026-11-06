@@ -85,7 +85,8 @@ STALE_GENERATION = GENERATE_TIMEOUT + dt.timedelta(hours=1)
 MAX_PICTURE_EDGE = 1568
 MAX_PICTURE_WIDTH = 1200
 MAX_PICTURE_PARTS = 4
-_HIDDEN_ATTRIBUTES = frozenset({"$originalTimestamp", "service_name", "service.name"})
+# Rows from older capture-logs builds carry `$originalTimestamp` until they age out of retention.
+_HIDDEN_ATTRIBUTES = frozenset({"posthog.original_timestamp", "$originalTimestamp", "service_name", "service.name"})
 
 
 class RenderFailed(Exception):
