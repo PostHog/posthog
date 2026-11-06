@@ -31,7 +31,11 @@ from products.signals.backend.artefact_schemas import (
     ReviewerState,
     SuggestedReviewerEntry,
 )
-from products.signals.backend.assignment_flags import assignment_side_effects_allowed, assignment_writer_enabled
+from products.signals.backend.assignment_flags import (
+    assignment_side_effects_allowed,
+    assignment_writer_enabled,
+    unchosen_autostart_p1_enabled,
+)
 from products.signals.backend.billing import (
     BillingExemptionError,
     mark_report_billing_exempt,
@@ -1513,6 +1517,13 @@ async def maybe_autostart_implementation_task(
         )
         return AutostartOutcome(status="blocked", reason="Autostart is disabled")
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
+    # A null switch means the team never chose autostart, and its threshold is the P4 model default, which
+    # starts a PR for every priority. Cap those teams at P1, the threshold onboarding writes when a team
+    # opts in. An explicit True keeps the stored threshold.
+    if (team_config is None or team_config.autostart_enabled is None) and await database_sync_to_async(
+        unchosen_autostart_p1_enabled, thread_sensitive=False
+    )(team_id):
+        team_default_priority = Priority.P1
     if await database_sync_to_async(ResearchAccessPolicy.enabled)(team_id) and not await database_sync_to_async(
         ResearchAccessPolicy.repository_available, thread_sensitive=False
     )(team_id, repository, priority=EgressPriority.BATCH):
