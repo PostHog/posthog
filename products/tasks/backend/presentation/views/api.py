@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.utils.html import escape
 from django.utils.http import content_disposition_header
@@ -86,6 +87,7 @@ from products.tasks.backend.facade.access import (
     compute_quota_limit_response,
     usage_limit_response,
 )
+from products.tasks.backend.facade.api import asks_for_run, idempotent_request
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import (
     TASK_CLIENT_PROVENANCE_HEADER,
@@ -112,6 +114,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_token_routed,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.profiles import find_task_profile
 from products.tasks.backend.facade.run_config import (
     WARMABLE_ORIGIN_PRODUCTS,
     RunSource,
@@ -464,6 +467,14 @@ class TaskUsageUpstreamUnavailable(APIException):
     default_code = "task_usage_upstream_unavailable"
 
 
+def _requests_signal_report_origin(data: dict) -> bool:
+    if data.get("origin_product") == "signal_report":
+        return True
+    profile_key = data.get("profile")
+    profile = find_task_profile(profile_key) if isinstance(profile_key, str) else None
+    return profile is not None and profile.origin_product == "signal_report"
+
+
 class _SignalReportTaskThrottle(UserRateThrottle):
     """Rate-limits only signal-report task creation and sandbox warming on the shared endpoints.
 
@@ -474,7 +485,7 @@ class _SignalReportTaskThrottle(UserRateThrottle):
 
     def allow_request(self, request: Request, view: APIView) -> bool:
         data = request.data
-        if not isinstance(data, dict) or data.get("origin_product") != "signal_report":
+        if not isinstance(data, dict) or not _requests_signal_report_origin(data):
             return True
         return super().allow_request(request, view)
 
@@ -798,7 +809,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
         ],
         responses={
+            200: OpenApiResponse(
+                response=TaskCreateResponseSerializer,
+                description="The request repeated an idempotency key with the same body. This is the task the first request created. If that request asked for a run that never started, this one starts it.",
+            ),
             201: TaskCreateResponseSerializer,
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The idempotency key belongs to a task that a different request created (code `idempotency_key_reused`)",
+            ),
             402: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
@@ -836,6 +855,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
     )
     def create(self, request, **kwargs):
+        replay_request = idempotent_request(self._user_id(), request.data)
+        replayed: tasks_contracts.TaskDetailDTO | None = None
+        if replay_request is not None:
+            try:
+                replayed = tasks_facade.find_task_for_idempotency_key(
+                    self.team_id, self._user_id(), replay_request.key, replay_request.fingerprint
+                )
+            except tasks_facade.IdempotencyKeyReused:
+                return self._idempotency_key_reused_response()
+            if replayed is not None and not (replayed.latest_run is None and asks_for_run(request.data)):
+                return Response(TaskSerializer(replayed).data)
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         validated_data = dict(serializer.validated_data)
         validated_data["state"] = {"created_on_mobile": request.headers.get("X-PostHog-Client-Platform") == "mobile"}
@@ -867,7 +897,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Scoped to warmable origins, which is what a warm can ever be reused for. The repo-less Inbox
         # discussion is one of them and stays code-access exempt below, matching how the warm endpoint gates.
         # `origin_product` is optional on the wire; `create_task` defaults it the same way.
-        can_activate_warm_run = "branch" in validated_data and origin_product in WARMABLE_ORIGIN_PRODUCTS
+        can_activate_warm_run = (
+            "branch" in validated_data
+            and origin_product in WARMABLE_ORIGIN_PRODUCTS
+            and "profile" not in validated_data
+        )
         # An agent run never activates a warm run (see `run_task`), so only a create without a run is refused.
         if can_activate_warm_run and not start_run and is_sandbox_origin_request(request):
             return _sandbox_run_disabled_response()
@@ -918,13 +952,19 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             run_error = None
             if start_run:
-                create_result = tasks_facade.create_task_and_run(
-                    self.team_id,
-                    self._user_id(),
-                    validated_data=validated_data,
-                    run_data=run_data,
-                    client_provenance=get_task_client_provenance(request),
-                    code_access_allowed=code_access_allowed,
+                create_result = (
+                    tasks_facade.start_missing_first_run(
+                        self.team_id, self._user_id(), task=replayed, run_data=run_data
+                    )
+                    if replayed is not None
+                    else tasks_facade.create_task_and_run(
+                        self.team_id,
+                        self._user_id(),
+                        validated_data=validated_data,
+                        run_data=run_data,
+                        client_provenance=get_task_client_provenance(request),
+                        code_access_allowed=code_access_allowed,
+                    )
                 )
                 if create_result.error is not None:
                     return self._task_error_response(create_result.error)
@@ -953,6 +993,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": error.detail, "code": error.code}, status=status.HTTP_400_BAD_REQUEST)
         except tasks_facade.WarmRunActivationUnavailable as error:
             return self._warm_activation_unavailable_response(error)
+        except IntegrityError:
+            replay_response = (
+                self._idempotent_replay_response(
+                    validated_data["idempotency_key"], validated_data["idempotency_fingerprint"]
+                )
+                if "idempotency_key" in validated_data
+                else None
+            )
+            if replay_response is None:
+                raise
+            return replay_response
         finally:
             if sandbox_starter is not None:
                 if run_started:
@@ -963,7 +1014,26 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         response_data = TaskSerializer(task).data
         if run_error:
             response_data["run_error"] = run_error
-        return Response(response_data, status=status.HTTP_201_CREATED)
+        return Response(response_data, status=status.HTTP_200_OK if replayed is not None else status.HTTP_201_CREATED)
+
+    def _idempotency_key_reused_response(self) -> Response:
+        return Response(
+            TaskRunErrorResponseSerializer(
+                {
+                    "type": "idempotency_error",
+                    "code": "idempotency_key_reused",
+                    "error": "This idempotency key was used for a different request.",
+                }
+            ).data,
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    def _idempotent_replay_response(self, key: str, fingerprint: str) -> Response | None:
+        try:
+            existing = tasks_facade.find_task_for_idempotency_key(self.team_id, self._user_id(), key, fingerprint)
+        except tasks_facade.IdempotencyKeyReused:
+            return self._idempotency_key_reused_response()
+        return Response(TaskSerializer(existing).data) if existing is not None else None
 
     def _warm_activation_unavailable_response(self, error: tasks_facade.WarmRunActivationUnavailable) -> Response:
         return Response(
