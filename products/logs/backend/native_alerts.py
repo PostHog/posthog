@@ -7,7 +7,6 @@ to the platform.
 """
 
 from collections.abc import Mapping
-from dataclasses import replace
 from datetime import datetime
 from typing import Any, Final
 from uuid import UUID
@@ -18,34 +17,26 @@ from products.alerts_platform.backend.facade.api import (
     create_configuration,
     delete_configuration,
     get_configuration,
-    list_configurations,
+    list_native_configurations,
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     Grouping,
-    PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import CONDITION_FIELDS
-from products.logs.backend.platform_source_config import filters_of, logs_source_config
+from products.logs.backend.platform_ownership import platform_change_of
+from products.logs.backend.platform_source_config import filters_of
 
 _LOGS: Final = (SourceKind.LOGS.value,)
-# Large enough for every logs alert of one team on one page. The cap is 20, and an uncapped team stays
-# far below this.
-_TEAM_PAGE: Final = 1000
-# The settings a logs API edit and a platform edit name the same way.
-_SHARED_FIELDS: Final = (
-    "name",
-    "enabled",
-    "evaluation_periods",
-    "datapoints_to_alarm",
-    "cooldown_minutes",
-    "schedule_restriction",
-)
+
+
+def _no_logs_row(*_: object, **__: object) -> None:
+    raise RuntimeError("This logs alert has no logs row. Write it through the platform.")
 
 
 def is_native(alert: LogsAlertConfiguration) -> bool:
@@ -86,6 +77,9 @@ def as_logs_alert(view: PlatformAlertConfigurationView, *, team_id: int, now: da
     alert._state_timeline_events = []  # type: ignore[attr-defined]
     alert._latest_error_message = None  # type: ignore[attr-defined]
     alert._pre_window_toggle_kind = None  # type: ignore[attr-defined]
+    # A write path that forgets the alert has no logs row fails here instead of creating one.
+    for method in ("save", "delete"):
+        setattr(alert, method, _no_logs_row)
     return alert
 
 
@@ -98,10 +92,10 @@ def native_alert(*, team_id: int, alert_id: UUID, lock: bool = False) -> LogsAle
     return as_logs_alert(view, team_id=team_id, now=timezone.now())
 
 
-def native_alerts(team_id: int) -> list[LogsAlertConfiguration]:
-    page = list_configurations(team_id=team_id, source_kinds=_LOGS, limit=_TEAM_PAGE, offset=0, native_only=True)
+def native_alerts(team_id: int, *, created_by_uuid: UUID | None = None) -> list[LogsAlertConfiguration]:
+    views = list_native_configurations(team_id=team_id, source_kind=SourceKind.LOGS, created_by_uuid=created_by_uuid)
     now = timezone.now()
-    return [as_logs_alert(view, team_id=team_id, now=now) for view in page.configurations]
+    return [as_logs_alert(view, team_id=team_id, now=now) for view in views]
 
 
 def create_native(
@@ -142,24 +136,15 @@ def update_native(
     Raises `InvalidPlatformAlertEdit` for an edit the platform's logs schema rejects.
     """
 
-    def change(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
-        condition = {
-            **stored.source_config[SOURCE_CONDITION_KEY],
-            **{field: changes[field] for field in CONDITION_FIELDS if field in changes},
-        }
-        filters = changes["filters"] if "filters" in changes else filters_of(stored.source_config)
-        return replace(
-            stored,
-            source_config=logs_source_config(filters, condition),
-            grouping=grouping if grouping is not None else stored.grouping,
-            **{field: changes[field] for field in _SHARED_FIELDS if field in changes},
-        )
+    # The same settings a logs row carries onto its copy, so the two kinds of alert edit alike.
+    for field, value in changes.items():
+        setattr(alert, field, value)
 
     view = update_configuration(
         team_id=alert.team_id,
         source_kinds=_LOGS,
         configuration_id=alert.id,
-        change=change,
+        change=platform_change_of(alert, grouping),
         snooze_until=snooze_until,
         snooze_changed=snooze_changed,
     )

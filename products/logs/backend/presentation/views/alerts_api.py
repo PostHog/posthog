@@ -1,14 +1,13 @@
 import datetime as dt
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from functools import cached_property
 from typing import Any, Final, Literal, TypedDict, cast, overload
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import F, Manager, OuterRef, Prefetch, Q, QuerySet, Subquery
-from django.http import Http404
-from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
@@ -1412,12 +1411,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return LogsAlertConfigurationSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        if self.action == "list":
-            query_serializer = LogsAlertListQuerySerializer(data=self.request.query_params)
-            query_serializer.is_valid(raise_exception=True)
-            created_by = query_serializer.validated_data.get("created_by")
-            if created_by:
-                queryset = queryset.filter(created_by__uuid=created_by)
+        if self.action == "list" and (created_by := self._list_created_by):
+            queryset = queryset.filter(created_by__uuid=created_by)
 
         # Correlated subquery so list/retrieve can surface `last_error_message` in a
         # single round-trip instead of one extra query per alert.
@@ -1471,55 +1466,44 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return context
 
+    @cached_property
+    def _list_created_by(self) -> UUID | None:
+        query = LogsAlertListQuerySerializer(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
+        return query.validated_data.get("created_by")
+
     def list(self, request: Request, *args: object, **kwargs: object) -> Response:
         # An alert with no logs row has no row in the queryset, so the page is merged here. A team has
         # at most a few dozen alerts, so merging in memory stays cheap.
-        alerts = [*self.filter_queryset(self.get_queryset()), *self._native_alerts_for_list()]
+        alerts = [
+            *self.filter_queryset(self.get_queryset()),
+            *native_alerts(self.team_id, created_by_uuid=self._list_created_by),
+        ]
         alerts.sort(key=lambda alert: (alert.created_at, alert.id), reverse=True)
         page = self.paginate_queryset(alerts)
         if page is not None:
             return self.get_paginated_response(self.get_serializer(page, many=True).data)
         return Response(self.get_serializer(alerts, many=True).data)
 
-    def _native_alerts_for_list(self) -> list[LogsAlertConfiguration]:
-        query = LogsAlertListQuerySerializer(data=self.request.query_params)
-        query.is_valid(raise_exception=True)
-        alerts = native_alerts(self.team_id)
-        created_by = query.validated_data.get("created_by")
-        if not created_by:
-            return alerts
-        user_id = User.objects.filter(uuid=created_by).values_list("id", flat=True).first()
-        return [alert for alert in alerts if user_id is not None and alert.created_by_id == user_id]
-
     def safely_get_object(self, queryset: QuerySet) -> LogsAlertConfiguration | None:
-        try:
-            return get_object_or_404(queryset, **{self.lookup_field: self.kwargs[self._lookup_kwarg]})
-        except Http404:
-            return self._native_alert(lock=False)
+        return self._row_or_native(queryset, lock=False)
 
     def _get_locked_alert(self) -> LogsAlertConfiguration:
-        queryset = self.filter_queryset(self.get_queryset()).select_for_update()
-        try:
-            alert = get_object_or_404(queryset, **{self.lookup_field: self.kwargs[self._lookup_kwarg]})
-        except Http404:
-            native = self._native_alert(lock=True)
-            if native is None:
-                raise
-            alert = native
+        alert = self._row_or_native(self.filter_queryset(self.get_queryset()).select_for_update(), lock=True)
+        if alert is None:
+            raise NotFound()
         self.check_object_permissions(self.request, alert)
         return alert
 
-    @property
-    def _lookup_kwarg(self) -> str:
-        return self.lookup_url_kwarg or self.lookup_field
-
-    def _native_alert(self, *, lock: bool) -> LogsAlertConfiguration | None:
-        """The alert with no logs row under the URL's id, or None. With `lock`, call it inside a transaction."""
+    def _row_or_native(self, queryset: QuerySet, *, lock: bool) -> LogsAlertConfiguration | None:
+        """The alert under the URL's id: its logs row, or the platform's alert with no logs row. With
+        `lock`, call it inside a transaction."""
         try:
-            alert_id = UUID(str(self.kwargs[self._lookup_kwarg]))
+            alert_id = UUID(str(self.kwargs[self.lookup_url_kwarg or self.lookup_field]))
         except ValueError:
             return None
-        return native_alert(team_id=self.team_id, alert_id=alert_id, lock=lock)
+        row = queryset.filter(id=alert_id).first()
+        return row if row is not None else native_alert(team_id=self.team_id, alert_id=alert_id, lock=lock)
 
     def update(self, request: Request, *args: object, **kwargs: Any) -> Response:
         partial = kwargs.pop("partial", False)
@@ -1718,27 +1702,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if platform_failures is None:
                     raise ValidationError({"state": "Only broken alerts can be reset."})
                 previous_failures = platform_failures
-            try:
-                # An alert with no logs row has no logs state or history to move.
-                outcome = None if is_native(alert) else apply_user_reset(alert.to_snapshot())
-            except InvalidTransition:
-                if not alert.platform_owned:
-                    raise ValidationError({"state": "Only broken alerts can be reset."})
-                outcome = None
-            if outcome is not None:
-                update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
-                update_fields.extend(alert.clear_next_check())
-                alert.save(update_fields=update_fields)
-            elif not is_native(alert):
-                # The logs row did not move, so nothing else records the reset that the alert's
-                # timeline needs. The platform's history writes no row for it either.
-                LogsAlertEvent.objects.create(
-                    alert=alert,
-                    kind=LogsAlertEvent.Kind.RESET,
-                    threshold_breached=False,
-                    state_before=LogsAlertConfiguration.State.BROKEN,
-                    state_after=LogsAlertConfiguration.State.NOT_FIRING,
-                )
+            # An alert with no logs row has no logs state or history to move.
+            if not is_native(alert):
+                self._reset_logs_row(alert)
             # The model's auto-signal skips these fields (signal_exclusions silences
             # engine-driven churn) so we log the user-initiated reset explicitly.
             log_activity(
@@ -1771,6 +1737,29 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         report_user_action(request.user, "logs alert reset", {"alert_id": str(alert.id)}, request=request)
         return Response(self.get_serializer(alert).data)
+
+    @staticmethod
+    def _reset_logs_row(alert: LogsAlertConfiguration) -> None:
+        try:
+            outcome = apply_user_reset(alert.to_snapshot())
+        except InvalidTransition:
+            if not alert.platform_owned:
+                raise ValidationError({"state": "Only broken alerts can be reset."})
+            outcome = None
+        if outcome is not None:
+            update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
+            update_fields.extend(alert.clear_next_check())
+            alert.save(update_fields=update_fields)
+        else:
+            # The logs row did not move, so nothing else records the reset that the alert's
+            # timeline needs. The platform's history writes no row for it either.
+            LogsAlertEvent.objects.create(
+                alert=alert,
+                kind=LogsAlertEvent.Kind.RESET,
+                threshold_breached=False,
+                state_before=LogsAlertConfiguration.State.BROKEN,
+                state_after=LogsAlertConfiguration.State.NOT_FIRING,
+            )
 
     @extend_schema(
         request=LogsAlertSimulateRequestSerializer,
