@@ -1,3 +1,4 @@
+import { HogError } from '@/core/errors'
 import type { PostHogApi } from '@/posthog/api'
 
 import { createEndpoint, createInsightVariable, updateEndpoint } from './api'
@@ -151,6 +152,10 @@ export async function applyPush(
                 uiUrl: saved.ui_url,
             })
         } catch (error) {
+            // Agents need the scopes and the command as data, and every later write would fail the same way.
+            if (error instanceof HogError && error.code === 'step_up_required') {
+                throw error
+            }
             outcomes.push({
                 name: item.name,
                 path: item.path,

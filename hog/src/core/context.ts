@@ -47,15 +47,12 @@ export class Context {
         return this.api
     }
 
-    // Requests sent at once can each hit a missing scope. They step up one at a time, and each one
-    // checks its own scopes again once the step-up before it finishes.
+    // Requests sent at once step up one at a time, and a failed step-up, such as a cancel, fails the rest.
     stepUp(scopes: readonly string[]): Promise<boolean> {
-        const run = (this.stepUpRunning ?? Promise.resolve(false))
-            .catch(() => false)
-            .then(async () => {
-                const { promptStepUp } = await import('@/posthog/login/step-up')
-                return promptStepUp(this, scopes)
-            })
+        const run = (this.stepUpRunning ?? Promise.resolve(false)).then(async () => {
+            const { promptStepUp } = await import('@/posthog/login/step-up')
+            return promptStepUp(this, scopes)
+        })
         this.stepUpRunning = run
         return run
     }
