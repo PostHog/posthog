@@ -33,11 +33,19 @@ const meta: Meta<typeof AccountProductUsageTable> = {
 export default meta
 
 type Story = StoryObj<typeof AccountProductUsageTable>
-export const GroupedProducts: Story = {}
+export const GroupedProducts: Story = {
+    decorators: [
+        (Story) => (
+            <div className="w-[1100px]">
+                <Story />
+            </div>
+        ),
+    ],
+}
 export const Narrow: Story = {
     decorators: [
         (Story) => (
-            <div className="w-full max-w-lg">
+            <div className="w-128">
                 <Story />
             </div>
         ),
