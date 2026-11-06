@@ -846,11 +846,10 @@ class HogQLQueryExecutor:
                     settings.read_overflow_mode = "throw"
 
             if should_check_team_first_in_prewhere(self.team, self.clickhouse_prepared_ast):
-                # ClickHouse delays primary-key filters because index pruning usually leaves few rows to reject.
-                # Small teams can share candidate granules with many other teams, so checking team_id early
-                # can avoid expensive property evaluation on their rows. Larger teams can benefit from the
-                # default order because their team filter removes fewer rows after index pruning.
-                # Disabling this preference lets the optimizer consider team_id earlier; it does not force it first.
+                # ON can help when index selection is precise; OFF can help when it leaves lots of irrelevant
+                # rows inside the selected granules. Small teams can share granules with many other teams,
+                # so an early team_id check can avoid expensive property evaluation on other teams' rows.
+                # OFF allows the optimizer to check team_id earlier; it does not force it first.
                 settings.move_primary_key_columns_to_end_of_prewhere = False
 
             with self.timings.measure("print_prepared_ast"):
