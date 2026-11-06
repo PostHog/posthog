@@ -1,0 +1,902 @@
+use std::collections::HashMap;
+use std::ops::Not;
+
+use crate::util::{empty_datetime_is_none, empty_string_uuid_is_none};
+use chrono::{DateTime, Utc};
+use metrics::counter;
+use rdkafka::message::{Header, Headers, OwnedHeaders};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use uuid::Uuid;
+
+/// Trait for types that have an event name, used by quota limiting
+pub trait HasEventName {
+    fn event_name(&self) -> &str;
+
+    fn has_property(&self, _key: &str) -> bool {
+        false
+    }
+}
+
+/// Information about the library/SDK that sent an event
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryInfo {
+    pub name: String,
+    pub version: Option<String>,
+}
+
+impl LibraryInfo {
+    /// Extract library information from a properties HashMap.
+    ///
+    /// Returns `None` if the `$lib` property is not present.
+    pub fn from_properties(props: &HashMap<String, Value>) -> Option<Self> {
+        let name = props
+            .get("$lib")
+            .and_then(|v| v.as_str())
+            .map(String::from)?;
+
+        let version = props
+            .get("$lib_version")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        Some(LibraryInfo { name, version })
+    }
+}
+
+/// Trait for events that can extract library information from their properties.
+///
+/// This trait provides a common interface for extracting the SDK/library name
+/// and version from event properties, used for metrics and analytics.
+pub trait EventWithLibraryInfo {
+    /// Extract library information from the event properties.
+    ///
+    /// Returns `None` if the `$lib` property is not present.
+    fn extract_library_info(&self) -> Option<LibraryInfo>;
+}
+
+#[derive(Clone, Default, Debug, Deserialize, Serialize)]
+pub struct RawEvent {
+    #[serde(
+        alias = "$token",
+        alias = "api_key",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub token: Option<String>,
+    #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
+    pub distinct_id: Option<Value>, // posthog-js accepts arbitrary values as distinct_id
+    #[serde(default, deserialize_with = "empty_string_uuid_is_none")]
+    pub uuid: Option<Uuid>,
+    pub event: String,
+    #[serde(default)]
+    pub properties: HashMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>, // Passed through if provided, parsed by ingestion
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>, // Passed through if provided, parsed by ingestion
+    #[serde(rename = "$set", skip_serializing_if = "Option::is_none")]
+    pub set: Option<HashMap<String, Value>>,
+    #[serde(rename = "$set_once", skip_serializing_if = "Option::is_none")]
+    pub set_once: Option<HashMap<String, Value>>,
+}
+
+#[derive(Default, Debug, Deserialize, Serialize)]
+pub struct RawEngageEvent {
+    #[serde(
+        alias = "$token",
+        alias = "api_key",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub token: Option<String>,
+    #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
+    pub distinct_id: Option<Value>, // posthog-js accepts arbitrary values as distinct_id
+    #[serde(default, deserialize_with = "empty_string_uuid_is_none")]
+    pub uuid: Option<Uuid>,
+    // NOTE: missing event name is the only difference between RawEvent and RawEngageEvent
+    // when the event name is missing, we need fill in $identify as capture.py does:
+    // https://github.com/PostHog/posthog/blob/70ce86a73f6c3d3ee6f44e1ac0acd695e2f78682/posthog/api/capture.py#L501-L502
+    #[serde(default)]
+    pub properties: HashMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>, // Passed through if provided, parsed by ingestion
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>, // Passed through if provided, parsed by ingestion
+    #[serde(rename = "$set", skip_serializing_if = "Option::is_none")]
+    pub set: Option<HashMap<String, Value>>,
+    #[serde(rename = "$set_once", skip_serializing_if = "Option::is_none")]
+    pub set_once: Option<HashMap<String, Value>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CapturedEventHeaders {
+    pub token: Option<String>,
+    pub distinct_id: Option<String>,
+    pub session_id: Option<String>,
+    pub timestamp: Option<String>,
+    pub event: Option<String>,
+    pub uuid: Option<String>,
+    pub now: Option<String>,
+    pub force_disable_person_processing: Option<bool>,
+    pub historical_migration: Option<bool>,
+    pub skip_heatmap_processing: Option<bool>,
+    pub dlq_reason: Option<String>,
+    pub dlq_step: Option<String>,
+    pub dlq_timestamp: Option<String>,
+    pub content_encoding: Option<String>,
+}
+
+impl CapturedEventHeaders {
+    pub fn set_force_disable_person_processing(&mut self, value: bool) {
+        self.force_disable_person_processing = Some(value);
+    }
+
+    pub fn set_skip_heatmap_processing(&mut self, value: bool) {
+        self.skip_heatmap_processing = Some(value);
+    }
+
+    pub fn set_dlq_reason(&mut self, value: String) {
+        self.dlq_reason = Some(value);
+    }
+
+    pub fn set_dlq_step(&mut self, value: String) {
+        self.dlq_step = Some(value);
+    }
+
+    pub fn set_dlq_timestamp(&mut self, value: String) {
+        self.dlq_timestamp = Some(value);
+    }
+
+    pub fn set_content_encoding(&mut self, value: String) {
+        self.content_encoding = Some(value);
+    }
+}
+
+impl From<CapturedEventHeaders> for OwnedHeaders {
+    fn from(headers: CapturedEventHeaders) -> Self {
+        let fdpp_str = headers
+            .force_disable_person_processing
+            .map(|b| b.to_string());
+        let historical_migration_str = headers.historical_migration.map(|b| b.to_string());
+        let mut owned = OwnedHeaders::new()
+            .insert(Header {
+                key: "token",
+                value: headers.token.as_deref(),
+            })
+            .insert(Header {
+                key: "distinct_id",
+                value: headers.distinct_id.as_deref(),
+            })
+            .insert(Header {
+                key: "session_id",
+                value: headers.session_id.as_deref(),
+            })
+            .insert(Header {
+                key: "timestamp",
+                value: headers.timestamp.as_deref(),
+            })
+            .insert(Header {
+                key: "event",
+                value: headers.event.as_deref(),
+            })
+            .insert(Header {
+                key: "uuid",
+                value: headers.uuid.as_deref(),
+            })
+            .insert(Header {
+                key: "now",
+                value: headers.now.as_deref(),
+            })
+            .insert(Header {
+                key: "force_disable_person_processing",
+                value: fdpp_str.as_deref(),
+            })
+            .insert(Header {
+                key: "historical_migration",
+                value: historical_migration_str.as_deref(),
+            });
+
+        // Only add optional headers when present, to avoid bloating every message.
+        if let Some(skip_heatmap_processing) = headers.skip_heatmap_processing {
+            let val = skip_heatmap_processing.to_string();
+            owned = owned.insert(Header {
+                key: "skip_heatmap_processing",
+                value: Some(val.as_str()),
+            });
+        }
+        if let Some(ref reason) = headers.dlq_reason {
+            owned = owned.insert(Header {
+                key: "dlq_reason",
+                value: Some(reason.as_str()),
+            });
+        }
+        if let Some(ref step) = headers.dlq_step {
+            owned = owned.insert(Header {
+                key: "dlq_step",
+                value: Some(step.as_str()),
+            });
+        }
+        if let Some(ref timestamp) = headers.dlq_timestamp {
+            owned = owned.insert(Header {
+                key: "dlq_timestamp",
+                value: Some(timestamp.as_str()),
+            });
+        }
+        if let Some(ref encoding) = headers.content_encoding {
+            owned = owned.insert(Header {
+                key: "content-encoding",
+                value: Some(encoding.as_str()),
+            });
+        }
+
+        owned
+    }
+}
+
+impl From<OwnedHeaders> for CapturedEventHeaders {
+    fn from(headers: OwnedHeaders) -> Self {
+        let mut headers_map = HashMap::new();
+        for header in headers.iter() {
+            if let Some(value) = header.value {
+                if let Ok(value_str) = std::str::from_utf8(value) {
+                    headers_map.insert(header.key.to_string(), value_str.to_string());
+                }
+            }
+        }
+
+        Self {
+            token: headers_map.get("token").cloned(),
+            distinct_id: headers_map.get("distinct_id").cloned(),
+            session_id: headers_map.get("session_id").cloned(),
+            timestamp: headers_map.get("timestamp").cloned(),
+            event: headers_map.get("event").cloned(),
+            uuid: headers_map.get("uuid").cloned(),
+            now: headers_map.get("now").cloned(),
+            force_disable_person_processing: headers_map
+                .get("force_disable_person_processing")
+                .and_then(|v| v.parse::<bool>().ok()),
+            historical_migration: headers_map
+                .get("historical_migration")
+                .and_then(|v| v.parse::<bool>().ok()),
+            skip_heatmap_processing: headers_map
+                .get("skip_heatmap_processing")
+                .and_then(|v| v.parse::<bool>().ok()),
+            dlq_reason: headers_map.get("dlq_reason").cloned(),
+            dlq_step: headers_map.get("dlq_step").cloned(),
+            dlq_timestamp: headers_map.get("dlq_timestamp").cloned(),
+            content_encoding: headers_map.get("content-encoding").cloned(),
+        }
+    }
+}
+
+// The event type that capture produces
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+pub struct CapturedEvent {
+    pub uuid: Uuid,
+    pub distinct_id: String,
+    #[serde(skip_serializing, default)]
+    pub session_id: Option<String>,
+    pub ip: String,
+    pub data: String, // This should be a `RawEvent`, but we serialise twice.
+    pub now: String,
+    #[serde(
+        serialize_with = "time::serde::rfc3339::option::serialize",
+        deserialize_with = "empty_datetime_is_none",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub sent_at: Option<OffsetDateTime>,
+    pub token: String,
+    pub event: String,
+    pub timestamp: DateTime<Utc>,
+    #[serde(skip_serializing_if = "<&bool>::not", default)]
+    pub is_cookieless_mode: bool,
+    #[serde(skip_serializing_if = "<&bool>::not", default)]
+    pub historical_migration: bool,
+}
+
+// Used when we want to bypass token checks when emitting events from rust
+// services, by just setting the team_id instead.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InternallyCapturedEvent {
+    #[serde(flatten)]
+    pub inner: CapturedEvent,
+    pub team_id: i32,
+}
+
+impl CapturedEvent {
+    pub fn to_headers(&self) -> CapturedEventHeaders {
+        CapturedEventHeaders {
+            token: Some(self.token.clone()),
+            distinct_id: Some(self.distinct_id.clone()),
+            session_id: self.session_id.clone(),
+            timestamp: Some(self.timestamp.timestamp_millis().to_string()),
+            event: Some(self.event.clone()),
+            uuid: Some(self.uuid.to_string()),
+            now: Some(self.now.clone()),
+            force_disable_person_processing: None, // Only set when explicitly needed (e.g., overflow)
+            // Only include historical_migration if true; false is the default
+            historical_migration: if self.historical_migration {
+                Some(true)
+            } else {
+                None
+            },
+            skip_heatmap_processing: None,
+            dlq_reason: None,
+            dlq_step: None,
+            dlq_timestamp: None,
+            content_encoding: None,
+        }
+    }
+
+    pub fn key(&self) -> String {
+        if self.is_cookieless_mode {
+            format!("{}:{}", self.token, self.ip)
+        } else {
+            format!("{}:{}", self.token, self.distinct_id)
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum PersonMode {
+    Full,
+    Propertyless,
+    ForceUpgrade,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ClickHouseEvent {
+    pub uuid: Uuid,
+    pub team_id: i32,
+    // NOTE - option - this is a nullable column in the DB, so :shrug:
+    pub project_id: Option<i64>,
+    pub event: String,
+    pub distinct_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub person_id: Option<String>,
+    // ClickHouse DateTime64(6) format: "2024-01-01 12:00:00.000000"
+    pub timestamp: String,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub captured_at: Option<String>,
+    pub elements_chain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub person_created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub person_properties: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group0_properties: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group1_properties: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group2_properties: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group3_properties: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group4_properties: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group0_created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group1_created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group2_created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group3_created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group4_created_at: Option<String>,
+    pub person_mode: PersonMode,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub historical_migration: Option<bool>,
+}
+
+impl ClickHouseEvent {
+    pub fn take_raw_properties(&mut self) -> Result<HashMap<String, Value>, serde_json::Error> {
+        // Sometimes properties are REALLY big, so we may as well do this.
+        let props_str = self.properties.take();
+        let parsed = match &props_str {
+            Some(properties) => serde_json::from_str(properties),
+            None => Ok(HashMap::new()),
+        };
+
+        match parsed {
+            Ok(properties) => Ok(properties),
+            Err(e) => {
+                self.properties = props_str;
+                Err(e)
+            }
+        }
+    }
+
+    pub fn set_raw_properties(
+        &mut self,
+        properties: HashMap<String, Value>,
+    ) -> Result<(), serde_json::Error> {
+        self.properties = Some(serde_json::to_string(&properties)?);
+        Ok(())
+    }
+}
+
+impl EventWithLibraryInfo for ClickHouseEvent {
+    fn extract_library_info(&self) -> Option<LibraryInfo> {
+        let properties_str = self.properties.as_ref()?;
+        let properties: HashMap<String, Value> = serde_json::from_str(properties_str).ok()?;
+        LibraryInfo::from_properties(&properties)
+    }
+}
+
+impl HasEventName for RawEvent {
+    fn event_name(&self) -> &str {
+        &self.event
+    }
+
+    fn has_property(&self, key: &str) -> bool {
+        self.properties.contains_key(key)
+    }
+}
+
+/// A distinct_id extracted from a [`RawEvent`], with the truncation outcome.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtractedDistinctId {
+    /// The id as ingested: stringified, NUL-scrubbed, capped at 200 chars.
+    pub value: String,
+    /// Char count of the original id when it exceeded the cap and `value` was
+    /// cut down; `None` when the id was ingested unmodified.
+    pub truncated_from_chars: Option<usize>,
+    /// UTF-8 byte length of the original id after trimming whitespace, the size capture v1 limits.
+    pub trimmed_bytes: usize,
+}
+
+impl RawEvent {
+    pub fn extract_token(&self) -> Option<String> {
+        match &self.token {
+            Some(value) => Some(value.clone()),
+            None => self
+                .properties
+                .get("token")
+                .and_then(Value::as_str)
+                .map(String::from),
+        }
+    }
+
+    /// Extracts, stringifies and trims the distinct_id to a 200 chars String.
+    /// SDKs send the distinct_id either in the root field or as a property,
+    /// and can send string, number, array, or map values. We try to best-effort
+    /// stringify complex values, and make sure it's not longer than 200 chars.
+    pub fn extract_distinct_id(&self) -> Option<String> {
+        self.extract_distinct_id_checked().map(|e| e.value)
+    }
+
+    /// Like [`Self::extract_distinct_id`], but also reports whether the value
+    /// was cut down to the 200-char cap, so callers can tell the sender their
+    /// id was modified. Same extraction and truncation behavior.
+    pub fn extract_distinct_id_checked(&self) -> Option<ExtractedDistinctId> {
+        // Breaking change compared to capture-py: None / Null is not allowed.
+        let value = match &self.distinct_id {
+            None | Some(Value::Null) => match self.properties.get("distinct_id") {
+                None | Some(Value::Null) => return None,
+                Some(id) => id,
+            },
+            Some(id) => id,
+        };
+
+        let distinct_id = value
+            .as_str()
+            .map(|s| s.to_owned())
+            .unwrap_or_else(|| value.to_string());
+
+        // Replace null characters with Unicode replacement character
+        let distinct_id = distinct_id.replace('\0', "\u{FFFD}");
+
+        let trimmed = distinct_id.trim();
+
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        if trimmed.len() != distinct_id.len() {
+            counter!("capture_distinct_id_has_whitespace_total").increment(1);
+        }
+        let trimmed_bytes = trimmed.len();
+
+        // Byte length bounds char count, so ids within 200 bytes skip the
+        // char-count pass entirely on the hot path.
+        if distinct_id.len() <= 200 {
+            return Some(ExtractedDistinctId {
+                value: distinct_id,
+                truncated_from_chars: None,
+                trimmed_bytes,
+            });
+        }
+
+        let char_count = distinct_id.chars().count();
+        if char_count <= 200 {
+            // Over 200 bytes but not 200 chars: the historical
+            // `chars().take(200)` truncation never cut these, so they are
+            // not reported as truncated either.
+            return Some(ExtractedDistinctId {
+                value: distinct_id,
+                truncated_from_chars: None,
+                trimmed_bytes,
+            });
+        }
+
+        Some(ExtractedDistinctId {
+            value: distinct_id.chars().take(200).collect(),
+            truncated_from_chars: Some(char_count),
+            trimmed_bytes,
+        })
+    }
+
+    // Extracts the cookieless mode from the event properties. If the value is not
+    // present, it is assumed to be false, and if it is some invalid value then we
+    // return None.
+    pub fn extract_is_cookieless_mode(&self) -> Option<bool> {
+        match self.properties.get("$cookieless_mode") {
+            Some(Value::Bool(b)) => Some(*b),
+            Some(_) => None,
+            None => Some(false),
+        }
+    }
+
+    pub fn map_property<F>(&mut self, key: &str, f: F)
+    where
+        F: FnOnce(Value) -> Value,
+    {
+        if let Some(value) = self.properties.get_mut(key) {
+            *value = f(value.take());
+        }
+    }
+}
+
+impl EventWithLibraryInfo for RawEvent {
+    fn extract_library_info(&self) -> Option<LibraryInfo> {
+        LibraryInfo::from_properties(&self.properties)
+    }
+}
+
+impl CapturedEvent {
+    pub fn get_sent_at_as_rfc3339(&self) -> Option<String> {
+        self.sent_at
+            .map(|sa| sa.format(&Rfc3339).expect("is a valid datetime"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_distinct_id_whitespace_only_returns_none() {
+        for input in [" ", "\t\n", "   ", "\r\n\t "] {
+            let event = RawEvent {
+                distinct_id: Some(Value::String(input.to_string())),
+                ..Default::default()
+            };
+            assert_eq!(
+                event.extract_distinct_id(),
+                None,
+                "expected None for whitespace-only distinct_id: {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_extract_distinct_id_with_surrounding_whitespace_preserved() {
+        let event = RawEvent {
+            distinct_id: Some(Value::String("  hello  ".to_string())),
+            ..Default::default()
+        };
+        assert_eq!(event.extract_distinct_id(), Some("  hello  ".to_string()),);
+    }
+
+    #[test]
+    fn test_extract_distinct_id_normal_value() {
+        let event = RawEvent {
+            distinct_id: Some(Value::String("hello".to_string())),
+            ..Default::default()
+        };
+        assert_eq!(event.extract_distinct_id(), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn test_extract_distinct_id_checked_reports_truncation_only_when_chars_were_cut() {
+        // (input, expected value, expected truncated_from_chars)
+        let over_cap = "x".repeat(250);
+        // 150 chars of a 3-byte codepoint: 450 bytes but under the 200-char
+        // cap, so the value must pass through unmodified and unflagged.
+        let multibyte_under_cap = "\u{20AC}".repeat(150);
+        let multibyte_over_cap = "\u{20AC}".repeat(250);
+        let cases = [
+            ("short".to_string(), "short".to_string(), None),
+            ("y".repeat(200), "y".repeat(200), None),
+            (over_cap.clone(), over_cap[..200].to_string(), Some(250)),
+            (multibyte_under_cap.clone(), multibyte_under_cap, None),
+            (
+                multibyte_over_cap.clone(),
+                multibyte_over_cap.chars().take(200).collect(),
+                Some(250),
+            ),
+        ];
+
+        for (input, expected_value, expected_truncation) in cases {
+            let event = RawEvent {
+                distinct_id: Some(Value::String(input.clone())),
+                ..Default::default()
+            };
+            let extracted = event
+                .extract_distinct_id_checked()
+                .expect("id should extract");
+            assert_eq!(extracted.value, expected_value, "value for {input:.20?}");
+            assert_eq!(
+                extracted.truncated_from_chars, expected_truncation,
+                "truncation flag for {input:.20?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_captured_event_serialization_with_historical_migration_true() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(), // Ingestion time
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z") // Event time (earlier)
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: true,
+        };
+
+        let serialized = serde_json::to_string(&event).expect("Failed to serialize");
+        assert!(serialized.contains("\"historical_migration\":true"));
+
+        // Deserialize and verify
+        let deserialized: CapturedEvent =
+            serde_json::from_str(&serialized).expect("Failed to deserialize");
+        assert!(deserialized.historical_migration);
+    }
+
+    #[test]
+    fn test_captured_event_serialization_with_historical_migration_false() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T15:30:00Z".to_string(), // Ingestion time
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-02T15:25:00Z") // Event time (5 min earlier)
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let serialized = serde_json::to_string(&event).expect("Failed to serialize");
+        // Should not be in JSON when false (skip_serializing_if)
+        assert!(!serialized.contains("historical_migration"));
+
+        // Deserialize and verify - should default to false
+        let deserialized: CapturedEvent =
+            serde_json::from_str(&serialized).expect("Failed to deserialize");
+        assert!(!deserialized.historical_migration);
+    }
+
+    #[test]
+    fn test_captured_event_deserialization_without_historical_migration() {
+        let json = r#"{
+            "uuid": "00000000-0000-0000-0000-000000000000",
+            "distinct_id": "test_user",
+            "ip": "127.0.0.1",
+            "data": "{\"event\":\"test_event\"}",
+            "now": "2023-01-03T18:00:00Z",
+            "token": "test_token",
+            "event": "test_event",
+            "timestamp": "2023-01-03T17:45:00Z",
+            "is_cookieless_mode": false
+        }"#;
+
+        let deserialized: CapturedEvent =
+            serde_json::from_str(json).expect("Failed to deserialize");
+        // Should default to false when not present
+        assert!(!deserialized.historical_migration);
+    }
+
+    #[test]
+    fn test_to_headers_session_id_from_event() {
+        let event_with_session = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: Some("session123".to_string()),
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event","properties":{"$session_id":"session123"}}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let headers = event_with_session.to_headers();
+        assert_eq!(headers.session_id, Some("session123".to_string()));
+
+        let event_without_session = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let headers = event_without_session.to_headers();
+        assert_eq!(headers.session_id, None);
+    }
+
+    #[test]
+    fn test_to_headers_dlq_fields_default_to_none() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let headers = event.to_headers();
+        assert_eq!(headers.dlq_reason, None);
+        assert_eq!(headers.dlq_step, None);
+        assert_eq!(headers.dlq_timestamp, None);
+    }
+
+    #[test]
+    fn test_dlq_setters() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let mut headers = event.to_headers();
+        headers.set_dlq_reason("invalid_payload".to_string());
+        headers.set_dlq_step("tokenization".to_string());
+        headers.set_dlq_timestamp("2023-01-02T10:05:00Z".to_string());
+
+        assert_eq!(headers.dlq_reason, Some("invalid_payload".to_string()));
+        assert_eq!(headers.dlq_step, Some("tokenization".to_string()));
+        assert_eq!(
+            headers.dlq_timestamp,
+            Some("2023-01-02T10:05:00Z".to_string())
+        );
+    }
+
+    #[test]
+    fn test_dlq_fields_round_trip_through_owned_headers() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let mut headers = event.to_headers();
+        headers.set_dlq_reason("quota_exceeded".to_string());
+        headers.set_dlq_step("billing_check".to_string());
+        headers.set_dlq_timestamp("2023-01-02T10:05:00Z".to_string());
+
+        let owned: OwnedHeaders = headers.into();
+
+        // Verify the dlq keys are present in the raw Kafka headers
+        let dlq_keys: Vec<&str> = owned
+            .iter()
+            .filter(|h| h.key.starts_with("dlq_"))
+            .map(|h| h.key)
+            .collect();
+        assert_eq!(dlq_keys.len(), 3);
+
+        let recovered: CapturedEventHeaders = owned.into();
+
+        assert_eq!(recovered.dlq_reason, Some("quota_exceeded".to_string()));
+        assert_eq!(recovered.dlq_step, Some("billing_check".to_string()));
+        assert_eq!(
+            recovered.dlq_timestamp,
+            Some("2023-01-02T10:05:00Z".to_string())
+        );
+    }
+
+    #[test]
+    fn test_dlq_fields_absent_in_owned_headers_round_trip() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        // DLQ fields are None by default from to_headers()
+        let headers = event.to_headers();
+        let owned: OwnedHeaders = headers.into();
+
+        // Verify the dlq keys are not present in the raw Kafka headers at all
+        let dlq_keys: Vec<&str> = owned
+            .iter()
+            .filter(|h| h.key.starts_with("dlq_"))
+            .map(|h| h.key)
+            .collect();
+        assert!(
+            dlq_keys.is_empty(),
+            "Expected no dlq_* keys in OwnedHeaders, but found: {dlq_keys:?}"
+        );
+
+        let recovered: CapturedEventHeaders = owned.into();
+
+        assert_eq!(recovered.dlq_reason, None);
+        assert_eq!(recovered.dlq_step, None);
+        assert_eq!(recovered.dlq_timestamp, None);
+    }
+}

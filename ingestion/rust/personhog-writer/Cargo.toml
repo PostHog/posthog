@@ -1,0 +1,40 @@
+[package]
+name = "personhog-writer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+personhog-proto = { path = "../personhog-proto" }
+common-database = { package = "ingestion-common-database", path = "../common/database" }
+common-kafka = { package = "ingestion-common-kafka", path = "../common/kafka" }
+common-alloc = { package = "ingestion-common-alloc", path = "../common/alloc" }
+common-liveness = { package = "ingestion-common-liveness", path = "../common/liveness" }
+common-metrics = { package = "ingestion-common-metrics", path = "../common/metrics" }
+lifecycle = { package = "ingestion-lifecycle", path = "../common/lifecycle" }
+assignment-coordination = { path = "../common/assignment-coordination" }
+personhog-coordination = { path = "../personhog-coordination" }
+
+async-trait = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+envconfig = { workspace = true }
+futures = { workspace = true }
+metrics = { workspace = true }
+prost = { workspace = true }
+rdkafka = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+health = { package = "ingestion-health", path = "../common/health" }
+personhog-common = { path = "../personhog-common" }
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

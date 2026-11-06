@@ -1,0 +1,45 @@
+[package]
+name = "property-defs-rs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+envconfig = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+sqlx = { workspace = true }
+futures = { workspace = true }
+lifecycle = { package = "ingestion-lifecycle", path = "../common/lifecycle" }
+axum = { workspace = true }
+metrics = { workspace = true }
+chrono = { workspace = true }
+quick_cache = { workspace = true }
+common-database = { package = "ingestion-common-database", path = "../common/database" }
+common-metrics = { package = "ingestion-common-metrics", path = "../common/metrics" }
+common-alloc = { package = "ingestion-common-alloc", path = "../common/alloc" }
+common-continuous-profiling = { package = "ingestion-common-continuous-profiling", path = "../common/continuous_profiling" }
+common-kafka = { package = "ingestion-common-kafka", path = "../common/kafka" }
+ahash = { workspace = true }
+uuid = { workspace = true }
+rand = { workspace = true }
+anyhow = { workspace = true }
+personhog-proto = { path = "../personhog-proto" }
+tonic = { workspace = true }
+thiserror.workspace = true
+aho-corasick.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+tokio-stream = { version = "0.1", features = ["net"] }
+metrics-util = { workspace = true }
+rstest = "0.26"
+# Drives common_kafka's MockCluster in tests/producer_loop.rs, so the producer loop can be
+# exercised end to end without a broker.
+rdkafka = { workspace = true }
+
+[lints]
+workspace = true
