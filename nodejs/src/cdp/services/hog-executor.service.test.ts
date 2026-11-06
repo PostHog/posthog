@@ -12,7 +12,7 @@ import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { logger } from '~/common/utils/logger'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
-import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
+import { HogExecutorAsyncConfig, HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
 import { RecipientsManagerService } from '../../../src/cdp/services/managers/recipients-manager.service'
@@ -39,6 +39,7 @@ import {
 } from '../_tests/fixtures'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
 import { EncryptedFields } from '../utils/encryption-utils'
+import { secretOriginCheckCounter } from '../utils/secret-origins'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
@@ -67,7 +68,10 @@ describe('Hog Executor', () => {
     let executor: HogExecutorAsyncService
     let hub: Hub
 
-    const createExecutor = (encryptedFields: EncryptedFields): HogExecutorAsyncService => {
+    const createExecutor = (
+        encryptedFields: EncryptedFields,
+        configOverrides: Partial<HogExecutorAsyncConfig> = {}
+    ): HogExecutorAsyncService => {
         const hogInputsService = new HogInputsService(
             hub.integrationManager,
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
@@ -102,6 +106,7 @@ describe('Hog Executor', () => {
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
                 internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
+                ...configOverrides,
             },
             {
                 teamManager: hub.teamManager,
@@ -1805,6 +1810,150 @@ describe('Hog Executor', () => {
                 expect(mockRequest).not.toHaveBeenCalled()
                 expect(result.error).toBeInstanceOf(Error)
                 expect(result.error.message).toContain('secret_headers')
+            })
+        })
+
+        describe('secret origin check', () => {
+            const SECRET = 'sk_test_origin_0000000000'
+
+            const readCount = async (outcome: string, mode: string): Promise<number> => {
+                const metric = await secretOriginCheckCounter.get()
+                return metric.values.find((v) => v.labels.outcome === outcome && v.labels.mode === mode)?.value ?? 0
+            }
+
+            const secretInvocation = async (
+                url: string,
+                allowedOrigins: unknown,
+                carry: 'body' | 'secret_headers' = 'body',
+                secret: string = SECRET
+            ): Promise<CyclotronJobInvocationHogFunction> => {
+                const invocation = await createFetchInvocation({
+                    url,
+                    method: 'POST',
+                    body: carry === 'body' ? JSON.stringify({ key: secret }) : '{}',
+                    ...(carry === 'secret_headers' ? { secret_headers_input: 'api_key' } : {}),
+                })
+                const value = carry === 'body' ? secret : { Authorization: `Bearer ${secret}` }
+                invocation.hogFunction.encrypted_inputs = {
+                    api_key: allowedOrigins === undefined ? { value } : { value, allowed_origins: allowedOrigins },
+                } as any
+                return invocation
+            }
+
+            const enforcingExecutor = (): HogExecutorAsyncService =>
+                createExecutor(hub.encryptedFields, {
+                    secretOriginCheckMode: 'enforce',
+                    secretOriginCheckEnforceTeams: '*',
+                })
+
+            it.each([
+                { case: 'an allowed origin', allowed: 'own', carry: 'body', outcome: 'allowed' },
+                { case: 'another origin', allowed: ['https://elsewhere.example'], carry: 'body', outcome: 'mismatch' },
+                {
+                    case: 'another origin by secret header name',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'secret_headers',
+                    outcome: 'mismatch',
+                },
+                { case: 'an unbound secret', allowed: '*', carry: 'body', outcome: 'unbound' },
+                {
+                    case: 'a secret saved before binding',
+                    allowed: undefined,
+                    carry: 'body',
+                    outcome: 'unbound_missing',
+                },
+            ] as const)('observe: sends and counts $case', async ({ allowed, carry, outcome }) => {
+                const invocation = await secretInvocation(
+                    `${baseUrl}/`,
+                    allowed === 'own' ? [new URL(baseUrl).origin] : allowed,
+                    carry
+                )
+                const before = await readCount(outcome, 'observe')
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(mockRequest).toHaveBeenCalledTimes(1)
+                expect(result.error).toBeUndefined()
+                expect(await readCount(outcome, 'observe')).toBe(before + 1)
+            })
+
+            it.each([
+                {
+                    case: 'a mismatched body secret',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'body',
+                    sent: false,
+                },
+                {
+                    case: 'a mismatched secret header',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'secret_headers',
+                    sent: false,
+                },
+                { case: 'a secret saved before binding', allowed: undefined, carry: 'body', sent: true },
+                {
+                    case: 'a mismatched secret too short to scan for',
+                    allowed: [],
+                    carry: 'body',
+                    sent: true,
+                    secret: 'short',
+                },
+            ] as const)('enforce: $case is sent=$sent', async ({ allowed, carry, sent, ...row }) => {
+                const invocation = await secretInvocation(
+                    `${baseUrl}/`,
+                    allowed,
+                    carry,
+                    'secret' in row ? row.secret : SECRET
+                )
+
+                const result = await enforcingExecutor().executeFetch(invocation)
+
+                expect(mockRequest).toHaveBeenCalledTimes(sent ? 1 : 0)
+                if (sent) {
+                    expect(result.error).toBeUndefined()
+                } else {
+                    expect(result.finished).toBe(true)
+                    expect(result.logs.map((log) => log.message)).toEqual([
+                        expect.stringContaining('only be sent to the addresses saved with it'),
+                    ])
+                    expect(JSON.stringify(result.logs)).not.toContain(SECRET)
+                }
+            })
+
+            it.each([
+                { url: 'https://GOOD.example/path', sent: true },
+                { url: 'https://good.example./path', sent: true },
+                { url: 'https://good.example:443/path', sent: true },
+                { url: 'https://good.example@evil.example/path', sent: false },
+                { url: 'https://evil.example/?next=https://good.example', sent: false },
+                { url: 'http://good.example/path', sent: false },
+            ])('enforce: compares $url as the HTTP client resolves it', async ({ url, sent }) => {
+                const invocation = await secretInvocation(url, ['https://good.example'])
+                if (sent) {
+                    ;(fetch as jest.Mock).mockImplementationOnce(() =>
+                        Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
+                    )
+                }
+
+                const result = await enforcingExecutor().executeFetch(invocation)
+
+                expect(fetch).toHaveBeenCalledTimes(sent ? 1 : 0)
+                expect(result.error === undefined).toBe(sent)
+            })
+
+            it.each([
+                ['an undecrypted blob', 'gAAAAAB-not-decrypted'],
+                ['a null entry', { api_key: null }],
+                ['a non-text value', { api_key: { value: 12345, allowed_origins: [] } }],
+                ['a non-list allowed_origins', { api_key: { value: SECRET, allowed_origins: { bad: true } } }],
+            ])('enforce: sends when encrypted_inputs holds %s', async (_name, encryptedInputs) => {
+                const invocation = await secretInvocation(`${baseUrl}/`, undefined)
+                invocation.hogFunction.encrypted_inputs = encryptedInputs as any
+
+                const result = await enforcingExecutor().executeFetch(invocation)
+
+                expect(mockRequest).toHaveBeenCalledTimes(1)
+                expect(result.error).toBeUndefined()
             })
         })
 

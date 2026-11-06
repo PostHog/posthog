@@ -184,6 +184,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
+        | 'CDP_SECRET_ORIGIN_CHECK_MODE'
+        | 'CDP_SECRET_ORIGIN_CHECK_ENFORCE_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
@@ -527,6 +529,8 @@ export function createCdpCoreServices(
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
             siteUrl: config.SITE_URL,
             internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
+            secretOriginCheckMode: config.CDP_SECRET_ORIGIN_CHECK_MODE,
+            secretOriginCheckEnforceTeams: config.CDP_SECRET_ORIGIN_CHECK_ENFORCE_TEAMS,
         },
         {
             teamManager: deps.teamManager,
