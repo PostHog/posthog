@@ -642,7 +642,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                         b.harnesses,
                     ])}
                     loading={failureBucketsLoading}
-                    emptyMessage={`No errored calls for this tool in ${dateRangeLabel}.`}
+                    emptyMessage={`No errored calls for this tool (${dateRangeLabel}).`}
                     onRowClick={(i) => selectFailure(failureBuckets[i] ?? null)}
                     columns={[
                         {
@@ -845,7 +845,7 @@ function FailureOccurrencesModal(): JSX.Element {
                     Failures: <span className="font-mono">{selectedFailure?.message}</span>
                 </span>
             }
-            description={`The most recent calls with this error, up to 50, in ${dateRangeLabel}. Copy a call's context to hand it to a coding agent.`}
+            description={`The most recent calls with this error, up to 50 (${dateRangeLabel}). Copy a call's context to hand it to a coding agent.`}
             footer={
                 selectedFailure ? (
                     <CreateFixTaskButton
@@ -865,7 +865,7 @@ function FailureOccurrencesModal(): JSX.Element {
             <ResultTable
                 rows={failureOccurrences.map((o) => [o.timestamp, o.harness, o.error_message, o])}
                 loading={failureOccurrencesLoading}
-                emptyMessage={`No calls with this error in ${dateRangeLabel}.`}
+                emptyMessage={`No calls with this error (${dateRangeLabel}).`}
                 columns={[
                     { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
                     { header: 'Harness', render: (r) => <span>{String(r[1] ?? '') || '—'}</span> },
