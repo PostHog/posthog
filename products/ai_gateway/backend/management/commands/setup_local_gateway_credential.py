@@ -23,11 +23,12 @@ from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
-from posthog.management.commands.llm_gateway_team import _resolve_team
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import hash_key_value, mask_key_value
 from posthog.storage.gateway_credential_cache import project_gateway_credential
+
+from products.ai_gateway.backend.management.commands.llm_gateway_team import _resolve_team
 
 _LABEL = "local-gateway-e2e"
 _SCOPES = ["llm_gateway:read"]
