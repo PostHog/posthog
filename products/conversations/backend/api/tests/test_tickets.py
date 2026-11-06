@@ -979,7 +979,7 @@ class TestTicketAPI(APIBaseTest):
 
         # Person reads go through personhog, so both page sizes should use the same database queries.
         for limit in (2, 3):
-            with self.subTest(limit=limit), self.assertNumQueries(9):
+            with self.subTest(limit=limit), self.assertNumQueries(7):
                 response = self.client.get(f"{list_url}?limit={limit}")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(response.json()["count"], 3)
