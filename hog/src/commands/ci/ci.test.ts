@@ -67,7 +67,9 @@ describe('hog ci setup', () => {
         expect(run.json()).toMatchObject({
             status: 'pending',
             url: CREATED.approval_url,
-            approver: 'an organization admin (Olive Owner)',
+            approver: 'an organization admin',
+            approverNames: ['Olive Owner'],
+            instructions: expect.not.stringContaining('Olive'),
             next: 'hog ci setup --wait',
             snippet: expect.stringContaining(`HOG_PROJECT_ID: 7`),
         })
@@ -124,6 +126,29 @@ describe('hog ci setup', () => {
         expect(run.requests.filter((request) => request.url === REQUESTS && request.method === 'POST')).toHaveLength(
             created - 1
         )
+    })
+
+    test('--wait after the deadline still picks up an approval that came in before it', async () => {
+        const first = await setup(['--branch', 'main', '--scope', 'query:read'], { respond: policyApi() })
+        const pending = readJson(first.files[PENDING_FILE] ?? '{}', z.object({}).loose())
+        const files = { ...first.files, [PENDING_FILE]: JSON.stringify({ ...pending, expiresAt: 0 }) }
+
+        const run = await runHog(['ci', 'setup', '--wait'], { env: TEST_CREDENTIALS, files, respond: policyApi() })
+
+        expect(run.exitCode).toBe(0)
+        expect(PENDING_FILE in run.files).toBe(false)
+    })
+
+    test('--wait keeps the request when a gateway answers with an HTML error page', async () => {
+        const first = await setup(['--branch', 'main', '--scope', 'query:read'], { respond: policyApi() })
+        const run = await runHog(['ci', 'setup', '--wait'], {
+            env: TEST_CREDENTIALS,
+            files: first.files,
+            respond: () => ({ status: 502, body: '<html>Bad gateway</html>' }),
+        })
+
+        expect(run.error().code).toBe('policy_request_interrupted')
+        expect(PENDING_FILE in run.files).toBe(true)
     })
 
     test('--wait gives up after a while and keeps the request for the next --wait', async () => {

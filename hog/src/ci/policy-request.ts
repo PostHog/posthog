@@ -13,7 +13,7 @@ const POLL_INTERVAL_SECONDS = 5
 // A request stays open for a day, so one wait stops well before that.
 const MAX_WAIT_MS = 10 * 60_000
 
-const ResolvedSubject = z.object({ subject: z.string(), subject_name: z.string(), found_via: z.string() })
+const ResolvedSubject = z.object({ subject: z.string(), subject_name: z.string() })
 
 export type ResolvedSubject = z.output<typeof ResolvedSubject>
 
@@ -129,15 +129,17 @@ export function policyRequestFlow(
                 ? { ...existing, canApprove: current.can_approve, approvers: current.approvers }
                 : undefined
         },
-        approver: (pending) =>
-            pending.canApprove
-                ? undefined
-                : `an organization admin${pending.approvers.length > 0 ? ` (${pending.approvers.join(', ')})` : ''}`,
+        approver: (pending) => (pending.canApprove ? undefined : 'an organization admin'),
+        approverNames: (pending) => pending.approvers,
     }
 }
 
-function readRequest(api: PostHogApi, pending: PendingPolicyRequest): Promise<z.output<typeof PolicyRequest>> {
-    return api.get(`${requestsPath(pending.projectId)}${pending.requestId}/`, PolicyRequest)
+function readRequest(
+    api: PostHogApi,
+    pending: PendingPolicyRequest,
+    timeoutMs?: number
+): Promise<z.output<typeof PolicyRequest>> {
+    return api.get(`${requestsPath(pending.projectId)}${pending.requestId}/`, PolicyRequest, { timeoutMs })
 }
 
 export function policyRequestWait(
@@ -158,8 +160,8 @@ export function policyRequestWait(
                 )
             }
         },
-        poll: async (pending): Promise<PollOutcome<ApprovedPolicy>> => {
-            const current = await readRequest(api, pending)
+        poll: async (pending, timeoutMs): Promise<PollOutcome<ApprovedPolicy>> => {
+            const current = await readRequest(api, pending, timeoutMs)
             switch (current.status) {
                 case 'pending':
                     return { state: 'pending' }
