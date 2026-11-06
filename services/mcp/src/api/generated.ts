@@ -14320,7 +14320,7 @@ export namespace Schemas {
     }
 
     export interface AnomalyInsightResponse {
-      /** Whether anomaly scoring scores this project now. False when scoring does not cover the project, or when the project turned it off in its self-driving settings. Scores written before scoring was turned off are still returned. */
+      /** Whether anomaly scoring scores this project now. False when scoring does not cover the project, or when the project turned it off in its Product analytics source. Scores written before scoring was turned off are still returned. */
       scoring_enabled: boolean;
       /** The numeric id of the insight. */
       insight_id: number;
@@ -14512,7 +14512,7 @@ export namespace Schemas {
     }
 
     export interface AnomalySearchResponse {
-      /** Whether anomaly scoring scores this project now. False when scoring does not cover the project, or when the project turned it off in its self-driving settings. Scores written before scoring was turned off are still returned. */
+      /** Whether anomaly scoring scores this project now. False when scoring does not cover the project, or when the project turned it off in its Product analytics source. Scores written before scoring was turned off are still returned. */
       scoring_enabled: boolean;
       /** Active insights that scoring checks: saved trends insights that a person viewed, that sit on a dashboard someone opened, or that were edited in the active window (90 days by default), or that have an enabled alert or subscription. */
       watched_insights: number;
@@ -108136,7 +108136,7 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       implementation_repositories?: string[];
-      /** Legacy off switch for anomaly scoring. The Product analytics source (analytics / anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores this project's active trends insights and writes the results as $anomaly_score events, which are not billed. True by default. False still stops new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
+      /** Whether anomaly scoring runs while the Product analytics source (analytics / anomaly_investigation) is on. Scoring checks this project's active trends insights for anomalies and writes the results as $anomaly_score events, which are not billed. True by default. False stops new scores and keeps alert signals; events written before stay. Turning the source off stops scoring whatever this value is, and turning the source on again keeps this value. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
       anomaly_scoring_enabled?: boolean;
       /** Whether the anomaly scoring rollout covers this project. PostHog decides which projects it covers. A covered project is scored only while its Product analytics source is on. */
       readonly anomaly_scoring_available: boolean;
