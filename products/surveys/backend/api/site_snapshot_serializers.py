@@ -1,12 +1,16 @@
 from rest_framework import serializers
 
-from products.surveys.backend.site_snapshot import SnapshotDevice, SnapshotStatus
+from products.surveys.backend.site_snapshot import DEVICE_VIEWPORTS, SnapshotDevice, SnapshotStatus
 
 
 class SiteSnapshotQuerySerializer(serializers.Serializer):
     device = serializers.ChoiceField(
         choices=SnapshotDevice.choices,
-        help_text="Which viewport to show. Desktop picks a page viewed in a window at least 1024px wide, mobile one at most 767px wide.",
+        help_text=(
+            f"Which viewport to show. Desktop picks a page viewed in a window at least "
+            f"{DEVICE_VIEWPORTS[SnapshotDevice.DESKTOP].min_width}px wide, mobile one at most "
+            f"{DEVICE_VIEWPORTS[SnapshotDevice.MOBILE].max_width}px wide."
+        ),
     )
 
 
