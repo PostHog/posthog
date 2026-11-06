@@ -68,6 +68,7 @@ jobs:
                           - '!products/mobile/**/*.md'
                           - '.github/workflows/mobile-ci.yml'
                       api_types:
+                          - 'products/posthog_ai/frontend/generated/api.schemas.ts'
                           - 'products/signals/frontend/generated/api.schemas.ts'
                           - 'products/error_tracking/frontend/generated/api.schemas.ts'
 
@@ -94,6 +95,7 @@ jobs:
                   persist-credentials: false
                   sparse-checkout: |
                       products/mobile
+                      products/posthog_ai/frontend/generated/api.schemas.ts
                       products/signals/frontend/generated/api.schemas.ts
                       products/error_tracking/frontend/generated/api.schemas.ts
                   sparse-checkout-cone-mode: false

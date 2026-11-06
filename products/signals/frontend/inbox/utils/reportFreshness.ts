@@ -48,5 +48,7 @@ export function keepRowFieldsWrittenDuringFetch<T extends ReportCopy>(
     }
     const beforeById = new Map(before.map((row) => [row.id, row]))
     const currentById = new Map(current.map((row) => [row.id, row]))
-    return fetched.map((row) => keepFieldsWrittenDuringFetch(row, beforeById.get(row.id), currentById.get(row.id)))
+    return fetched
+        .filter((row) => !beforeById.has(row.id) || currentById.has(row.id))
+        .map((row) => keepFieldsWrittenDuringFetch(row, beforeById.get(row.id), currentById.get(row.id)))
 }

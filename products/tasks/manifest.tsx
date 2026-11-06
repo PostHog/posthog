@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -28,18 +30,20 @@ export const manifest: ProductManifest = {
     routes: {
         '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
         '/spaces': ['TaskSpaces', 'taskSpaces'],
-        // Before `/spaces/:id`, so the router does not read `new` as a space id.
-        '/spaces/new': ['TaskNewSession', 'taskNewSession'],
+        '/ai/new': ['TaskNewSession', 'taskNewSession'],
         '/spaces/:id': ['TaskSpace', 'taskSpace'],
         '/spaces/:id/canvases': ['TaskSpace', 'taskSpaceCanvases'],
         '/spaces/:id/new': ['TaskNewSession', 'taskSpaceNewSession'],
         '/spaces/:id/settings': ['TaskSpace', 'taskSpaceSettings'],
     },
-    redirects: {},
+    redirects: {
+        '/spaces/new': (_params, searchParams, hashParams): string =>
+            combineUrl('/ai/new', searchParams, hashParams).url,
+    },
     urls: {
         slackTaskContext: (): string => '/slack-task-context',
         taskSpaces: (): string => '/spaces',
-        taskNewSession: (): string => '/spaces/new',
+        taskNewSession: (): string => '/ai/new',
         taskSpace: (id: string): string => `/spaces/${id}`,
         taskSpaceCanvases: (id: string): string => `/spaces/${id}/canvases`,
         taskSpaceNewSession: (id: string): string => `/spaces/${id}/new`,

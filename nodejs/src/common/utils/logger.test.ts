@@ -1,3 +1,5 @@
+import { TraceFlags, trace } from '@opentelemetry/api'
+
 import { Logger } from './logger'
 
 describe('Logger', () => {
@@ -56,6 +58,31 @@ describe('Logger', () => {
                 "another": [Error: another error],
                 "error": [Error: nested error],
                 "msg": "[TEST] Errored!!!",
+              },
+            ]
+        `)
+    })
+
+    it('should add the active trace context', () => {
+        const getActiveSpan = jest.spyOn(trace, 'getActiveSpan').mockReturnValue(
+            trace.wrapSpanContext({
+                traceId: '0af7651916cd43dd8448eb211c80319c',
+                spanId: 'b7ad6b7169203331',
+                traceFlags: TraceFlags.SAMPLED,
+            })
+        )
+        try {
+            logger.info('test', { extra: 'extra' })
+        } finally {
+            getActiveSpan.mockRestore()
+        }
+        expect(jest.mocked(logger['pino'].info).mock.lastCall).toMatchInlineSnapshot(`
+            [
+              {
+                "extra": "extra",
+                "msg": "[TEST] test",
+                "span_id": "b7ad6b7169203331",
+                "trace_id": "0af7651916cd43dd8448eb211c80319c",
               },
             ]
         `)

@@ -1574,6 +1574,54 @@ class TestWebhookOnlyResponseWiring:
         assert response.webhook_only is False
         manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
 
+    @parameterized.expand(
+        [
+            ("listing_without_cursor", CUSTOMER_RESOURCE_NAME, False, True, False, None, "full_refresh"),
+            ("incremental_without_value", CUSTOMER_RESOURCE_NAME, False, True, True, None, "full_refresh"),
+            ("cursor_poll", CUSTOMER_RESOURCE_NAME, False, True, True, 1700000000, "incremental"),
+            (
+                "nested_lists_every_parent",
+                CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+                False,
+                True,
+                True,
+                1700000000,
+                "full_refresh",
+            ),
+            ("webhook_only_endpoint", DISCOUNT_RESOURCE_NAME, False, True, False, None, None),
+            ("webhook_present_or_poll_by_design", CUSTOMER_RESOURCE_NAME, False, False, False, None, None),
+            ("webhook_active", CUSTOMER_RESOURCE_NAME, True, False, False, None, None),
+        ]
+    )
+    def test_records_webhook_fallback(
+        self,
+        _name: str,
+        endpoint: str,
+        enabled: bool,
+        webhook_missing: bool,
+        should_use_incremental_field: bool,
+        last_value: int | None,
+        expected: str | None,
+    ) -> None:
+        manager = self._make_manager(enabled=enabled)
+        manager.webhook_missing = webhook_missing
+        stripe_module.stripe_source(
+            api_key="sk_test_123",
+            account_id=None,
+            endpoint=endpoint,
+            db_incremental_field_last_value=last_value,
+            db_incremental_field_earliest_value=last_value,
+            logger=MagicMock(adebug=mock.AsyncMock()),
+            resumable_source_manager=MagicMock(can_resume=MagicMock(return_value=False)),
+            webhook_source_manager=manager,
+            api_version=STRIPE_API_VERSION_ACACIA,
+            should_use_incremental_field=should_use_incremental_field,
+        )
+        if expected is None:
+            manager.record_webhook_fallback.assert_not_awaited()
+        else:
+            manager.record_webhook_fallback.assert_awaited_once_with(expected)
+
     def test_discount_partitions_on_start_not_created(self) -> None:
         # Discount objects carry `start`/`end`, not `created`. If the incremental-field entry is
         # dropped the partition key falls back to "created" and the Delta partitioner KeyErrors on
