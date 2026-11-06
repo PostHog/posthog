@@ -22,6 +22,11 @@ SCREEN = ExposureSegmentDimension.SCREEN
 MISMATCH = "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001)."
 NO_LOCATION = f"{MISMATCH} This may indicate issues with randomization or data collection."
 NEXT_STEP = "Check that the code there sends the exposure for every user in every variant."
+OWN_PAGE = (
+    "When each variant has its own page or site, users who leave before their variant's exposure is sent are missing "
+    "from that variant, which can cause this. Send the exposure at the same point in every variant, before any "
+    "redirect."
+)
 
 
 def _segment(dimension: ExposureSegmentDimension, value: str, control: int, test: int) -> ExposureSegment:
@@ -140,6 +145,30 @@ class TestSrmSegments(TestCase):
                 ),
                 "screen",
                 f'{MISMATCH} The mismatch comes from users first exposed on the screen "Checkout". {NEXT_STEP}',
+            ),
+            (
+                "a_page_that_one_variant_reaches",
+                (
+                    _segment(LIBRARY, "web", 600, 900),
+                    _segment(PAGE, "/plans", 595, 405),
+                    _segment(PAGE, "/plans-redesign", 5, 495),
+                ),
+                "variant_segments",
+                f'{MISMATCH} Users first exposed on the page "/plans-redesign" are almost all in "test", so the '
+                f"variants send their exposures from different places. {OWN_PAGE}",
+            ),
+            (
+                "the_largest_page_of_each_variant",
+                (
+                    _segment(LIBRARY, "web", 600, 900),
+                    _segment(PAGE, "/tour", 390, 5),
+                    _segment(PAGE, "/tour-fr", 200, 5),
+                    _segment(PAGE, "/tour-new", 10, 890),
+                ),
+                "variant_segments",
+                f'{MISMATCH} Users first exposed on the page "/tour-new" are almost all in "test", and users first '
+                f'exposed on the page "/tour" are almost all in "control", so the variants send their exposures from '
+                f"different places. {OWN_PAGE}",
             ),
             (
                 "the_same_skew_everywhere",

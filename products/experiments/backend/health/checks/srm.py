@@ -59,6 +59,11 @@ UNIFORM_SEGMENT_MINIMUM_SIZE = 1000
 SEGMENT_LABEL_MAX_LENGTH = 60
 # The detail names the located segments furthest from the split, up to this many.
 NAMED_SEGMENTS = 2
+# A one-variant segment must also fail the test on its own, so that a skewed split doesn't produce one by chance.
+ONE_VARIANT_SHARE = 0.95
+# Below this share of its expected count, a variant's exposure is missing everywhere, and the segments that the other
+# variants fill are a symptom of that.
+BARELY_EXPOSED_SHARE = 0.1
 
 # pinned: the subcode is sent as `finding_subcode` on the health finding events, so insights group on it.
 SPLIT_CHANGED = "split_changed"
@@ -70,6 +75,7 @@ class SrmReason(StrEnum):
     LIBRARY_VERSION = ExposureSegmentDimension.LIBRARY_VERSION.value
     PAGE = ExposureSegmentDimension.PAGE.value
     SCREEN = ExposureSegmentDimension.SCREEN.value
+    VARIANT_SEGMENTS = "variant_segments"
     UNIFORM = "uniform"
 
 
@@ -500,7 +506,7 @@ class _SegmentCause:
 def _segment_cause(exposures: ExposureTotals, unit: str) -> _SegmentCause:
     tests = _segment_tests(exposures)
     verdicts = [_verdict(tests, dimension, exposures.sample_ratio_expected) for dimension in ExposureSegmentDimension]
-    sentences, reason = _cause(verdicts, unit)
+    sentences, reason = _cause(verdicts, _variant_segments(tests, exposures), unit)
     evidence = _segment_evidence(tests, verdicts)
     located = _located(verdicts)
     if located:
@@ -563,7 +569,34 @@ def _share_off_split(exposed_by_variant: Mapping[str, int], weights: Mapping[str
     )
 
 
-def _cause(verdicts: list[_Verdict], unit: str) -> tuple[list[str], SrmReason | None]:
+def _variant_segments(tests: list[_SegmentTest], exposures: ExposureTotals) -> list[tuple[ExposureSegment, str]]:
+    """The segments that one variant fills, each with its variant, the largest segment of each variant first. Empty
+    when a variant is barely exposed at all."""
+    expected = exposures.sample_ratio_expected
+    if any(
+        exposures.total_exposures.get(variant, 0) < BARELY_EXPOSED_SHARE * count for variant, count in expected.items()
+    ):
+        return []
+    total_expected = sum(expected.values())
+    found: dict[str, ExposureSegment] = {}
+    for test in tests:
+        segment = test.segment
+        failing = test.p_value is not None and test.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+        if not failing or segment.value == BREAKDOWN_OTHER_STRING_LABEL:
+            continue
+        compared = sum(segment.exposed_by_variant.get(variant, 0) for variant in expected)
+        variant = max(expected, key=lambda key: segment.exposed_by_variant.get(key, 0))
+        if (
+            segment.exposed_by_variant.get(variant, 0) >= ONE_VARIANT_SHARE * compared
+            and expected[variant] < ONE_VARIANT_SHARE * total_expected
+        ):
+            found.setdefault(variant, segment)
+    return [(segment, variant) for variant, segment in found.items()][:NAMED_SEGMENTS]
+
+
+def _cause(
+    verdicts: list[_Verdict], variant_segments: list[tuple[ExposureSegment, str]], unit: str
+) -> tuple[list[str], SrmReason | None]:
     """The sentences that follow the mismatch, and the finding's reason. Empty without a verdict."""
     named = _without_libraries_of_located_versions(_located(verdicts))[:NAMED_SEGMENTS]
     if named:
@@ -572,6 +605,16 @@ def _cause(verdicts: list[_Verdict], unit: str) -> tuple[list[str], SrmReason | 
             f"The mismatch comes from {places}.",
             f"Check that the code there sends the exposure for every {unit} in every variant.",
         ], SrmReason(named[0].dimension.value)
+    if variant_segments:
+        filled = ", and ".join(
+            f'{unit}s {_segment_place(segment)} are almost all in "{variant}"' for segment, variant in variant_segments
+        )
+        return [
+            f"{filled[0].upper()}{filled[1:]}, so the variants send their exposures from different places.",
+            f"When each variant has its own page or site, {unit}s who leave before their variant's exposure is sent "
+            "are missing from that variant, which can cause this.",
+            "Send the exposure at the same point in every variant, before any redirect.",
+        ], SrmReason.VARIANT_SEGMENTS
     compared = {
         verdict.dimension: verdict.homogeneity_p_value
         for verdict in verdicts
