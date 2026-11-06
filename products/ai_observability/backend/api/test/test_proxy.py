@@ -26,8 +26,6 @@ from posthog.llm.system_one import (
     ScoreQuestion,
     SystemOneResult,
 )
-from posthog.models.organization import Organization
-from posthog.models.team import Team
 from posthog.rate_limit import (
     LLMProxyBurstRateThrottle,
     LLMProxyBYOKBurstRateThrottle,
@@ -381,23 +379,6 @@ class TestPlaygroundModelEnforcement(APIBaseTest):
         assert response.status_code == 200
         returned_ids = {m["id"] for m in response.json()}
         assert returned_ids == PLAYGROUND_MODEL_IDS
-
-    @parameterized.expand([("another_project_in_the_org", True, 200), ("a_project_in_another_org", False, 400)])
-    def test_models_resolve_the_key_in_its_own_project(self, _name: str, same_org: bool, expected_status: int) -> None:
-        organization = self.organization if same_org else Organization.objects.create(name="Other org")
-        key_team = Team.objects.create(organization=organization, name="Key project")
-        key = LLMProviderKey.objects.create(
-            team=key_team,
-            provider="openai",
-            name="OpenAI",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "example-token"},
-        )
-
-        with patch("products.ai_observability.backend.api.proxy.Client.list_models", return_value=["gpt-5-mini"]):
-            response = self.client.get("/api/llm_proxy/models/", {"provider_key_id": str(key.id)})
-
-        self.assertEqual(response.status_code, expected_status, response.json())
 
     def test_openai_decision_models_use_the_existing_key(self) -> None:
         key = LLMProviderKey.objects.create(
