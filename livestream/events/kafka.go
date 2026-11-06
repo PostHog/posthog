@@ -326,8 +326,7 @@ func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
 	}
 }
 
-// captureOptionOverrides lists the capture v1 option keys that override the
-// matching event property. The key names are the capture contract.
+// The option keys are the capture v1 contract and must match what capture publishes.
 var captureOptionOverrides = []struct {
 	key      string
 	property string
@@ -341,9 +340,6 @@ var captureOptionOverrides = []struct {
 	{"process_person_profile", "$process_person_profile", true},
 }
 
-// applyCaptureOptions skips values with the wrong type. It fills $lib and
-// $lib_version from req_lib and req_lib_version only when the event has no $lib,
-// and $lib_version alone when $lib already equals req_lib.
 func applyCaptureOptions(options CaptureOptions, properties map[string]interface{}) {
 	for _, o := range captureOptionOverrides {
 		switch value := options[o.key].(type) {
