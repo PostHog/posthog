@@ -88,10 +88,11 @@ export function AIObservabilityDatasetsScene({ navigation }: { navigation?: Reac
         {
             title: 'Status',
             key: 'status',
+            width: 112,
             render: function renderStatus(_, dataset) {
                 return (
-                    <LemonTag type={dataset.archived ? 'muted' : 'success'}>
-                        {dataset.archived ? 'Archived' : 'Active'}
+                    <LemonTag type={dataset.expiring_soon ? 'warning' : dataset.archived ? 'muted' : 'success'}>
+                        {dataset.expiring_soon ? 'Expiring soon' : dataset.archived ? 'Archived' : 'Active'}
                     </LemonTag>
                 )
             },

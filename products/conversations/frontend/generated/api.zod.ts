@@ -228,6 +228,16 @@ export const ConversationsTicketsAiHumanOutcomeCreateBody = /* @__PURE__ */ zod
     .describe('Payload for recording whether a human adopted an AI draft.')
 
 /**
+ * Upload a file to put in a reply to this ticket.
+ *
+ * Images are validated and shown inline. Other files are stored as they are and
+ * served as a download. Widget tickets do not accept file attachments yet.
+ */
+export const ConversationsTicketsAttachmentsCreateBody = /* @__PURE__ */ zod.object({
+    file: zod.instanceof(File).describe('File to attach. Must be under 20 MiB.'),
+})
+
+/**
  * Add a private note to a ticket.
  *
  * The note is visible to your team only. The request has no privacy field, so this

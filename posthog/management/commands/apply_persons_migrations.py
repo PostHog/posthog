@@ -5,6 +5,10 @@ persons database identified by PERSONS_DB_WRITER_URL. Hobby deploys keep persons
 main database and skip the partitioning migrations (via --hobby); local dev and
 production apply all migrations.
 
+Hobby deploys also apply rust/persons_migrations_hobby/, in filename order alongside the
+main directory. Those files give the unpartitioned tables what the partitioning migrations
+give production, and no other runner reads that directory.
+
 Tracks applied migrations in a _persons_migrations_applied table so each
 migration is only executed once. Also bridges the sqlx _sqlx_migrations
 tracking table so that environments transitioning from sqlx don't re-apply
@@ -254,7 +258,13 @@ class Command(BaseCommand):
         parser.add_argument(
             "--hobby",
             action="store_true",
-            help="Skip partitioning migrations (for hobby deploys where posthog_person is not partitioned).",
+            help="Skip partitioning migrations and apply the hobby-only migrations (for hobby deploys where posthog_person is not partitioned).",
+        )
+        parser.add_argument(
+            "--hobby-migrations-dir",
+            type=str,
+            default=None,
+            help="Path to the hobby-only migrations directory, applied with --hobby. Defaults to rust/persons_migrations_hobby/ relative to BASE_DIR.",
         )
         parser.add_argument(
             "--ensure-database",
@@ -270,8 +280,15 @@ class Command(BaseCommand):
         if options["ensure_database"] and not dry_run:
             _ensure_database_exists(persons_url)
 
-        migrations_path = self._resolve_migrations_dir(options["migrations_dir"])
-        sql_files = sorted(f for f in migrations_path.iterdir() if f.suffix == ".sql")
+        migrations_path = self._resolve_migrations_dir(options["migrations_dir"], "persons_migrations")
+        sql_files = [f for f in migrations_path.iterdir() if f.suffix == ".sql"]
+        if hobby:
+            hobby_path = self._resolve_migrations_dir(options["hobby_migrations_dir"], "persons_migrations_hobby")
+            sql_files += [f for f in hobby_path.iterdir() if f.suffix == ".sql"]
+            names = [f.name for f in sql_files]
+            if len(names) != len(set(names)):
+                raise CommandError("A hobby migration shares its filename with a main persons migration.")
+        sql_files.sort(key=lambda f: f.name)
         if not sql_files:
             self.stdout.write("No SQL migration files found.")
             return
@@ -326,11 +343,11 @@ class Command(BaseCommand):
             )
         )
 
-    def _resolve_migrations_dir(self, override: str | None) -> Path:
+    def _resolve_migrations_dir(self, override: str | None, default_name: str) -> Path:
         if override:
             path = Path(override)
         else:
-            path = Path(settings.BASE_DIR) / "rust" / "persons_migrations"
+            path = Path(settings.BASE_DIR) / "rust" / default_name
 
         if not path.is_dir():
             raise CommandError(f"Migrations directory not found: {path}")

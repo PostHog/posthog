@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import time_machine
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -21,6 +22,8 @@ from products.experiments.backend.hogql_queries.precompute_policy import (
 )
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
+_POLICY_MODULE = "products.experiments.backend.hogql_queries.precompute_policy"
 
 
 class TestPrecomputationDurationGate:
@@ -107,11 +110,16 @@ class TestUncalculatedCohortGate(ExperimentQueryRunnerBaseTest):
 
         metric = ExperimentMeanMetric(source=EventsNode(event="purchase"))
         query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+
         runner = ExperimentQueryRunner(query=query, team=self.team)
+        with patch(f"{_POLICY_MODULE}.has_uncalculated_cohorts", wraps=has_uncalculated_cohorts) as cohort_check:
+            runner.calculate()
+        assert cohort_check.call_count == 1
         assert runner._exposures_precompute_applicable() is False
         assert runner._precompute_skip_reason() == "cohort_not_calculated"
 
         Cohort.objects.filter(pk=cohort.pk).update(version=1, is_calculating=False)
+        runner = ExperimentQueryRunner(query=query, team=self.team)
         assert runner._exposures_precompute_applicable() is True
         assert runner._precompute_skip_reason() is None
 

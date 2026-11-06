@@ -631,14 +631,14 @@ export class SandboxEmailSender {
         }
         const { team: dailyTeamCap, recipient: dailyRecipientCap } = this.dailyCaps
         const addresses = deliveredCopiesByAddress(recipients)
-        let claim: Awaited<ReturnType<RateLimiterService['claimAllOrNothing']>>
+        let claim: Awaited<ReturnType<RateLimiterService['claimAllBuckets']>>
         try {
             const team = await this.teamManager.getTeam(teamId)
             if (!team) {
                 return { type: 'check_failed' }
             }
             const prefix = dailyCapKeyPrefix(team.organization_id)
-            claim = await this.dailyCapLimiter.claimAllOrNothing([
+            claim = await this.dailyCapLimiter.claimAllBuckets([
                 dailyBucket(`${prefix}/project/${teamId}`, recipients.length, dailyTeamCap),
                 ...addresses.map(({ address, copies }) =>
                     dailyBucket(`${prefix}/recipient/${addressDigest(address)}`, copies, dailyRecipientCap)
