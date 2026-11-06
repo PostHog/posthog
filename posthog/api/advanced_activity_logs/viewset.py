@@ -3,6 +3,7 @@ import json
 import hashlib
 import logging
 from datetime import datetime
+from functools import cached_property
 from typing import Any, Optional, cast, get_args
 from urllib.parse import urlencode
 
@@ -39,7 +40,7 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.source_authentication import get_export_source_authentication
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
-from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
+from .filters import AdvancedActivityLogFilterManager, filters_match_change_values, validate_detail_filters
 from .ocsf import ActivityLogOCSFSerializer
 
 ACTIVITY_LOG_ORDERING_DESCENDING = "-created_at"
@@ -692,10 +693,26 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
         return super().get_serializer_class()
 
+    @cached_property
+    def property_value_visibility(self) -> PropertyValueVisibility:
+        return PropertyValueVisibility(self.request.user)
+
     def get_serializer_context(self):
         context = super().get_serializer_context()
         context["include_values"] = bool(self._validated_query_params().get("include_values"))
+        self.property_value_visibility.add_to_serializer_context(context)
         return context
+
+    def _exclude_hidden_group_values_from_value_filters(
+        self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]
+    ) -> QuerySet[ActivityLog]:
+        # Masking happens at serialization, so value filters must not match entries whose values are hidden.
+        if not filters_match_change_values(filters):
+            return queryset
+        hidden_names = self.property_value_visibility.hidden_group_property_names(self.team_id, self.organization.id)
+        if not hidden_names:
+            return queryset
+        return queryset.exclude(scope="Group", detail__name__in=hidden_names)
 
     @extend_schema(parameters=[AdvancedActivityLogFiltersSerializer])
     def list(self, request, *args, **kwargs):
@@ -703,6 +720,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
         queryset = self.get_queryset()
         queryset = self.filter_manager.apply_filters(queryset, filters)
+        queryset = self._exclude_hidden_group_values_from_value_filters(queryset, filters)
 
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -846,6 +864,12 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
         queryset = restrict_canvas_activity_for_org(queryset, self.organization.id, self.request.user)
 
         return queryset.order_by(*activity_log_ordering(self.request))
+
+    def _exclude_hidden_group_values_from_value_filters(
+        self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]
+    ) -> QuerySet[ActivityLog]:
+        # Only organization admins reach this endpoint, and property access control does not apply to them.
+        return queryset
 
     @action(detail=False, methods=["POST"])
     def export(self, request, **kwargs):  # type: ignore[override]

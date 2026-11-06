@@ -37,9 +37,7 @@ class PropertyValueVisibility:
         changes = detail.get("changes")
         if not isinstance(name, str) or not isinstance(changes, list):
             return detail
-        if self._is_organization_admin(entry.organization_id):
-            return detail
-        if name not in self._restricted_group_property_names(entry.team_id):
+        if name not in self.hidden_group_property_names(entry.team_id, entry.organization_id):
             return detail
         return {
             **detail,
@@ -48,6 +46,14 @@ class PropertyValueVisibility:
                 for change in changes
             ],
         }
+
+    def add_to_serializer_context(self, context: dict[str, Any]) -> None:
+        context[_CONTEXT_KEY] = self
+
+    def hidden_group_property_names(self, team_id: int, organization_id: Any) -> frozenset[str]:
+        if self._is_organization_admin(organization_id):
+            return frozenset()
+        return self._restricted_group_property_names(team_id)
 
     def _is_organization_admin(self, organization_id: Any) -> bool:
         # Org admins bypass property rules, so skip loading restrictions for them.

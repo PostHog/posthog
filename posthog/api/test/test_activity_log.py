@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from typing import Any, Optional
 from uuid import uuid4
@@ -298,19 +299,7 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
         entry.refresh_from_db()
         assert entry.detail == detail
 
-    @parameterized.expand(
-        [
-            (f"{endpoint}_{name}", endpoint, level, hidden)
-            for endpoint in ("activity_log/", "advanced_activity_logs/", "advanced_activity_logs/?is_csv_export=1")
-            for name, level, hidden in (
-                ("member", OrganizationMembership.Level.MEMBER, True),
-                ("admin", OrganizationMembership.Level.ADMIN, False),
-            )
-        ]
-    )
-    def test_group_property_values_follow_property_access_control(
-        self, _name: str, endpoint: str, level: OrganizationMembership.Level, hidden: bool
-    ) -> None:
+    def _log_group_property_changes_with_restricted_plan(self, level: OrganizationMembership.Level) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
@@ -360,6 +349,21 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            (f"{endpoint}_{name}", endpoint, level, hidden)
+            for endpoint in ("activity_log/", "advanced_activity_logs/", "advanced_activity_logs/?is_csv_export=1")
+            for name, level, hidden in (
+                ("member", OrganizationMembership.Level.MEMBER, True),
+                ("admin", OrganizationMembership.Level.ADMIN, False),
+            )
+        ]
+    )
+    def test_group_property_values_follow_property_access_control(
+        self, _name: str, endpoint: str, level: OrganizationMembership.Level, hidden: bool
+    ) -> None:
+        self._log_group_property_changes_with_restricted_plan(level)
+
         from products.access_control.backend.facade import api as access_control_api
 
         with patch.object(
@@ -378,6 +382,37 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
         assert "example-industry-after" in body
         assert "old-key" in body
         assert "new-key" in body
+
+    @parameterized.expand(
+        [
+            (f"{filter_kind}_{name}", filter_kind, level, hidden)
+            for filter_kind in ("search_text", "exact", "contains")
+            for name, level, hidden in (
+                ("member", OrganizationMembership.Level.MEMBER, True),
+                ("admin", OrganizationMembership.Level.ADMIN, False),
+            )
+        ]
+    )
+    def test_value_filters_skip_group_entries_with_hidden_property_values(
+        self, _name: str, filter_kind: str, level: OrganizationMembership.Level, hidden: bool
+    ) -> None:
+        self._log_group_property_changes_with_restricted_plan(level)
+
+        for value, scope, name, expected in (
+            ("example-plan-after", "Group", "plan", not hidden),
+            ("example-industry-after", "Group", "industry", True),
+            ("new-key", "FeatureFlag", "plan", True),
+        ):
+            query = (
+                {"search_text": value}
+                if filter_kind == "search_text"
+                else {"detail_filters": json.dumps({"changes[].after": {"operation": filter_kind, "value": value}})}
+            )
+            response = self.client.get(f"/api/projects/{self.team.id}/advanced_activity_logs/", query)
+
+            assert response.status_code == status.HTTP_200_OK, response.content
+            matches = {(result["scope"], result["detail"]["name"]) for result in response.json()["results"]}
+            assert ((scope, name) in matches) is expected, (value, matches)
 
     @parameterized.expand(
         [
