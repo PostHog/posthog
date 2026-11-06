@@ -40,9 +40,9 @@ export const DataWarehouseHoglakeCredentialsCreateBody = /* @__PURE__ */ zod.obj
         ),
     scope: zod
         .enum(['read', 'write'])
-        .describe('\* `read` - read\n\* `write` - write')
+        .describe('\* `read` - Read\n\* `write` - Read & write')
         .describe(
-            'read lists and reads tables; write can also commit to them.\n\n\* `read` - read\n\* `write` - write'
+            'read lists and reads tables; write can also commit to them.\n\n\* `read` - Read\n\* `write` - Read & write'
         ),
     ttl_seconds: zod
         .number()

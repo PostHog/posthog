@@ -57877,13 +57877,13 @@ export namespace Schemas {
     }
 
     /**
-     * * `read` - read
-     * * `write` - write
+     * * `read` - Read
+     * * `write` - Read & write
      */
-    export type HoglakeCredentialCreateRequestScopeEnum = typeof HoglakeCredentialCreateRequestScopeEnum[keyof typeof HoglakeCredentialCreateRequestScopeEnum];
+    export type HoglakeCredentialScopeEnum = typeof HoglakeCredentialScopeEnum[keyof typeof HoglakeCredentialScopeEnum];
 
 
-    export const HoglakeCredentialCreateRequestScopeEnum = {
+    export const HoglakeCredentialScopeEnum = {
       Read: 'read',
       Write: 'write',
     } as const;
@@ -57896,9 +57896,9 @@ export namespace Schemas {
       name: string;
       /** read lists and reads tables; write can also commit to them.
        *
-       * * `read` - read
-       * * `write` - write */
-      scope: HoglakeCredentialCreateRequestScopeEnum;
+       * * `read` - Read
+       * * `write` - Read & write */
+      scope: HoglakeCredentialScopeEnum;
       /**
          * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
          * @minimum 3600

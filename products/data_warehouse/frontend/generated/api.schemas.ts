@@ -308,13 +308,13 @@ export interface HoglakeCredentialListResponseApi {
 }
 
 /**
- * * `read` - read
- * * `write` - write
+ * * `read` - Read
+ * * `write` - Read & write
  */
-export type HoglakeCredentialCreateRequestScopeEnumApi =
-    (typeof HoglakeCredentialCreateRequestScopeEnumApi)[keyof typeof HoglakeCredentialCreateRequestScopeEnumApi]
+export type HoglakeCredentialScopeEnumApi =
+    (typeof HoglakeCredentialScopeEnumApi)[keyof typeof HoglakeCredentialScopeEnumApi]
 
-export const HoglakeCredentialCreateRequestScopeEnumApi = {
+export const HoglakeCredentialScopeEnumApi = {
     Read: 'read',
     Write: 'write',
 } as const
@@ -327,9 +327,9 @@ export interface HoglakeCredentialCreateRequestApi {
     name: string
     /** read lists and reads tables; write can also commit to them.
      *
-     * * `read` - read
-     * * `write` - write */
-    scope: HoglakeCredentialCreateRequestScopeEnumApi
+     * * `read` - Read
+     * * `write` - Read & write */
+    scope: HoglakeCredentialScopeEnumApi
     /**
      * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
      * @minimum 3600

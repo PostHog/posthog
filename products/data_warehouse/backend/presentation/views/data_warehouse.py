@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
 from django.db import connection
-from django.db.models import Count, OuterRef, Q, QuerySet, Subquery, Sum
+from django.db.models import Count, OuterRef, Q, QuerySet, Subquery, Sum, TextChoices
 from django.db.models.functions import TruncDate, TruncHour
 
 import structlog
@@ -237,6 +237,11 @@ FAILING_SCHEMA_STATUSES = [ExternalDataSchemaStatus.FAILED, *BILLING_LIMITED_SCH
 _HOGLAKE_CREDENTIAL_ID = r"hlc_[0-9a-f]{8,64}"
 
 
+class HoglakeCredentialScope(TextChoices):
+    READ = "read", "Read"
+    WRITE = "write", "Read & write"
+
+
 class HoglakeCredentialCreateRequestSerializer(serializers.Serializer):
     name = serializers.RegexField(
         r"^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$",
@@ -244,7 +249,8 @@ class HoglakeCredentialCreateRequestSerializer(serializers.Serializer):
         "hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.",
     )
     scope = serializers.ChoiceField(
-        choices=["read", "write"], help_text="read lists and reads tables; write can also commit to them."
+        choices=HoglakeCredentialScope.choices,
+        help_text="read lists and reads tables; write can also commit to them.",
     )
     ttl_seconds = serializers.IntegerField(
         required=False,

@@ -12,12 +12,12 @@ import {
     dataWarehouseHoglakeCredentialsRotateCreate,
 } from 'products/data_warehouse/frontend/generated/api'
 import type {
-    HoglakeCredentialCreateRequestScopeEnumApi,
+    HoglakeCredentialScopeEnumApi,
     HoglakeCredentialIssuedApi,
     HoglakeCredentialListResponseApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 
-export type HoglakeCredentialScope = HoglakeCredentialCreateRequestScopeEnumApi
+export type HoglakeCredentialScope = HoglakeCredentialScopeEnumApi
 
 const currentProjectId = (): string => String(teamLogic.values.currentTeamId)
 
@@ -35,7 +35,7 @@ export interface hoglakeCredentialsLogicValues {
 export interface hoglakeCredentialsLogicActions {
     createCredential: (params: { name: string; scope: HoglakeCredentialScope }) => {
         name: string
-        scope: HoglakeCredentialCreateRequestScopeEnumApi
+        scope: HoglakeCredentialScopeEnumApi
     }
     loadHoglakeCredentials: () => any
     loadHoglakeCredentialsFailure: (
@@ -65,7 +65,7 @@ export interface hoglakeCredentialsLogicActions {
         name: string
     }
     setNewCredentialScope: (scope: HoglakeCredentialScope) => {
-        scope: HoglakeCredentialCreateRequestScopeEnumApi
+        scope: HoglakeCredentialScopeEnumApi
     }
     submitComplete: () => {
         value: true
