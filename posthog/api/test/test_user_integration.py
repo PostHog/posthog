@@ -253,23 +253,22 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["detail"], "Your GitHub connection has expired. Reconnect GitHub in settings.")
 
-    @parameterized.expand([("user_can_open_the_repository", "repo1", 200), ("user_cannot_open_it", "repo2", 404)])
+    @parameterized.expand([("user_can_open_the_repository", 200, 200), ("user_cannot_open_it", 404, 404)])
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_cached_branches")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     @patch("posthog.models.user_integration.github_request")
     def test_github_branches_need_access_to_the_repository(
         self,
         _name,
-        user_repository,
+        github_status,
         expected_status,
         mock_github_request,
         mock_client_request,
         mock_list_cached_branches,
     ):
         mock_github_request.return_value = MagicMock(
-            status_code=200, headers={}, json=lambda: {"total_count": 1, "repositories": [{"name": user_repository}]}
+            status_code=github_status, headers={}, json=lambda: {"full_name": "octocat/repo1"}
         )
-        mock_client_request.return_value = MagicMock(status_code=201, json=lambda: {"token": "SCOPED_TOKEN"})
         mock_list_cached_branches.return_value = (["main"], "main", False)
         _create_user_integration(self.user)
 

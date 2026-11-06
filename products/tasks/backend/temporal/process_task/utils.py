@@ -1221,14 +1221,18 @@ def get_user_github_token(github_user_integration_id: str, repositories: Sequenc
     integration = UserIntegration.objects.get(id=github_user_integration_id)
     github_integration = UserGitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
     private_repositories = _private_repositories(repositories)
-    try:
-        if not private_repositories:
+    if not private_repositories:
+        try:
             return github_integration.get_access_token()
-        if not all(github_integration.user_can_open_repository(repository) for repository in private_repositories):
+        except NoAccessibleRepositories:
             return None
-    except NoAccessibleRepositories:
-        return None
-    return _mint_repository_scoped_token(github_integration, private_repositories)
+    resolved_repositories: list[str] = []
+    for repository in private_repositories:
+        resolved = github_integration.resolve_user_repository(repository)
+        if resolved is None:
+            return None
+        resolved_repositories.append(resolved)
+    return _mint_repository_scoped_token(github_integration, resolved_repositories)
 
 
 def _normalize_repository(repository: str | None) -> str | None:

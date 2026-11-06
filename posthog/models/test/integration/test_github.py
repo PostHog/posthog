@@ -3519,8 +3519,8 @@ class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
 
     @parameterized.expand(
         [
-            ("user_can_open_it", 200, {"total_count": 1, "repositories": [{"name": "visible-a"}]}, True),
-            ("user_cannot_open_it", 200, {"total_count": 1, "repositories": [{"name": "other"}]}, False),
+            ("user_can_open_it", 200, {"full_name": "acme/visible-a"}, True),
+            ("user_cannot_open_it", 404, {"message": "Not Found"}, False),
             ("user_must_reconnect", 401, {"message": "Bad credentials"}, False),
         ]
     )
@@ -3532,15 +3532,19 @@ class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
     def test_repository_probe_reports_only_repositories_the_user_can_open(
         self,
         _name: str,
-        listing_status: int,
-        listing_body: dict[str, Any],
+        repository_status: int,
+        repository_body: dict[str, Any],
         expected: bool,
         mock_user_request: MagicMock,
         mock_client_request: MagicMock,
         mock_installation_request: MagicMock,
         mock_oauth_post: MagicMock,
     ) -> None:
-        mock_user_request.return_value = self._response(listing_status, listing_body)
+        mock_user_request.side_effect = lambda method, url, **kwargs: (
+            self._user_repositories(["visible-a"])
+            if "/user/installations/" in url
+            else self._response(repository_status, repository_body)
+        )
         mock_client_request.return_value = self._response(201, {"token": "SCOPED_TOKEN"})
         mock_installation_request.return_value = self._response(200, {"full_name": "acme/visible-a"})
         mock_oauth_post.return_value = self._response(200, {"error": "bad_refresh_token"})

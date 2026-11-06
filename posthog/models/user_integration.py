@@ -17,6 +17,7 @@ from posthog.models.github_integration_base import (
     GitHubIntegrationBase,
     GitHubIntegrationError,
     ReauthorizationRequired,
+    _is_safe_github_repo_path,
     _jsonb_merge,
     github_app_oauth_credentials,
 )
@@ -395,11 +396,46 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         return self._scoped_access()[0]
 
     def user_can_open_repository(self, repository: str) -> bool:
-        repositories = self._scoped_access()[1]
-        if repositories is None:
-            return True
-        name = repository.rsplit("/", 1)[-1].casefold()
-        return any(name == allowed.casefold() for allowed in repositories)
+        return self.resolve_user_repository(repository) is not None
+
+    def resolve_user_repository(self, repository: str) -> str | None:
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path):
+            return None
+        credential_version = (self.integration.config or {}).get("credential_version")
+        cache_key = (
+            f"github_user_integration:repository_access:{self.integration.id}:{credential_version}:{repo_path.lower()}"
+        )
+        cached = cache.get(cache_key)
+        if isinstance(cached, str):
+            return cached or None
+
+        response = self._user_repository_response(repo_path, self._unexpired_user_access_token())
+        if response.status_code == 401:
+            self.refresh_user_access_token()
+            response = self._user_repository_response(repo_path, self.get_usable_user_access_token())
+        if response.status_code == 401:
+            self._mark_needs_reauthorization("user token rejected by GitHub")
+            raise ReauthorizationRequired("GitHub rejected the stored user token.")
+        if response.status_code in (403, 404):
+            full_name = ""
+        elif response.status_code == 200:
+            full_name = str(response.json().get("full_name") or "")
+        else:
+            raise GitHubIntegrationError(
+                f"Failed to check the user's repository access: HTTP {response.status_code}",
+                status_code=response.status_code,
+            )
+        cache.set(cache_key, full_name, timeout=USER_SCOPED_ACCESS_TOKEN_CACHE_TTL_SECONDS)
+        return full_name or None
+
+    def _user_repository_response(self, repo_path: str, user_access_token: str) -> requests.Response:
+        return self._github_get(
+            f"https://api.github.com/repos/{repo_path}",
+            token=user_access_token,
+            endpoint="/repos/{owner}/{repo}",
+            params={},
+        )
 
     def list_all_repositories(self, *, priority: Priority | None = None) -> list[dict]:
         try:
