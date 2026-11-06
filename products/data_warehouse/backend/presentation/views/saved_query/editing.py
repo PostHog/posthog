@@ -165,6 +165,17 @@ def _apply_frequency_target(
     return target
 
 
+def _cadence_asks_to_materialize(view: DataWarehouseSavedQuery, sync_frequency: str | None) -> bool:
+    # Incremental only means something for a materialized table, so a cadence on an incremental
+    # view asks for one. Without a cadence the caller materializes it, as the SQL editor does.
+    return (
+        view.engine.can_materialize.available
+        and not view.is_materialized
+        and sync_frequency not in (None, "never")
+        and bool((view.incremental_config or {}).get("enabled"))
+    )
+
+
 def _authored_model_answering_to(
     team_id: int, name: str, exclude: DataWarehouseSavedQuery | None
 ) -> DataWarehouseSavedQuery | None:
@@ -407,6 +418,27 @@ class DataWarehouseSavedQuerySerializer(
             raise serializers.ValidationError("Run the query in the SQL editor before saving it as a view.")
         return _columns_from_client_types(client_types)
 
+    def _materialize(self, view: DataWarehouseSavedQuery, sync_frequency: str) -> None:
+        request = self.context["request"]
+        try:
+            modeling_api.enable_saved_query_materialization(
+                view.team_id,
+                view.id,
+                user=cast(User, request.user),
+                sync_frequency_interval=sync_frequency_to_sync_frequency_interval(sync_frequency),
+                visible_blocker_names=lambda bounds: sync_cadence.visible_blocker_names(
+                    bounds, self.user_access_control, team_id=view.team_id
+                ),
+                was_impersonated=is_impersonated(request),
+            )
+        except modeling_api.MaterializationForbiddenError as e:
+            raise exceptions.PermissionDenied(str(e))
+        except modeling_api.MaterializationRefusedError as e:
+            raise serializers.ValidationError(str(e))
+        except modeling_api.MaterializationFailedError as e:
+            raise exceptions.APIException(str(e))
+        view.refresh_from_db()
+
     def _validate_view_dependencies(self, team: Team, name: str, query: str) -> None:
         try:
             get_parents_from_model_query(team, name, query, database=self.context["database"])
@@ -498,6 +530,10 @@ class DataWarehouseSavedQuerySerializer(
                         database=self.context.get("database"),
                     )
                 _apply_frequency_target(view, sync_frequency, self.user_access_control)
+
+        if _cadence_asks_to_materialize(view, sync_frequency):
+            # After commit, so the first run the schedule starts can read the new row.
+            self._materialize(view, sync_frequency)
 
         self._report_view_action(
             "view created",
@@ -685,6 +721,9 @@ class DataWarehouseSavedQuerySerializer(
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                     modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
+
+        if frequency_changed and _cadence_asks_to_materialize(view, sync_frequency):
+            self._materialize(view, sync_frequency)
 
         self._report_view_action(
             "view updated",
