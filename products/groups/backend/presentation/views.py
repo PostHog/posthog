@@ -271,8 +271,7 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
 
     def to_representation(self, instance: Group) -> dict[str, Any]:
         representation = super().to_representation(instance)
-        # Property access control: drop group properties the requesting user may not read.
-        # Restrictions are scoped per group type, so only strip names restricted for this group's index.
+        # Restrictions are scoped per group type.
         restricted: dict[int | None, set[str]] | None = self.context.get("restricted_group_properties")
         if restricted and representation.get("group_properties"):
             names = restricted.get(instance.group_type_index, set()) | restricted.get(None, set())

@@ -2508,8 +2508,6 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
-    # Regression: GroupSerializer returned group_properties without applying property access
-    # control, so a user denied a group property still received it from list and find.
     def setUp(self) -> None:
         super().setUp()
         self.organization.available_product_features = [
@@ -2523,7 +2521,6 @@ class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
             type=PropertyDefinition.Type.GROUP,
             group_type_index=0,
         )
-        # A default rule (no member/role) restricts the property for the default test user.
         PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=self.restricted_def,
@@ -2535,7 +2532,6 @@ class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
             group_key="org:1",
             properties={"name": "Acme", "arr": 1000},
         )
-        # Same property name on a different group type is not covered by the index-0 rule.
         create_group(
             team_id=self.team.pk,
             group_type_index=1,
@@ -2569,7 +2565,6 @@ class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(self._find_properties(1, "company:1"), {"name": "Other", "arr": 5})
 
     def test_allowed_user_still_sees_restricted_group_property(self) -> None:
-        # A member-specific READ rule overrides the default NONE rule.
         PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=self.restricted_def,
