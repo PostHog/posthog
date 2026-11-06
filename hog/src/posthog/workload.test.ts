@@ -140,6 +140,27 @@ describe('workload credentials', () => {
         expect((error as HogError).hint).toContain('Turn on OIDC tokens in Fake CI.')
     })
 
+    test('a failed exchange fails every concurrent request instead of each one trying again', async () => {
+        let exchangeCount = 0
+        const runtime = runtimeWith({
+            env: IN_CI,
+            respond: (url) =>
+                !url.endsWith('/oauth/token/')
+                    ? { status: 200, body: {} }
+                    : ++exchangeCount === 1
+                      ? exchanged(WORKLOAD_TOKEN)
+                      : { status: 503, body: { error: 'temporarily_unavailable' } },
+        })
+        const credentials = await resolveCredentials(runtime, { workloadProviders: [FAKE_PROVIDER] })
+        const session = new KeySession(runtime, credentials.key, credentials.storage)
+        await runtime.sleep(560_000)
+
+        const outcomes = await Promise.allSettled([session.token(), session.token(), session.token()])
+
+        expect(outcomes.map((outcome) => outcome.status)).toEqual(['rejected', 'rejected', 'rejected'])
+        expect(exchangeCount).toBe(2)
+    })
+
     test.each([
         ['exchanges once more when the token is about to expire', 600, 560, 200, 2],
         ['exchanges once more when PostHog rejects the token', 600, 0, 401, 2],
