@@ -73,7 +73,9 @@ class TestGenerateReplySuggestions(BaseTest):
                 return_value=StreamNotificationDelivery(live=True, persisted=False),
             ),
             "suggest": patch(f"{SERVICE}.suggest_replies", return_value=[OPEN_PR]),
-            "flag": patch(f"{SERVICE}.feature_enabled_or_false", return_value=True),
+            "flag": patch(
+                "products.posthog_ai.backend.turn_suggestions.service.feature_enabled_or_false", return_value=True
+            ),
             "privacy": patch("ee.hogai.utils.feature_flags.is_privacy_mode_enabled", return_value=True),
         }
         self.mocks = {name: patcher.start() for name, patcher in patchers.items()}

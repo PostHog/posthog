@@ -1,24 +1,19 @@
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from django.core.cache import cache
 
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.ph_client import feature_enabled_or_false
 
-from products.posthog_ai.backend.turn_suggestions.service import MAX_TRANSCRIPT_LOG_BYTES, _history_is_whole
-from products.posthog_ai.backend.turn_suggestions.transcript import build_turn_transcript
-from products.tasks.backend.facade.api import (
-    TaskClientProvenance,
-    publish_task_run_stream_notification,
-    read_task_run_history,
+from products.posthog_ai.backend.turn_suggestions.service import (
+    MAX_TRANSCRIPT_LOG_BYTES,
+    _history_is_whole,
+    load_web_conversation_run,
 )
+from products.posthog_ai.backend.turn_suggestions.transcript import build_turn_transcript
+from products.tasks.backend.facade.api import publish_task_run_stream_notification, read_task_run_history
 from products.tasks.backend.facade.reply_suggestions import ReplySuggestionAttribution, suggest_replies
-from products.tasks.backend.models import Task, TaskRun
-
-if TYPE_CHECKING:
-    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -42,37 +37,12 @@ def _skipped(reason: str) -> ReplySuggestionsOutcome:
     return ReplySuggestionsOutcome(status="skipped", reason=reason)
 
 
-def _enabled(task_run: TaskRun, user: "User") -> bool:
-    organization_id = str(task_run.team.organization_id)
-    return feature_enabled_or_false(
-        REPLY_SUGGESTIONS_FLAG,
-        str(user.distinct_id),
-        groups={"organization": organization_id},
-        group_properties={"organization": {"id": organization_id}},
-        send_feature_flag_events=False,
-    )
-
-
 def generate_reply_suggestions(run_id: str, team_id: int) -> ReplySuggestionsOutcome:
-    try:
-        task_run = TaskRun.objects.select_related("task__created_by", "team__organization").get(
-            id=run_id, team_id=team_id
-        )
-    except TaskRun.DoesNotExist:
-        return _skipped("run_missing")
-
+    loaded = load_web_conversation_run(run_id, team_id, flag=REPLY_SUGGESTIONS_FLAG)
+    if isinstance(loaded, str):
+        return _skipped(loaded)
+    task_run, user = loaded.task_run, loaded.user
     task = task_run.task
-    if task.origin_product != Task.OriginProduct.POSTHOG_AI or task_run.mode != "interactive":
-        return _skipped("not_posthog_ai_conversation")
-    if task.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP:
-        return _skipped("not_started_in_web")
-    user = task.created_by
-    if user is None:
-        return _skipped("no_user")
-    if task_run.team.organization.is_ai_data_processing_approved is not True:
-        return _skipped("ai_data_processing_not_approved")
-    if not _enabled(task_run, user):
-        return _skipped("flag_off")
     if not _history_is_whole(task_run):
         return _skipped("history_truncated")
 
