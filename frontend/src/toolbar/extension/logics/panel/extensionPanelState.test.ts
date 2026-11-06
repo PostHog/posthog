@@ -2,6 +2,7 @@ import { ExtensionPanelInputs, getExtensionPanelState, openableAuthorizedUrls } 
 
 const READY_INPUTS: ExtensionPanelInputs = {
     tabUrl: 'https://www.example.com/pricing',
+    uiHost: 'https://us.posthog.com',
     hostPermission: true,
     sessionStatus: 'signed-in',
     toolbarAccess: { status: 'allowed', entitlements: { toolbar_heatmaps: true } },
@@ -30,6 +31,7 @@ describe('extensionPanelState', () => {
                 { tabUrl: 'https://chromewebstore.google.com/category/extensions' },
                 { kind: 'unsupported-page', reason: 'extension-store' },
             ],
+            ['the PostHog app', { tabUrl: 'https://us.posthog.com/project/1' }, { kind: 'posthog-app' }],
             [
                 'the PostHog app as an authorized URL',
                 { tabUrl: 'https://us.posthog.com/project/1', authorizedUrls: ['https://us.posthog.com'] },

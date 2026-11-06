@@ -19,12 +19,15 @@ export type ExtensionPanelState =
     | { kind: 'signed-out' }
     | { kind: 'no-toolbar-access' }
     | { kind: 'unauthorized-url'; origin: string }
+    /** The PostHog app itself, when the project doesn't list it as an authorized URL. */
+    | { kind: 'posthog-app' }
     | { kind: 'error' }
     | { kind: 'ready'; origin: string }
 
 export interface ExtensionPanelInputs {
     /** `undefined` while the active tab is still being read. */
     tabUrl: string | null | undefined
+    uiHost: string
     /** `null` while the permission check is pending. */
     hostPermission: boolean | null
     /** `null` while the session loads. */
@@ -109,7 +112,8 @@ export function getExtensionPanelState(inputs: ExtensionPanelInputs): ExtensionP
         return { kind: 'error' }
     }
     if (!checkUrlIsAuthorized(inputs.tabUrl, inputs.authorizedUrls)) {
-        return { kind: 'unauthorized-url', origin }
+        // Only a website the user owns belongs in the list, so the PostHog app never asks to be added to it.
+        return origin === inputs.uiHost ? { kind: 'posthog-app' } : { kind: 'unauthorized-url', origin }
     }
     return { kind: 'ready', origin }
 }

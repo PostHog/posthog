@@ -83,7 +83,17 @@ function ExtensionPanelBody({ panelState }: { panelState: ExtensionPanelState })
                             'data-attr': 'toolbar-extension-authorized-urls',
                         }}
                     >
-                        {panelState.origin} isn't an authorized URL for {projectName}. Add it to use the toolbar here.
+                        {panelState.origin} isn't an authorized URL for {projectName}. If you own and control this
+                        website, add it to use the toolbar here.
+                    </LemonBanner>
+                    <ExtensionAuthorizedUrlLinks />
+                </>
+            )
+        case 'posthog-app':
+            return (
+                <>
+                    <LemonBanner type="info">
+                        This is PostHog, not your website. Open your website to use the toolbar on it.
                     </LemonBanner>
                     <ExtensionAuthorizedUrlLinks />
                 </>

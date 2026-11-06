@@ -45,6 +45,7 @@ const RECHECK_ON_TAB_CHANGE: ExtensionPanelState['kind'][] = [
     'signed-out',
     'no-toolbar-access',
     'unauthorized-url',
+    'posthog-app',
     'error',
 ]
 
@@ -210,6 +211,7 @@ export interface extensionPanelLogicMeta {
         entitlements: (toolbarAccess: ToolbarAccessResult | null) => ToolbarEntitlementsApiEntitlements | null
         panelState: (
             tabUrl: string | null | undefined,
+            uiHost: string,
             hostPermission: boolean | null,
             sessionUser: SessionUserResult | null,
             toolbarAccess: ToolbarAccessResult | null,
@@ -360,9 +362,10 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
                 toolbarAccess?.status === 'allowed' ? toolbarAccess.entitlements : null,
         ],
         panelState: [
-            (s) => [s.tabUrl, s.hostPermission, s.sessionUser, s.toolbarAccess, s.authorizedUrls],
+            (s) => [s.tabUrl, s.uiHost, s.hostPermission, s.sessionUser, s.toolbarAccess, s.authorizedUrls],
             (
                 tabUrl: string | null | undefined,
+                uiHost: string,
                 hostPermission: boolean | null,
                 sessionUser: SessionUserResult | null,
                 toolbarAccess: ToolbarAccessResult | null,
@@ -370,6 +373,7 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             ): ExtensionPanelState =>
                 getExtensionPanelState({
                     tabUrl,
+                    uiHost,
                     hostPermission,
                     sessionStatus: sessionUser?.status ?? null,
                     toolbarAccess,
