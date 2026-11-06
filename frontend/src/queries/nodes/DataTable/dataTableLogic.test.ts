@@ -303,20 +303,23 @@ describe('dataTableLogic', () => {
         })
     })
 
+    // Jest runs in UTC, so UTC is the browser timezone in these cases.
     it.each([
         {
+            name: 'adds no header at a project day boundary',
             timezone: 'US/Pacific',
             // 2022-12-24T05:00Z = Dec 23 21:00 PST; 2022-12-24T10:00Z = Dec 24 02:00 PST
             timestamps: ['2022-12-24T10:00:00.000000Z', '2022-12-24T05:00:00.000000Z'],
-            expectedLabel: 'December 23, 2022',
+            expectedLabel: null,
         },
         {
+            name: 'adds a header at a browser day boundary',
             timezone: 'Asia/Tokyo',
-            // 2022-12-24T15:00Z = Dec 25 00:00 JST; 2022-12-24T14:00Z = Dec 24 23:00 JST
-            timestamps: ['2022-12-24T15:00:00.000000Z', '2022-12-24T14:00:00.000000Z'],
-            expectedLabel: 'December 24, 2022',
+            // 2022-12-24T01:00Z = Dec 24 10:00 JST; 2022-12-23T23:00Z = Dec 24 08:00 JST
+            timestamps: ['2022-12-24T01:00:00.000000Z', '2022-12-23T23:00:00.000000Z'],
+            expectedLabel: 'December 23, 2022',
         },
-    ])('groups date headers by project timezone ($timezone)', async ({ timezone, timestamps, expectedLabel }) => {
+    ])('groups date headers by browser timezone: $name', async ({ timezone, timestamps, expectedLabel }) => {
         teamLogic.mount()
         teamLogic.actions.loadCurrentTeamSuccess({ id: MOCK_TEAM_ID, timezone } as any)
 
@@ -357,7 +360,11 @@ describe('dataTableLogic', () => {
             .toMatchValues({ responseLoading: false })
 
         await expectLogic(logic).toMatchValues({
-            dataTableRows: [{ result: results[0] }, { label: expectedLabel }, { result: results[1] }],
+            dataTableRows: [
+                { result: results[0] },
+                ...(expectedLabel ? [{ label: expectedLabel }] : []),
+                { result: results[1] },
+            ],
         })
     })
 
