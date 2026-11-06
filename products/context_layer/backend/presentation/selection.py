@@ -16,7 +16,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 from posthog.permissions import APIScopePermission
-from posthog.rate_limit import ContextSelectionBurstThrottle, ContextSelectionSustainedThrottle
+from posthog.rate_limit import (
+    ContextSelectionBurstThrottle,
+    ContextSelectionSustainedThrottle,
+    ContextSelectionTaskThrottle,
+)
 
 from products.context_layer.backend.facade import selection
 
@@ -70,7 +74,7 @@ class ContextSelectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         detail=False,
         methods=["post"],
-        throttle_classes=[],
+        throttle_classes=[ContextSelectionTaskThrottle],
     )
     def prepare(self, request: Request, **kwargs: object) -> Response:
         serializer = PrepareSerializer(data=request.data)

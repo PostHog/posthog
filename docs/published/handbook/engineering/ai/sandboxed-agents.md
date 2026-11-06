@@ -764,6 +764,7 @@ Shadow and treatment require the organization's existing AI data processing cons
 Shadow and treatment selections share project rate limits of 30 preparations per minute and 300 per hour.
 The limits apply after the eligibility, variant, and consent checks, so ineligible runs, such as scouts, never consume them.
 A selection over the limit returns `rate_limited` and skips retrieval and model calls.
+Each sandbox task can also call the selection endpoint at most 30 times per minute, whatever its eligibility.
 
 System One first checks whether organizational context could help, using the request and bounded conversation history.
 When the gate passes, the selector calls the existing skill search, catalog list/search, and Business Knowledge search APIs with the sandbox bearer credential.

@@ -108,6 +108,15 @@ def elapsed_ms(started: float) -> int:
     return round((time.monotonic() - started) * 1000)
 
 
+def is_timeout(error: BaseException) -> bool:
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, (TimeoutError, httpx.TimeoutException)):
+            return True
+        current = current.__cause__
+    return False
+
+
 def time_remaining(deadline: float) -> float:
     remaining = deadline - time.monotonic()
     if remaining <= 0:
@@ -286,7 +295,7 @@ class ContextSelector:
             try:
                 candidates.extend(future.result())
             except Exception as error:
-                errors[pending[future]] = type(error).__name__
+                errors[pending[future]] = "TimeoutError" if is_timeout(error) else type(error).__name__
         for future in unfinished:
             future.cancel()
             errors[pending[future]] = "TimeoutError"
@@ -485,7 +494,7 @@ class ContextSelector:
             error_type = type(error).__name__
             logger.warning("context_selection_failed", selection_id=self.selection_id, error_type=error_type)
             try:
-                return self.finish("timeout" if isinstance(error, TimeoutError) else "error", error_type)
+                return self.finish("timeout" if is_timeout(error) else "error", error_type)
             except Exception:
                 logger.exception("context_selection_outcome_capture_failed", selection_id=self.selection_id)
                 return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason="error")

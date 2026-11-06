@@ -16,10 +16,17 @@ from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from posthog.llm.system_one import JsonValue, Question, SystemOneResult, parse_system_one_response
+from posthog.llm.system_one import (
+    JsonValue,
+    Question,
+    SystemOneRequestFailed,
+    SystemOneResult,
+    parse_system_one_response,
+)
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import ContextSelectionTaskThrottle
 
 from products.context_layer.backend.presentation.selection import ContextSelectionViewSet
 from products.context_layer.backend.selection import (
@@ -302,7 +309,8 @@ class TestSelection(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("timeout", "error", "ReadTimeout"),
+            ("timeout", "timeout", "ReadTimeout"),
+            ("gateway_timeout", "timeout", "SystemOneRequestFailed"),
             ("deadline", "timeout", "TimeoutError"),
             ("incomplete", "error", "SystemOneRequestFailed"),
             ("refusal", "error", "ValueError"),
@@ -319,6 +327,8 @@ class TestSelection(SimpleTestCase):
                 return self.decide(state=state, questions=questions)
             if outcome == "timeout":
                 raise httpx.ReadTimeout("Timed out")
+            if outcome == "gateway_timeout":
+                raise SystemOneRequestFailed("The ai-gateway was not reached") from httpx.ReadTimeout("Timed out")
             if outcome == "deadline":
                 raise TimeoutError("selector_deadline")
             answers: dict[str, JsonValue] = {key: {"noul": 0.95} for key in questions}
@@ -425,6 +435,18 @@ class TestSelectionPermissions(SimpleTestCase):
         self.assertEqual(
             lookup.return_value.get.call_args.kwargs, {"id": run.id, "team_id": 42, "task_id": run.task_id}
         )
+
+
+class TestSelectionRequestThrottle(SimpleTestCase):
+    def test_request_ceiling_is_per_sandbox_task_not_per_project(self) -> None:
+        def key(task_id: object) -> str:
+            request = Mock(user=User(id=5))
+            request.successful_authenticator.access_token.sandbox_task_id = task_id
+            return ContextSelectionTaskThrottle().get_cache_key(request, Mock())
+
+        first, second = uuid4(), uuid4()
+        self.assertEqual(key(first), key(first))
+        self.assertNotEqual(key(first), key(second))
 
 
 class TestSelectionDeadline(SimpleTestCase):
