@@ -24,6 +24,7 @@ type SdkQueryHandle = {
   setModel: ReturnType<typeof vi.fn>;
   setMcpServers: ReturnType<typeof vi.fn>;
   applyFlagSettings: ReturnType<typeof vi.fn>;
+  getContextUsage: ReturnType<typeof vi.fn>;
   supportedCommands: ReturnType<typeof vi.fn>;
   initializationResult: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
@@ -43,6 +44,7 @@ function makeQueryHandle(): SdkQueryHandle {
     setModel: vi.fn().mockImplementation(() => nextSetModel()),
     setMcpServers: vi.fn().mockResolvedValue(undefined),
     applyFlagSettings: vi.fn().mockResolvedValue(undefined),
+    getContextUsage: vi.fn().mockResolvedValue({ rawMaxTokens: 0 }),
     supportedCommands: vi.fn().mockResolvedValue([]),
     initializationResult: vi.fn().mockImplementation(() => nextInitPromise),
     close: vi.fn(),
@@ -412,6 +414,118 @@ describe("ClaudeAcpAgent session creation", () => {
       expect(getModelConfigOption(response)?.currentValue).toBe(
         expectedSetModel,
       );
+    },
+  );
+
+  it("reads the model list from the gateway for an own-subscription session", async () => {
+    vi.mocked(fetchGatewayModels).mockImplementationOnce(async (options) =>
+      options?.gatewayUrl === "http://gateway.test"
+        ? [
+            {
+              id: "claude-opus-5-5",
+              owned_by: "anthropic",
+              context_window: 1_000_000,
+              supports_streaming: true,
+              supports_vision: true,
+              allowed: true,
+            },
+            {
+              id: "zai-org/glm-5.3",
+              owned_by: "zai",
+              context_window: 200_000,
+              supports_streaming: true,
+              supports_vision: false,
+              allowed: true,
+              api_shapes: ["anthropic-messages"],
+            },
+          ]
+        : [],
+    );
+    const client = {
+      sessionUpdate: vi.fn().mockResolvedValue(undefined),
+      extNotification: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AgentSideConnection;
+    const agent = new ClaudeAcpAgent(client, {
+      machineAuth: { oauthToken: "subscription-token" },
+      modelsGatewayUrl: "http://gateway.test",
+    });
+
+    const response = await agent.newSession({
+      cwd,
+      mcpServers: [],
+      _meta: { taskRunId: "run-subscription", model: "claude-opus-5-5" },
+    });
+
+    expect(fetchGatewayModels).toHaveBeenCalledWith({
+      gatewayUrl: "http://gateway.test",
+      authToken: undefined,
+      projectId: undefined,
+    });
+    expect(getModelConfigOption(response)).toMatchObject({
+      currentValue: "claude-opus-5-5",
+      options: [
+        expect.objectContaining({
+          value: "claude-opus-5-5",
+          description: "Context: 1,000,000 tokens",
+        }),
+      ],
+    });
+  });
+
+  it.each([
+    {
+      start: undefined,
+      startEnv: undefined,
+      next: "200k",
+      nextEnv: "1",
+      cli: 200_000,
+    },
+    { start: "200k", startEnv: "1", next: "1m", nextEnv: "0", cli: 1_000_000 },
+  ] as const)(
+    "switches a $start session to $next and reads the window from the CLI",
+    async ({ start, startEnv, next, nextEnv, cli }) => {
+      vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
+        {
+          id: "claude-opus-5-5",
+          owned_by: "anthropic",
+          context_window: 200_000,
+          supports_streaming: true,
+          supports_vision: true,
+          allowed: true,
+        },
+      ]);
+      const agent = makeAgent();
+      const { sessionId } = await agent.newSession({
+        cwd,
+        mcpServers: [],
+        _meta: {
+          taskRunId: `run-context-${next}`,
+          model: "claude-opus-5-5",
+          contextWindow: start,
+        },
+      });
+      expect(createdQueryOptions[0]?.env?.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBe(
+        startEnv,
+      );
+      const query = createdQueries[0];
+      query?.getContextUsage.mockResolvedValue({ rawMaxTokens: cli });
+
+      const updated = await agent.setSessionConfigOption({
+        sessionId,
+        configId: "context_window",
+        value: next,
+      });
+
+      expect(query?.applyFlagSettings).toHaveBeenCalledWith({
+        env: { CLAUDE_CODE_DISABLE_1M_CONTEXT: nextEnv },
+      });
+      expect(
+        (agent as unknown as { session: { lastContextWindowSize?: number } })
+          .session.lastContextWindowSize,
+      ).toBe(cli);
+      expect(
+        updated.configOptions.find((opt) => opt.id === "context_window"),
+      ).toMatchObject({ currentValue: next });
     },
   );
 

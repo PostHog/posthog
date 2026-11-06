@@ -1,5 +1,7 @@
 import ts from 'typescript'
 
+import { operationIdToPascal } from './definitions.mjs'
+
 export function collectOpenObjectPaths(schema, moduleName) {
     const targetsByExport = new Map()
     for (const methods of Object.values(schema.paths ?? {})) {
@@ -12,7 +14,7 @@ export function collectOpenObjectPaths(schema, moduleName) {
             collectFrom(bodySchema, schema, [], false, target, new Set())
             if (target.paths.size > 0) {
                 refuseDottedPropertyNames(target)
-                targetsByExport.set(`${pascalCase(operation.operationId)}Body`, target)
+                targetsByExport.set(`${operationIdToPascal(operation.operationId)}Body`, target)
             }
         }
     }
@@ -147,11 +149,4 @@ function placeObject(expression, edits) {
         current = current.expression
     }
     return false
-}
-
-function pascalCase(operationId) {
-    return operationId
-        .split(/[_.]/)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join('')
 }

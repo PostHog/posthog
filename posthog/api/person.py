@@ -25,7 +25,6 @@ from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import APIException, MethodNotAllowed, NotFound, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.response import Response
@@ -41,6 +40,7 @@ from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.fields import CoercedStringListField
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, paging_params, parse_actor_property_filters
@@ -153,7 +153,7 @@ API_PERSON_LIST_SEARCH_COUNTER = Counter(
 )
 
 
-class PersonLimitOffsetPagination(LimitOffsetPagination):
+class PersonLimitOffsetPagination(BoundedLimitOffsetPagination):
     def get_paginated_response_schema(self, schema):
         return {
             "type": "object",
@@ -407,7 +407,7 @@ class DeletionStatusQueryParamsSerializer(serializers.Serializer):
     person_uuid = serializers.UUIDField(required=False)
 
 
-class DeletionStatusPagination(LimitOffsetPagination):
+class DeletionStatusPagination(BoundedLimitOffsetPagination):
     default_limit = 100
 
 
@@ -742,9 +742,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.property_access_control import get_restricted_property_names
+        from products.event_definitions.backend.models import PropertyDefinition
 
         user = self.request.user if self.request.user.is_authenticated else None
         context["restricted_person_properties"] = get_restricted_property_names(
@@ -832,6 +831,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             limit, offset = CSV_EXPORT_LIMIT, 0
         elif not limit:
             limit = DEFAULT_PAGE_LIMIT
+        else:
+            # The view reads `limit` itself, so it applies the cap that the paginator states in the schema.
+            limit = min(limit, PersonLimitOffsetPagination.max_limit)
 
         from posthog.hogql import ast  # noqa: PLC0415 — deferred to avoid a circular import at module load
         from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
@@ -1338,9 +1340,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
             # Check field-level access control: return empty results for restricted properties
-            from posthog.models import PropertyDefinition
-
             from products.access_control.backend.property_access_control import get_restricted_property_names
+            from products.event_definitions.backend.models import PropertyDefinition
 
             user = request.user if request.user.is_authenticated else None
             restricted = get_restricted_property_names(
@@ -1695,9 +1696,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     def _get_non_writable_person_properties(self, request: request.Request) -> set[str]:
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.property_access_control import get_non_writable_property_names
+        from products.event_definitions.backend.models import PropertyDefinition
 
         user = request.user if request.user.is_authenticated else None
         return get_non_writable_property_names(

@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
@@ -399,6 +400,28 @@ describe('replayScannersLogic', () => {
             expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(true)
             expect(logic.values.togglingIds).toEqual([])
             expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('Failed to disable scanner'))
+        })
+
+        it('a turn-on the person declines reverts the row without an error toast', async () => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team/vision/scanners/:id/': () => [
+                        400,
+                        { type: 'validation_error', code: 'scanner_creator_lost_access', detail: 'x' },
+                    ],
+                },
+            })
+            const open = jest.spyOn(LemonDialog, 'open').mockImplementation((props) => props.onAfterClose?.())
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            logic.actions.loadScannersSuccess([makeScanner({ id: 'a', enabled: false })], 1)
+
+            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
+                'revertScannerEnabled',
+            ])
+
+            expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(false)
+            expect(errorToast).not.toHaveBeenCalled()
+            open.mockRestore()
         })
 
         it('revertScannerEnabled flips the row back and clears the in-flight id', async () => {

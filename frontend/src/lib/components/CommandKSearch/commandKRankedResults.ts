@@ -3,8 +3,20 @@ import { SearchItem } from 'lib/components/Search/searchItems'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { pluralTypeName } from './commandKFilterOptions'
-import { RankKey, compareRanks, rankLocalItem, searchWords, tokenTypos } from './commandKRanking'
+import {
+    RankCandidate,
+    RankKey,
+    SERVER_CREATED_INDEX,
+    SERVER_FRECENCY_INDEX,
+    compareRanks,
+    isIdentityQuery,
+    rankCandidate,
+    searchWords,
+    serverOnlyRank,
+    tokenTypos,
+} from './commandKRanking'
 import type { CommandKRow, CommandKSection } from './commandKSections'
+import { RESULTS_LIMIT } from './commandKSources'
 
 const BEST_MATCHES_LIMIT = 3
 const GROUP_LIMIT = 3
@@ -30,59 +42,58 @@ function groupLabel(groupKey: string): string {
     return capitalizeFirstLetter(pluralTypeName(getItemTypeDisplayName(groupKey) ?? groupKey.replace(/_/g, ' ')))
 }
 
-const RANKED_LOCAL_CACHE_SIZE = 50
-const rankedLocalCache = new WeakMap<SearchItem[], Map<string, RankedItem[]>>()
+const IDENTITY_GROUPS = ['accounts', 'persons']
+const PRODUCT_TIER_BOOST = 3
+const UNCURATED_ACCOUNT_TIER_PENALTY = 3
+// Ties go to products, then saved objects and settings, then accounts and persons.
+const TYPE_ORDER: Record<string, number> = { products: 0, accounts: 2, persons: 2 }
 
-function rankLocalItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
-    const key = `${groupKey}:${query}`
-    let byQuery = rankedLocalCache.get(items)
-    if (!byQuery) {
-        byQuery = new Map()
-        rankedLocalCache.set(items, byQuery)
+const displayName = (item: SearchItem): string => String(item.displayName || item.name)
+
+const typePriorFor = (groupKey: string, query: string): number =>
+    isIdentityQuery(query) ? Number(!IDENTITY_GROUPS.includes(groupKey)) : (TYPE_ORDER[groupKey] ?? 1)
+
+function tierBoostFor(item: SearchItem, groupKey: string, query: string): number {
+    if (groupKey === 'products') {
+        return PRODUCT_TIER_BOOST
     }
-    const cached = byQuery.get(key)
-    if (cached) {
-        return cached
-    }
-    const ranked = rankItems(items, query, groupKey)
-    if (byQuery.size >= RANKED_LOCAL_CACHE_SIZE) {
-        byQuery.delete(byQuery.keys().next().value!)
-    }
-    byQuery.set(key, ranked)
-    return ranked
+    const uncuratedAccount = groupKey === 'accounts' && !item.isCurated
+    return uncuratedAccount && !isIdentityQuery(query) ? -UNCURATED_ACCOUNT_TIER_PENALTY : 0
 }
 
-function rankItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
+function candidateFor(item: SearchItem, groupKey: string, query: string): RankCandidate {
+    const productTab = groupKey === 'products' && !!item.parentName
+    const common = {
+        name: displayName(item),
+        typePrior: typePriorFor(productTab ? 'tabs' : groupKey, query),
+        identity: item.identityFields,
+    }
+    if (item.category !== 'results') {
+        return {
+            ...common,
+            aliases: item.searchKeywords,
+            context: [...(item.parentName ? [item.parentName] : []), ...(item.contextKeywords ?? [])],
+            indirect: !!item.parentName,
+            tierBoost: productTab ? 0 : tierBoostFor(item, groupKey, query),
+            matchesQuery: IDENTITY_GROUPS.includes(groupKey),
+        }
+    }
+    const path = typeof item.record?.path === 'string' ? item.record.path.split('/').slice(0, -1) : []
+    return {
+        ...common,
+        context: [...path, groupKey.replace(/[_/]/g, ' ')],
+        frecency: -(item.rankKey?.[SERVER_FRECENCY_INDEX] ?? 0) / 1000,
+        createdAt: -(item.rankKey?.[SERVER_CREATED_INDEX] ?? 0),
+        matchesQuery: !item.rankKey,
+    }
+}
+
+function rankItems(items: SearchItem[], query: string, groupKey: (item: SearchItem) => string): RankedItem[] {
     return items.flatMap((item) => {
-        const ranked = rankLocalItem(
-            query,
-            String(item.displayName || item.name),
-            item.searchKeywords,
-            !!item.parentName
-        )
-        return ranked
-            ? [
-                  {
-                      item: ranked.matchedAlias ? { ...item, matchedSearchKeyword: ranked.matchedAlias } : item,
-                      rank: ranked.rank,
-                      groupKey,
-                  },
-              ]
-            : []
-    })
-}
-
-function rankAccounts(accounts: SearchItem[], query: string): RankedItem[] {
-    const queryMatch = rankLocalItem(query, query)
-    if (!queryMatch) {
-        return []
-    }
-    return accounts.map((item) => {
-        const nameMatch = rankLocalItem(query, String(item.displayName || item.name))
-        // The Accounts API matches the full query, including identities that the display name does not contain.
-        const rank =
-            nameMatch?.rank[0] === queryMatch.rank[0] && nameMatch.rank[1] === 0 ? nameMatch.rank : queryMatch.rank
-        return { item, rank, groupKey: 'accounts' }
+        const key = groupKey(item)
+        const candidate = candidateFor(item, key, query)
+        const rank = rankCandidate(query, candidate) ?? (item.rankKey && serverOnlyRank(item.rankKey, candidate))
+        return rank ? [{ item, rank, groupKey: key }] : []
     })
 }
 
@@ -179,6 +190,40 @@ function noticeSection(
     ]
 }
 
+const scopeSeeAll = (
+    groupKey: string,
+    total: number,
+    covered: number,
+    capped: boolean,
+    section: string
+): CommandKRow[] =>
+    !LOCAL_GROUPS.includes(groupKey) && total > covered
+        ? [
+              {
+                  kind: 'scope',
+                  key: `${section}/see-all`,
+                  type: groupKey,
+                  label: capped
+                      ? `See all ${groupLabel(groupKey).toLowerCase()}`
+                      : `See all ${total.toLocaleString()} ${groupLabel(groupKey).toLowerCase()}`,
+              },
+          ]
+        : []
+
+const nestingDepth = (item: SearchItem): number => (item.parentName ? item.parentName.split(' › ').length : 0)
+
+const shallowestFirst = <T extends RankedItem>(entries: T[]): T[] =>
+    entries
+        .map((entry, index) => ({ entry, index }))
+        .sort(
+            (a, b) =>
+                a.entry.rank[0] - b.entry.rank[0] ||
+                a.entry.rank[1] - b.entry.rank[1] ||
+                nestingDepth(a.entry.item) - nestingDepth(b.entry.item) ||
+                a.index - b.index
+        )
+        .map(({ entry }) => entry)
+
 interface RankedResultsInput {
     query: string
     highlightWords: string[]
@@ -186,6 +231,8 @@ interface RankedResultsInput {
     products: SearchItem[]
     persons?: SearchItem[]
     settings?: SearchItem[]
+    unrankedSettings?: SearchItem[]
+    expandedGroups?: string[]
     accounts?: SearchItem[]
     state: CommandKSection['state']
     scoped: boolean
@@ -198,16 +245,18 @@ export function buildRankedResults({
     products,
     persons = [],
     settings = [],
+    unrankedSettings = [],
+    expandedGroups = [],
     accounts = [],
     state,
     scoped,
 }: RankedResultsInput): CommandKSection[] {
     const candidates: RankedItem[] = [
-        ...results.map((item) => ({ item, rank: item.rankKey ?? [], groupKey: groupKeyFor(item) })),
-        ...rankLocalItems(products, query, 'products'),
-        ...rankLocalItems(persons, query, 'persons'),
-        ...rankLocalItems(settings, query, 'settings'),
-        ...rankAccounts(accounts, query),
+        ...rankItems(results, query, groupKeyFor),
+        ...rankItems(products, query, () => 'products'),
+        ...rankItems(persons, query, () => 'persons'),
+        ...rankItems(settings, query, () => 'settings'),
+        ...rankItems(accounts, query, () => 'accounts'),
     ].sort((a, b) => compareRanks(a.rank, b.rank))
     if (!candidates.length) {
         return []
@@ -216,8 +265,8 @@ export function buildRankedResults({
     const capped = !!results[0]?.searchMatch?.countsCapped
     const mostWordsMatched = candidates[0].rank[0]
     const fullest = candidates.filter((entry) => entry.rank[0] === mostWordsMatched)
-    const fewestTypos = Math.min(...fullest.map((entry) => entry.rank[1]))
-    const matching = fullest.filter((entry) => entry.rank[1] === fewestTypos)
+    const fewestTypos = Math.min(...fullest.map((entry) => entry.rank[1] ?? 0))
+    const matching = fullest.filter((entry) => (entry.rank[1] ?? 0) === fewestTypos)
     const notices =
         state === 'stale'
             ? []
@@ -253,14 +302,37 @@ export function buildRankedResults({
     const pool = collapseSameName(matching)
     const groupCount = new Set(pool.map((entry) => entry.groupKey)).size
     if (pool.length <= FLAT_LIST_LIMIT || groupCount === 1) {
+        const hasContinuation = !LOCAL_GROUPS.includes(pool[0].groupKey)
+        const shownPool = groupCount === 1 && !hasContinuation ? pool : pool.slice(0, RESULTS_LIMIT)
         return [
             ...notices,
             {
                 key: 'best-matches',
                 label: 'Results',
-                rows: pool.map((entry) =>
-                    itemRow('flat', entry.item, highlightWords, entry.duplicates, entry.duplicates > 0, groupCount > 1)
-                ),
+                rows: [
+                    ...shownPool.map((entry) =>
+                        itemRow(
+                            'flat',
+                            entry.item,
+                            highlightWords,
+                            entry.duplicates,
+                            entry.duplicates > 0,
+                            groupCount > 1
+                        )
+                    ),
+                    ...(groupCount === 1
+                        ? scopeSeeAll(
+                              pool[0].groupKey,
+                              Math.max(
+                                  pool[0].item.searchMatch?.typeCount ?? 0,
+                                  pool.reduce((sum, entry) => sum + 1 + entry.duplicates, 0)
+                              ),
+                              shownPool.reduce((sum, entry) => sum + 1 + entry.duplicates, 0),
+                              capped,
+                              'flat'
+                          )
+                        : []),
+                ],
                 state,
             },
         ]
@@ -305,25 +377,31 @@ export function buildRankedResults({
         groupKey !== 'products' &&
         searchWords(groupLabel(groupKey)).some((word) => tokenTypos(queryWords[0], word) !== null)
     const orderedGroups = [...groups].sort(([a], [b]) => Number(typeIntent(b)) - Number(typeIntent(a)))
-    for (const [groupKey, entries] of orderedGroups) {
-        const shown = entries.slice(0, GROUP_LIMIT)
+    for (const [groupKey, groupEntries] of orderedGroups) {
+        const expandable = groupKey === 'settings'
+        const entries = expandable ? shallowestFirst(groupEntries) : groupEntries
+        const expanded = expandable && expandedGroups.includes(groupKey)
+        const shown = expanded ? entries : entries.slice(0, GROUP_LIMIT)
         const inBest = best.filter((entry) => entry.groupKey === groupKey)
         const sample = entries[0] ?? inBest[0]
-        const total = Math.max(sample.item.searchMatch?.typeCount ?? 0, entries.length + inBest.length)
-        const rows: CommandKRow[] = shown.map((entry) =>
-            itemRow(`group-${groupKey}`, entry.item, highlightWords, entry.duplicates, entry.duplicates > 0)
-        )
+        const extra = expandable ? unrankedSettings : []
+        const total = Math.max(sample.item.searchMatch?.typeCount ?? 0, entries.length + inBest.length) + extra.length
+        const rows: CommandKRow[] = [
+            ...shown.map((entry) =>
+                itemRow(`group-${groupKey}`, entry.item, highlightWords, entry.duplicates, entry.duplicates > 0)
+            ),
+            ...(expanded ? extra.map((item) => itemRow(`group-${groupKey}`, item, highlightWords)) : []),
+        ]
         const covered = inBest.length + shown.reduce((sum, entry) => sum + 1 + entry.duplicates, 0)
-        if (!LOCAL_GROUPS.includes(groupKey) && total > covered) {
+        if (expandable && !expanded && total > covered) {
             rows.push({
-                kind: 'scope',
-                key: `group-${groupKey}/see-all`,
-                type: groupKey,
-                label: capped
-                    ? `See all ${groupLabel(groupKey).toLowerCase()}`
-                    : `See all ${total.toLocaleString()} ${groupLabel(groupKey).toLowerCase()}`,
+                kind: 'expand',
+                key: `group-${groupKey}/expand`,
+                group: groupKey,
+                label: `Show all ${total.toLocaleString()} ${groupLabel(groupKey).toLowerCase()}`,
             })
         }
+        rows.push(...scopeSeeAll(groupKey, total, covered, capped, `group-${groupKey}`))
         if (!rows.length) {
             continue
         }

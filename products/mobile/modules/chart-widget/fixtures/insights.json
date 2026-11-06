@@ -1,0 +1,833 @@
+[
+    {
+        "name": "SQL currency number",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL currency number",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "BoldNumber",
+                "tableSettings": {
+                    "columns": [
+                        {
+                            "column": "value",
+                            "settings": {
+                                "formatting": {
+                                    "style": "number",
+                                    "prefix": "$",
+                                    "decimalPlaces": 2
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            "result": [["1234.5"]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["value"],
+            "types": [["value", "Decimal(18, 2)"]]
+        },
+        "expected": {
+            "valueText": "$1,234.50",
+            "display": "number"
+        }
+    },
+    {
+        "name": "SQL percentage number",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL percentage number",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "BoldNumber",
+                "tableSettings": {
+                    "columns": [
+                        {
+                            "column": "value",
+                            "settings": {
+                                "formatting": {
+                                    "style": "percent",
+                                    "decimalPlaces": 1
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            "result": [[0.125]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["value"],
+            "types": [["value", "Float64"]]
+        },
+        "expected": {
+            "valueText": "12.5%",
+            "display": "number"
+        }
+    },
+    {
+        "name": "SQL automatic number",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL automatic number",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "Auto"
+            },
+            "result": [[42]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["value"],
+            "types": [["value", "UInt64"]]
+        },
+        "expected": {
+            "valueText": "42",
+            "display": "number"
+        }
+    },
+    {
+        "name": "SQL date chart",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL date chart",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "ActionsLineGraph",
+                "chartSettings": {
+                    "xAxis": {
+                        "column": "date"
+                    },
+                    "yAxis": [
+                        {
+                            "column": "count"
+                        }
+                    ]
+                }
+            },
+            "result": [["2026-10-30", 3], ["2026-10-31", "5"]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["date", "count"],
+            "types": [["date", "Date"], ["count", "UInt64"]]
+        },
+        "expected": {
+            "display": "chart",
+            "seriesCount": 1,
+            "lastValue": 5,
+            "chartValueText": "5",
+            "axisLowText": "3",
+            "axisHighText": "5"
+        }
+    },
+    {
+        "name": "SQL automatic date chart",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL automatic date chart",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "Auto"
+            },
+            "result": [["2026-10-30", 3], ["2026-10-31", 5]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["date", "count"],
+            "types": [["date", "Date"], ["count", "UInt64"]]
+        },
+        "expected": {
+            "display": "chart",
+            "seriesCount": 1,
+            "lastValue": 5
+        }
+    },
+    {
+        "name": "SQL table",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL table",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "ActionsTable"
+            },
+            "result": [["Basic", 12], ["Plus", 30]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["plan", "count"],
+            "types": [["plan", "String"], ["count", "UInt64"]]
+        },
+        "expected": {
+            "display": "rows",
+            "rowCount": 2
+        }
+    },
+    {
+        "name": "SQL category chart",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL category chart",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "ActionsBar",
+                "chartSettings": {
+                    "xAxis": {
+                        "column": "plan"
+                    },
+                    "yAxis": [
+                        {
+                            "column": "count"
+                        }
+                    ]
+                }
+            },
+            "result": [["Basic", 12], ["Plus", 30]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["plan", "count"],
+            "types": [["plan", "String"], ["count", "UInt64"]]
+        },
+        "expected": {
+            "display": "rows",
+            "rowCount": 2
+        }
+    },
+    {
+        "name": "Funnel steps",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "Funnel steps",
+            "derived_name": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "FunnelsQuery"
+                }
+            },
+            "result": [
+                {
+                    "name": "Visit",
+                    "count": 100
+                },
+                {
+                    "name": "Signup",
+                    "count": 25
+                }
+            ],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null
+        },
+        "expected": {
+            "display": "rows",
+            "rowCount": 2,
+            "valueText": "25%"
+        }
+    },
+    {
+        "name": "Retention cohorts",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "Retention cohorts",
+            "derived_name": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {
+                        "period": "Day"
+                    }
+                }
+            },
+            "result": [
+                {
+                    "date": "2026-10-30",
+                    "values": [
+                        {
+                            "count": 100
+                        },
+                        {
+                            "count": 25
+                        }
+                    ]
+                }
+            ],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null
+        },
+        "expected": {
+            "display": "rows",
+            "rowCount": 1
+        }
+    },
+    {
+        "name": "Trends breakdown",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "Trends breakdown",
+            "derived_name": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "example"
+                        }
+                    ],
+                    "trendsFilter": {
+                        "display": "ActionsPie"
+                    },
+                    "breakdownFilter": {
+                        "breakdown": "plan",
+                        "breakdown_type": "event"
+                    }
+                }
+            },
+            "result": [
+                {
+                    "label": "Basic",
+                    "aggregated_value": 12,
+                    "data": [12],
+                    "days": ["2026-10-30"],
+                    "breakdown_value": "Basic"
+                },
+                {
+                    "label": "Plus",
+                    "aggregated_value": 30,
+                    "data": [30],
+                    "days": ["2026-10-30"],
+                    "breakdown_value": "Plus"
+                }
+            ],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null
+        },
+        "expected": {
+            "display": "rows",
+            "rowCount": 2
+        }
+    },
+    {
+        "name": "SQL duplicate coordinates and gaps",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL duplicate coordinates and gaps",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT date, plan, count FROM example"
+                },
+                "display": "ActionsLineGraph",
+                "chartSettings": {
+                    "xAxis": {
+                        "column": "date"
+                    },
+                    "yAxis": [
+                        {
+                            "column": "count"
+                        }
+                    ],
+                    "seriesBreakdownColumn": "plan"
+                }
+            },
+            "result": [["2026-10-30", "Basic", 2], ["2026-10-30", "Basic", 3], ["2026-10-31", "Plus", 7]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["date", "plan", "count"],
+            "types": [["date", "Date"], ["plan", "String"], ["count", "UInt64"]]
+        },
+        "expected": {
+            "display": "chart",
+            "seriesCount": 2,
+            "firstValue": 5,
+            "lastIsGap": true,
+            "chartValueText": null
+        }
+    },
+    {
+        "name": "SQL empty number",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL empty number",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "BoldNumber",
+                "tableSettings": {
+                    "columns": [
+                        {
+                            "column": "value",
+                            "settings": {
+                                "formatting": {
+                                    "style": "number",
+                                    "prefix": "$",
+                                    "decimalPlaces": 2
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            "result": [[null]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["value"],
+            "types": [["value", "Decimal(18, 2)"]]
+        },
+        "expected": {
+            "display": "number",
+            "valueText": null
+        }
+    },
+    {
+        "name": "SQL text number",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL text number",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "BoldNumber"
+            },
+            "result": [["Ready"]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["value"],
+            "types": [["value", "String"]]
+        },
+        "expected": {
+            "display": "number",
+            "valueText": "Ready"
+        }
+    },
+    {
+        "name": "SQL boolean number",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL boolean number",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "BoldNumber"
+            },
+            "result": [[true]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["value"],
+            "types": [["value", "Bool"]]
+        },
+        "expected": {
+            "display": "number",
+            "valueText": "true"
+        }
+    },
+    {
+        "name": "Retention future periods",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "Retention future periods",
+            "derived_name": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {
+                        "period": "Month"
+                    }
+                }
+            },
+            "result": [
+                {
+                    "date": "2026-11-01",
+                    "values": [
+                        {
+                            "count": 100
+                        },
+                        {
+                            "count": 25
+                        }
+                    ]
+                }
+            ],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null
+        },
+        "expected": {
+            "display": "rows",
+            "rowCount": 1,
+            "firstRowValue": "100%"
+        }
+    },
+    {
+        "name": "PathsQuery compact rows",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "PathsQuery",
+            "derived_name": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "PathsQuery"
+                }
+            },
+            "result": {
+                "paths": [["Started", "Finished", 12]]
+            },
+            "last_refresh": null,
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null
+        },
+        "expected": {
+            "display": "rows",
+            "rowCount": 1,
+            "appSnapshot": false
+        }
+    },
+    {
+        "name": "LifecycleQuery compact rows",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "LifecycleQuery",
+            "derived_name": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "LifecycleQuery"
+                }
+            },
+            "result": [
+                {
+                    "label": "New",
+                    "data": [8, 12]
+                }
+            ],
+            "last_refresh": null,
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null
+        },
+        "expected": {
+            "display": "rows",
+            "rowCount": 1,
+            "appSnapshot": false
+        }
+    },
+    {
+        "name": "StickinessQuery compact rows",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "StickinessQuery",
+            "derived_name": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "StickinessQuery"
+                }
+            },
+            "result": [
+                {
+                    "label": "Active for 3 days",
+                    "count": 15
+                }
+            ],
+            "last_refresh": null,
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null
+        },
+        "expected": {
+            "display": "rows",
+            "rowCount": 1,
+            "appSnapshot": false
+        }
+    },
+    {
+        "name": "SQL datetime wall clock",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL datetime wall clock",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "ActionsLineGraph",
+                "chartSettings": {
+                    "xAxis": {
+                        "column": "date"
+                    },
+                    "yAxis": [
+                        {
+                            "column": "count"
+                        }
+                    ]
+                }
+            },
+            "result": [["2026-10-30T08:00:00.000+02:00", 3], ["2026-10-31T08:00:00Z", 5]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["date", "count"],
+            "types": [["date", "DateTime"], ["count", "UInt64"]]
+        },
+        "expected": {
+            "display": "chart",
+            "seriesCount": 1,
+            "lastValue": 5,
+            "firstAt": "2026-10-30 08:00:00"
+        }
+    },
+    {
+        "name": "SQL text identifiers",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL text identifiers",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "ActionsTable"
+            },
+            "result": [["Basic", "001"], ["Plus", "002"]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["plan", "count"],
+            "types": [["plan", "String"], ["count", "String"]]
+        },
+        "expected": {
+            "display": "rows",
+            "rowCount": 2,
+            "firstRowValue": "001"
+        }
+    },
+    {
+        "name": "SQL chart labels preserve units",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL chart labels preserve units",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "ActionsLineGraph",
+                "chartSettings": {
+                    "xAxis": {
+                        "column": "date"
+                    },
+                    "yAxis": [
+                        {
+                            "column": "count",
+                            "settings": {
+                                "formatting": {
+                                    "style": "number",
+                                    "prefix": "$",
+                                    "decimalPlaces": 2
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            "result": [["2026-10-30", 3], ["2026-10-31", "5"]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["date", "count"],
+            "types": [["date", "Date"], ["count", "UInt64"]]
+        },
+        "expected": {
+            "display": "chart",
+            "seriesCount": 1,
+            "lastValue": 5,
+            "chartValueText": "$5.00",
+            "axisLowText": "$3.00",
+            "axisHighText": "$5.00"
+        }
+    },
+    {
+        "name": "SQL table keeps text columns and table formatting",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "Example",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select example"
+                },
+                "display": "ActionsTable",
+                "tableSettings": {
+                    "columns": [
+                        {
+                            "column": "count",
+                            "settings": {
+                                "formatting": {
+                                    "style": "number",
+                                    "prefix": "$"
+                                }
+                            }
+                        }
+                    ]
+                },
+                "chartSettings": {
+                    "yAxis": [
+                        {
+                            "column": "count",
+                            "settings": {
+                                "formatting": {
+                                    "style": "percent"
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            "columns": ["plan", "count", "status"],
+            "types": [["plan", "String"], ["count", "UInt64"], ["status", "String"]],
+            "result": [["Starter", 12, "active"]],
+            "last_refresh": null,
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null
+        },
+        "expected": {
+            "display": "rows",
+            "rowCount": 1,
+            "firstRowValue": "$12 \u00b7 active"
+        }
+    },
+    {
+        "name": "SQL hourly bars ignore collection axes",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "Example",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select example"
+                },
+                "display": "ActionsBar"
+            },
+            "columns": ["dates", "at", "counts", "count"],
+            "types": [
+                ["dates", "Array(Date)"],
+                ["at", "Nullable(DateTime)"],
+                ["counts", "Array(UInt64)"],
+                ["count", "LowCardinality(Nullable(UInt64))"]
+            ],
+            "result": [
+                [["2026-11-02"], "2026-11-02 10:00:00", [9], 3],
+                [["2026-11-02"], "2026-11-02 11:00:00", [8], 5]
+            ],
+            "last_refresh": null,
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null
+        },
+        "expected": {
+            "display": "chart",
+            "seriesCount": 1,
+            "firstAt": "2026-11-02 10:00:00",
+            "firstValue": 3,
+            "lastValue": 5,
+            "intervalLabel": "hour",
+            "axisLowText": "0",
+            "axisHighText": "5"
+        }
+    }
+]

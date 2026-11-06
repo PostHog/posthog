@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -108,6 +108,38 @@ class NamedSenderNotVerified(SenderNotVerified):
     attr = "from"
 
 
+class FieldNotAccepted(TransactionalEmailError):
+    code = "field_not_accepted"
+
+    def __init__(self, field: str) -> None:
+        super().__init__(f"PostHog doesn't take `{field}` yet.")
+        self.field = field
+
+
+@frozen
+class EmailAttachment:
+    filename: str
+    content: str = field(repr=False)
+    content_type: str | None = None
+    content_id: str | None = None
+
+
+class SenderRequired(TransactionalEmailError):
+    code = "sender_required"
+
+
+class TooManyKeys(TransactionalEmailError):
+    code = "too_many_keys"
+
+
+class ContentTooLarge(TransactionalEmailError):
+    code = "content_too_large"
+
+
+class InvalidRequest(TransactionalEmailError):
+    code = "invalid_request"
+
+
 class TemplateOutdated(TransactionalEmailError):
     code = "template_outdated"
 
@@ -121,6 +153,9 @@ class CodeEmail:
     sender: str | None
     reply_to: tuple[str, ...]
     capture_engagement: bool
+    cc: tuple[str, ...] = ()
+    bcc: tuple[str, ...] = ()
+    attachments: tuple[EmailAttachment, ...] = ()
 
 
 @frozen
@@ -214,6 +249,114 @@ class EmailStatus:
     status_at: datetime
     # Why a send failed, or the bounce type of a bounced email.
     reason: str | None = None
+
+
+class EmailLogEventKind(LabeledStrEnum):
+    QUEUED = "queued", "Queued"
+    FAILED = "failed", "Failed"
+    SENT = "sent", "Sent"
+    DELIVERED = "delivered", "Delivered"
+    BOUNCED = "bounced", "Bounced"
+    COMPLAINED = "complained", "Complained"
+    OPENED = "opened", "Opened"
+    CLICKED = "clicked", "Clicked"
+
+
+class EmailStatsGroupBy(LabeledStrEnum):
+    TEMPLATE = "template", "Template"
+    SENDING_DOMAIN = "sending_domain", "Sending domain"
+
+
+@frozen
+class TransactionalEmailLogEntry:
+    message_id: str
+    created_at: datetime
+    status: EmailDeliveryStatus
+    status_at: datetime
+    # Why a send failed, or the bounce type of a bounced email.
+    reason: str | None
+    recipient: str
+    workflow_id: str
+    template_id: str | None
+    # Empty when the template was deleted.
+    template_name: str
+    sending_domain: str
+    opened: bool
+    clicked: bool
+
+
+@frozen
+class TransactionalEmailLogEvent:
+    kind: EmailLogEventKind
+    at: datetime
+    reason: str | None
+
+
+@frozen
+class TransactionalEmailLogDetail:
+    entry: TransactionalEmailLogEntry
+    timeline: list[TransactionalEmailLogEvent]
+    # Empty when the send never reached the provider, so nothing was rendered.
+    subject: str
+    distinct_id: str
+    # The step that sent the email, which the rendered email is stored under. Empty when none was stored.
+    action_id: str
+    # True when the template keeps no rendered body.
+    sensitive: bool
+
+
+class EmailStatsInterval(LabeledStrEnum):
+    # One bucket spans five minutes.
+    MINUTE = "minute", "Minute"
+    HOUR = "hour", "Hour"
+    DAY = "day", "Day"
+
+
+@frozen
+class TransactionalEmailStatsCounts:
+    sent: int
+    delivered: int
+    bounced: int
+    complained: int
+    failed: int
+
+
+@frozen
+class TransactionalEmailStatsBucket:
+    start: datetime
+    counts: TransactionalEmailStatsCounts
+
+
+@frozen
+class TransactionalEmailStatsOverTime:
+    interval: EmailStatsInterval
+    timezone: str
+    buckets: list[TransactionalEmailStatsBucket]
+    # The same stretch of time just before this one. None when retention no longer covers all of it.
+    previous: TransactionalEmailStatsCounts | None
+
+
+@frozen
+class TransactionalEmailStatsRow:
+    # The template id or the sending domain.
+    key: str
+    label: str
+    sent: int
+    delivered: int
+    bounced: int
+    complained: int
+    opened: int
+    clicked: int
+    failed: int
+
+
+@frozen
+class TransactionalEmailResults:
+    recipients: int
+    converted: int
+    revenue: float
+    # Hours from the send to the first conversion, for the median converted recipient. None when nobody converted.
+    median_hours_to_convert: float | None
 
 
 TEMPLATE_KEY_PATTERN = r"^[a-zA-Z0-9_-]+$"

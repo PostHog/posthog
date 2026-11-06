@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Send one transactional email to one recipient. Name a template made transactional in `template.id`, or one uploaded from code in `template.key`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
+ * Send one transactional email to one recipient. Name a template made transactional in `template_id`, or one uploaded from code in `template_key`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
 export const MessagingSendEmailCreateParams = () => zod.object({
@@ -36,6 +36,8 @@ export const messagingSendEmailCreateBodyDistinctIdMax = 400
 
 export const messagingSendEmailCreateBodyReplyToMax = 10
 
+export const messagingSendEmailCreateBodyFromMax = 1024
+
 export const MessagingSendEmailCreateBody = () => zod.strictObject({
     to: zod.email().describe('Email address of the recipient.'),
     template_key: zod
@@ -44,37 +46,40 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
         .optional()
         .describe(
-            "Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template. Once you upload a template under this key, these sends run through that template's workflow, so their metrics and logs group with the template from then on."
+            "Key of the email, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text` to send content your code rendered: PostHog sends the content as is and never stores it as a template. Send it without them to send the template uploaded under this key with `PUT \/api\/projects\/@current\/messaging_templates\/by_key\/{key}\/`, with `message_data` filling its placeholders. Once you upload a template under a key, sends of rendered content with that key also run through the template's workflow, so their metrics and logs group with the template."
         ),
     distinct_id: zod
         .string()
         .max(messagingSendEmailCreateBodyDistinctIdMax)
-        .optional()
+        .nullish()
         .describe(
-            "Distinct ID of the recipient's person. The send and its engagement events are recorded against that person. Defaults to `identifiers.distinct_id`, then to the recipient's email address."
+            "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
         ),
     subject: zod.string().optional().describe('Subject of the email your code rendered.'),
-    html: zod.string().optional().describe('HTML body of the email your code rendered.'),
+    html: zod.string().optional().describe('HTML body of the email your code rendered, at most 5 MiB as UTF-8.'),
     text: zod
         .string()
         .optional()
-        .describe('Plain text body of the email your code rendered. Without it, PostHog derives the text from `html`.'),
+        .describe(
+            'Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`.'
+        ),
     reply_to: zod
         .array(zod.email())
         .max(messagingSendEmailCreateBodyReplyToMax)
         .optional()
-        .describe("Addresses replies to the email go to. A send by `template.id` doesn't take it."),
+        .describe("Addresses replies to the email go to. A send with `template_id` doesn't take it."),
     capture_engagement: zod
         .boolean()
         .optional()
         .describe(
-            'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. A send by `template.id` takes it only in the beta for sending email from code.'
+            'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. A send with `template_id` takes it only in the beta for sending email from code.'
         ),
     from: zod
         .string()
+        .max(messagingSendEmailCreateBodyFromMax)
         .optional()
         .describe(
-            "Sender of the email, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, a send with `template_key` goes out from the project's default sender, and a send by `template.key` from its template's sender. A send by `template.id` doesn't take it."
+            "Sender of the email, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, an email your code rendered goes out from the project's default sender, or from its only verified sender when it has no default, and an uploaded template from its own sender. A send with `template_id` doesn't take it."
         ),
 })
 
@@ -477,7 +482,7 @@ export const MessagingTemplatesDesignPartialUpdateBody = () => zod.strictObject(
 })
 
 /**
- * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing.
+ * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
  * @summary Make a template transactional
  */
 export const MessagingTemplatesMakeTransactionalCreateParams = () => zod.object({

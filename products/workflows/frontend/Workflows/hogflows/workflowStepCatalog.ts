@@ -229,7 +229,7 @@ function dispatchSteps({ featureFlags }: StepCatalogContext): CreateActionType[]
 function aiSteps({ featureFlags, currentTeam }: StepCatalogContext): CreateActionType[] {
     const mainEnvironment = isMainEnvironment(currentTeam)
     return [
-        ...(featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] ? [AI_TASK_ACTION_NODE] : []),
+        AI_TASK_ACTION_NODE,
         ...(mainEnvironment ? [RUN_SCOUT_ACTION_NODE] : []),
         ...(featureFlags[FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION] ? [CLASSIFY_ACTION_NODE] : []),
         ...(mainEnvironment ? [REPLAY_VISION_ACTION_NODE] : []),

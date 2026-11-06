@@ -1,11 +1,11 @@
 import { dayjs } from 'lib/dayjs'
+import { HogQLQueryString, escapePropertyAsHogQLIdentifier, hogql } from 'lib/utils/hogql'
 
 import {
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsSearchSource,
     MarketingAnalyticsSearchRow,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
 import { ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 export type SearchPlatform = MarketingAnalyticsSearchSource['sourceType']

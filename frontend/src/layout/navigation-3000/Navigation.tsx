@@ -4,9 +4,9 @@ import { useMountedLogic, useValues } from 'kea'
 import { ReactNode, useLayoutEffect } from 'react'
 
 import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { todayPanelChatSessionLogic } from '~/layout/today/todayPanelChatSessionLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
@@ -26,8 +26,9 @@ export function Navigation({
     children: ReactNode
     sceneConfig: SceneConfig | null
 }): JSX.Element {
-    useMountedLogic(maxGlobalLogic)
     useMountedLogic(mcpHintLogic)
+    // Its mount resumes an AI approval that an SSO re-login interrupted, on whichever page the user lands.
+    useMountedLogic(aiConsentLogic)
 
     const { mode } = useValues(navigation3000Logic)
     const { todayRailEnabled: todayRail, phoneLayout } = useValues(todayShellLogic)

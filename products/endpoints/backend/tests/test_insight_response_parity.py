@@ -44,7 +44,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 pytestmark = [pytest.mark.django_db]
 
 # Fields that every TrendsQuery result dict must have
-TRENDS_REQUIRED_FIELDS = {"data", "labels", "days", "count", "label", "action"}
+TRENDS_REQUIRED_FIELDS = {"data", "labels", "days", "count", "label", "order"}
 
 
 class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):

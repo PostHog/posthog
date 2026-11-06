@@ -8,7 +8,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("messaging", "0015_messagetemplate_code_managed_fields"),
+        ("messaging", "0015_transactional_email_key"),
         ("posthog", "1412_drop_retired_desktop_file_system_tables"),
     ]
 

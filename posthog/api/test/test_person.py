@@ -27,12 +27,12 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
-from posthog.api.person import tag_client_query_id
+from posthog.api.person import PersonLimitOffsetPagination, tag_client_query_id
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.serialized_actors import get_serialized_people
-from posthog.models import Organization, Person, PropertyDefinition, Team
+from posthog.models import Organization, Person, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
 from posthog.models.person.missing_person import uuidFromDistinctId
@@ -51,6 +51,7 @@ from posthog.test.persons import add_distinct_id, create_person, delete_person
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -2264,10 +2265,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # The property-access-control feature check reuses the request's already-loaded team,
         # so listing persons no longer pays a per-request Team lookup (was 16). +1 for the
         # saved-expressions fetch in the HogQL database build. +1 each for the shared-database
-        # kill-switch and flag-cache TTL instance settings, cold-cache here but TTL-cached per
-        # worker in production. +1 for the organization's flag_evaluations mode lookup in the HogQL
-        # database build.
-        with self.assertNumQueries(17):
+        # kill-switch, projection kill-switch, properties-narrowing and flag-cache TTL instance
+        # settings, cold-cache here but TTL-cached per worker in production. +1 for the organization's flag_evaluations mode
+        # lookup in the HogQL database build. +1 for the MCP custom harness fetch in the HogQL database build, which later
+        # requests read from Redis.
+        with self.assertNumQueries(20):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -2310,6 +2312,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             url = page["next"]
         self.assertEqual(len(paged), len(uuids))  # no person lost or repeated at a page boundary
         self.assertEqual(set(paged), expected)  # union of pages == full set, gapless and dup-free
+
+        with mock.patch.object(PersonLimitOffsetPagination, "max_limit", 3):
+            capped = self.client.get("/api/person/?limit=100").json()
+        self.assertEqual(len(capped["results"]), 3)
+        self.assertIsNotNone(capped["next"])
 
     def test_retrieve_person(self):
         person = create_person(  # creating without _create_person to guarentee created_at ordering

@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -195,7 +196,7 @@ class TestTemplateUpload(APIBaseTest):
         repaired = self._upload(WELCOME)
         sent = self.psak.post(
             f"/api/projects/{self.team.id}/messaging/send/email/",
-            {"template": {"key": "welcome", "hash": WELCOME_HASH}, "to": "user@example.com"},
+            {"template_key": "welcome", "template_hash": WELCOME_HASH, "to": "user@example.com"},
             format="json",
         )
 
@@ -206,7 +207,7 @@ class TestTemplateUpload(APIBaseTest):
         assert sent.status_code == status.HTTP_202_ACCEPTED, sent.json()
         assert "warnings" not in sent.json()
 
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_a_changed_upload_is_what_the_next_send_delivers(self, _reload, post: MagicMock, _flag, _capture):
         first = self._upload(WELCOME)
         post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
@@ -290,7 +291,7 @@ class TestTemplateUpload(APIBaseTest):
         assert sent.status_code == status.HTTP_202_ACCEPTED, sent.json()
         return post.call_args.args[0].split("/hog_flows/")[1].split("/")[0]
 
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_code_sends_under_a_key_move_to_its_template_only_once_an_upload_claims_it(
         self, _reload, post: MagicMock, _flag, _capture
     ):
@@ -589,7 +590,7 @@ class TestTemplateUpload(APIBaseTest):
             ("outdated", f"v1:{'0' * 64}", status.HTTP_409_CONFLICT, None),
         ]
     )
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_a_send_by_key_with_a_hash_only_ever_sends_the_published_content(
         self, hash_state, sent_hash, expected_status, expected_warnings, _reload, post: MagicMock, _flag, capture
     ):
@@ -601,7 +602,8 @@ class TestTemplateUpload(APIBaseTest):
         response = self.psak.post(
             f"/api/projects/{self.team.id}/messaging/send/email/",
             {
-                "template": {"key": "welcome", "hash": sent_hash or published["content_hash"]},
+                "template_key": "welcome",
+                "template_hash": sent_hash or published["content_hash"],
                 "to": "jane@example.com",
                 "message_data": {"first_name": "Jane"},
             },
@@ -616,7 +618,7 @@ class TestTemplateUpload(APIBaseTest):
         else:
             assert [warning["code"] for warning in response.json().get("warnings", [])] == expected_warnings
             assert post.call_args.args[0].endswith(f"/hog_flows/{hog_flow_id}/transactional_email/send")
-            assert post.call_args.kwargs["json"]["send"]["hogFlowVersion"] == 2
+            assert json.loads(post.call_args.kwargs["data"])["send"]["hogFlowVersion"] == 2
         assert self._template(published["id"])["content_hash"] == published["content_hash"]
         assert self._sent_email(hog_flow_id)["subject"] == "Welcome aboard, {{ variables.first_name }}"
         assert self._workflow(hog_flow_id)["version"] == 2

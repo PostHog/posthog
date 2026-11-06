@@ -519,7 +519,8 @@ def _sum_active_backfill_remaining_credits(organization_id: UUID) -> BackfillCom
     """
     rows = (
         ReplayScannerBackfill.objects.unscoped()
-        .filter(team__organization_id=organization_id, status__in=ACTIVE_BACKFILL_STATUSES)
+        # A disabled scanner holds its backfills, so they owe nothing until it is turned back on.
+        .filter(team__organization_id=organization_id, status__in=ACTIVE_BACKFILL_STATUSES, scanner__enabled=True)
         .values_list(
             "total_count", "dispatched_count", "skipped_count", "credits_per_observation", "scanner__free_only"
         )

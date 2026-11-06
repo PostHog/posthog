@@ -7,7 +7,7 @@ import { useChartTheme } from 'lib/charts/hooks'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,
-} from 'scenes/insights/aggregationAxisFormat'
+} from 'lib/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'

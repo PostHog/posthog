@@ -8,8 +8,8 @@ import { cn } from 'lib/utils/css-classes'
 import { SuggestionCard } from 'scenes/max/components/SuggestionCard'
 
 import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 
-import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { SidePanelRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { AiFirstHandoffLogicProps, aiFirstHandoffLogic } from './aiFirstHandoffLogic'

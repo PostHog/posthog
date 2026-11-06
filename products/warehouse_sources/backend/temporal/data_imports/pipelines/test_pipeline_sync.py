@@ -14,6 +14,7 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HISTORY_TABLE_OPTION, DataWarehouseTable
+from products.warehouse_sources.backend.self_managed_access import MIGRATION_MARKER_KEY, AdoptionAccessError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_NAMING, LEGACY_HISTORY_NAMING
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
     HistoryTableNameTakenError,
@@ -739,6 +741,40 @@ class TestValidateSchemaAndUpdateTable:
         assert credential_seen_by_introspection == [None]
         job.refresh_from_db()
         assert job.storage_delta_mib == 3.0
+
+    @pytest.mark.parametrize("rule_added", [False, True])
+    def test_a_migration_source_adopts_the_table_only_while_its_access_rules_still_fit(
+        self, team: Team, rule_added: bool
+    ) -> None:
+        schema, job = self._schema_and_job(team)
+        ExternalDataSource.objects.filter(pk=job.pipeline_id).update(
+            connection_metadata={MIGRATION_MARKER_KEY: {"group_key": "s3/us-east-1/exports"}}
+        )
+        job.refresh_from_db()
+        table = self._self_managed_table(team, schema)
+        if rule_added:
+            # Added after the migration linked the table, so the source has no rule that matches it.
+            create_access_control(
+                team_id=team.pk, resource="warehouse_table", resource_id=str(table.id), access_level="none"
+            )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            if rule_added:
+                with pytest.raises(AdoptionAccessError, match="The table still reads its own files"):
+                    self._publish(team, schema, job)
+            else:
+                self._publish(team, schema, job)
+
+        table.refresh_from_db()
+        schema.refresh_from_db()
+        if rule_added:
+            assert (table.external_data_source_id, schema.table_id) == (None, None)
+            assert table.credential_id is not None
+        else:
+            assert (table.external_data_source_id, schema.table_id) == (job.pipeline_id, table.id)
 
     @pytest.mark.parametrize(
         "change",

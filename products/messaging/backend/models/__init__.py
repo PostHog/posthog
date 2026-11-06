@@ -1,3 +1,4 @@
+from .email_hard_bounce import EmailHardBounce
 from .first_code_send import FirstCodeSend
 from .message_category import MessageCategory, MessageCategoryType
 from .message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, MessageRecipientPreference, PreferenceStatus
@@ -10,6 +11,7 @@ from .transactional_email_key import TransactionalEmailKey
 
 __all__ = [
     "ALL_MESSAGE_PREFERENCE_CATEGORY_ID",
+    "EmailHardBounce",
     "FirstCodeSend",
     "MessageCategory",
     "MessageCategoryType",

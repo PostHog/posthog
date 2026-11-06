@@ -8,9 +8,13 @@ django.setup() path of the read-oriented main facade.
 from typing import Any
 from uuid import UUID
 
+from posthog.ingress.contracts import DeliveryOwnership
 from posthog.models.user import User
 
-from ..logic import issue_mutations as _mutations
+from ..logic import (
+    issue_mutations as _mutations,
+    linear_status_sync as _linear_status_sync,
+)
 from . import api, contracts
 
 CohortNotFoundError = _mutations.CohortNotFoundError
@@ -69,3 +73,15 @@ def bulk_update_issues(
         user=user,
         was_impersonated=was_impersonated,
     )
+
+
+def prepare_linear_status_sync_job(payload: dict[str, Any]) -> contracts.LinearStatusSyncJob | None:
+    return _linear_status_sync.prepare_job(payload)
+
+
+def sync_linear_status(job: contracts.LinearStatusSyncJob) -> None:
+    _linear_status_sync.sync_status(job)
+
+
+def linear_delivery_ownership(payload: dict[str, Any]) -> DeliveryOwnership:
+    return _linear_status_sync.delivery_ownership(payload)
