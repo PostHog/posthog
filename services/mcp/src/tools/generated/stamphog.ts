@@ -272,10 +272,15 @@ const stamphogRoutingRunsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/stamphog/routing_runs/`,
             query: {
+                created_after: params.created_after,
+                created_before: params.created_before,
+                head_sha: params.head_sha,
                 limit: params.limit,
                 offset: params.offset,
+                outcome: params.outcome,
                 owner: params.owner,
                 pr_number: params.pr_number,
+                reason: params.reason,
                 repository: params.repository,
             },
         })

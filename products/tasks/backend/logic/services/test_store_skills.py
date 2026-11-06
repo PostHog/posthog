@@ -4,7 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.skills.backend.models.skills import LLMSkill
-from products.tasks.backend.constants import STORE_SKILLS_STATE_KEY
+from products.tasks.backend.constants import STORE_SKILLS_BRIDGE_STATE_KEY, STORE_SKILLS_STATE_KEY
 from products.tasks.backend.logic.services.store_skills import refresh_store_skills_state
 from products.tasks.backend.models import Task, TaskRun
 
@@ -49,7 +49,10 @@ class TestRefreshStoreSkillsState(BaseTest):
             assert run.state[STORE_SKILLS_STATE_KEY] == [
                 {"name": "invoice-review", "description": "Check invoice failures.", "version": 1}
             ]
+            assert run.state[STORE_SKILLS_BRIDGE_STATE_KEY] is True
         elif expected == "unchanged":
             assert run.state[STORE_SKILLS_STATE_KEY] == [{"name": "stale-live-skill"}]
+            assert STORE_SKILLS_BRIDGE_STATE_KEY not in run.state
         else:
             assert run.state[STORE_SKILLS_STATE_KEY] == []
+            assert run.state[STORE_SKILLS_BRIDGE_STATE_KEY] is False

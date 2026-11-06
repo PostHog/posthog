@@ -40,6 +40,7 @@ from products.slack_app.backend.temporal.activities.slack_app_onboarding import 
     edit_slack_app_onboarding_message_activity,
     plan_slack_app_onboarding_activity,
     post_slack_app_onboarding_message_activity,
+    remind_slack_app_onboarding_activity,
 )
 from products.slack_app.backend.temporal.activities.task_creation import (
     create_posthog_code_task_for_repo_activity,
@@ -99,6 +100,7 @@ __all__ = [
     "edit_slack_app_onboarding_message_activity",
     "plan_slack_app_onboarding_activity",
     "post_slack_app_onboarding_message_activity",
+    "remind_slack_app_onboarding_activity",
     "run_posthog_slack_inbox_onboarding_activity",
     "post_slack_unfurl_charts_activity",
     "prepare_slack_unfurl_charts_activity",

@@ -137,6 +137,7 @@ ActivityScope = Literal[
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
+    "SignalSourceConfig",
     "SignalTeamConfig",
     "StreamlitApp",
     "Metric",
@@ -882,6 +883,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "usage_dashboard",
         "analytics_dashboards",
         "flag_evaluation_contexts",
+        # FeatureFlagCodeAnalysis is team-scoped, so reading this relation for a diff hits the
+        # fail-closed manager. A code analysis does not change the flag, so the diff skips it.
+        "code_analyses",
     ],
     "Experiment": [
         "feature_flag",
@@ -939,6 +943,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "short_id",
         "insightviewed",
         "dashboardtile",
+        "explanations",
     ],
     "EventDefinition": [
         "eventdefinition_ptr_id",
@@ -1566,7 +1571,7 @@ def log_activity(
             "user": user,
             "was_impersonated": was_impersonated,
             "is_system": user is None,
-            "item_id": str(item_id),
+            "item_id": str(item_id) if item_id is not None else None,
             "scope": scope,
             "activity": activity,
             "detail": detail,
@@ -1629,6 +1634,25 @@ class LogActivityEntry(TypedDict, total=False):
     client: Optional[str]
     ip_address: Optional[str]
     force_save: bool
+
+
+def update_activity_context(row: ActivityLog, **fields: Any) -> None:
+    """Add fields that are known only after the logged action ran to the row's context.
+
+    `$activity_log_entry_created` went out when the row was created, so a destination that streams the
+    activity log does not receive these fields.
+    """
+    try:
+        detail = cast(Detail, row.detail)
+        if detail.context is None:
+            raise ValueError(f"{row.scope} activity row has no context to update")
+        row.detail = dataclasses.replace(detail, context=dataclasses.replace(detail.context, **fields))
+        row.save(update_fields=["detail"])
+    except Exception as e:
+        logger.warn("activity_log.failed_to_update_activity_context", scope=row.scope, exception=e)
+        capture_exception(e)
+        if settings.TEST:
+            raise
 
 
 def log_activity_with_soft_delete(

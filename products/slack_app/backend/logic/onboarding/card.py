@@ -26,6 +26,7 @@ from products.slack_app.backend.temporal.types import (
 SETUP_STARTED_EVENT = "slack app onboarding started"
 STEP_SHOWN_EVENT = "slack app onboarding step shown"
 SETUP_COMPLETED_EVENT = "slack app onboarding completed"
+REMINDED_EVENT = "slack app onboarding reminded"
 
 
 StepStatus = Literal["done", "already_set", "not_needed", "skipped", "pending"]
@@ -259,6 +260,28 @@ def _forget_deleted_message(
         update_onboarding(slack_workspace_id, slack_user_id, forget_step=message.step)
     # The rest of this refresh was planned for the old messages, so plan again.
     request_onboarding(integration, slack_user_id, may_start=False)
+
+
+def remind_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> None:
+    """Posts at most one reminder per person, as a reply that mentions them, so Slack notifies them."""
+    slack_workspace_id = integration.integration_id
+    state = resolve_onboarding(slack_workspace_id, slack_user_id)
+    if state is None or state.completed or state.reminded_at or state.channel is None or state.root_ts is None:
+        return
+    ctx = OnboardingContext(integration=integration, slack_user_id=slack_user_id)
+    checked = _check_planned(ctx, state.planned, state.step_ts, state.skipped)
+    current = _current(checked)
+    if current is None or not current.shown:
+        return
+    text = (
+        f"<@{slack_user_id}> Your PostHog setup is waiting at step {current.number} of {len(checked)}, "
+        f"{current.step.title}. Pick it up above when you have a minute, or skip the steps you don't need."
+    )
+    SlackIntegration(integration).client.chat_postMessage(
+        channel=state.channel, thread_ts=state.root_ts, text=text, blocks=[section_block(text)]
+    )
+    update_onboarding(slack_workspace_id, slack_user_id, reminded=True)
+    capture_slack_event(integration, REMINDED_EVENT, slack_user_id=slack_user_id, step=current.step.key)
 
 
 def edit_onboarding_message(

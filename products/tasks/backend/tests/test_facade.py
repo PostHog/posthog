@@ -349,6 +349,7 @@ class TestFacadeReadsAndMappers(TestCase):
                 "initial_prompt_override": "framed prompt",
                 "end_run_when_done": True,
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
+                "store_skills_bridge": True,
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
                 "unknown_server_context": {"title": "Saved context"},
@@ -372,6 +373,7 @@ class TestFacadeReadsAndMappers(TestCase):
         assert detail.state.get("end_run_when_done") == (True if include_agent_state else None)
         # The agent writes these into its skill roots at boot; dropped, it installs none.
         assert ("store_skills" in detail.state) is include_agent_state
+        assert ("store_skills_bridge" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
         assert "unknown_server_context" not in detail.state
@@ -1724,9 +1726,11 @@ class TestFacadeReadsAndMappers(TestCase):
             ("self_driving_head_branch", "posthog-self-driving/fix-abc123"),
             ("stack_base_branch", "posthog-self-driving/schema-abc123"),
             ("github_access_repositories", ["acme/api", "acme/assets"]),
+            ("github_read_access", True),
+            ("github_token_scope", "push"),
         ]
     )
-    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str | list[str]):
+    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str | list[str] | bool):
         # The signals review carve-out binds a PR to its run by matching the PR head ref against the
         # PATCH-protected state.self_driving_head_branch stamp. A resume mints a new run, so the
         # stamp must be copied forward or the carve-out stops matching the successor — the receiver
@@ -2745,6 +2749,21 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
                 user_id=self.user.id,
                 repository="posthog/posthog",
                 create_pr=False,
+            )
+        self.assertTrue(Task.objects.filter(id=created.task_id).exists())
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_admitted_implementation_continues_after_limit_is_reached(self, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with self._enforced_gate():
+            created = facade.create_and_run_task(
+                team=self.team,
+                title="Implementation: accepted report",
+                description="Finish the accepted pipeline",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+                continue_admitted_pipeline=True,
             )
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
 

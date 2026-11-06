@@ -89,6 +89,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'First Self-Driving investigation',
         description: 'When your first Self-Driving investigation finishes, including when it has no report.',
     },
+    report_claim_taken_over: {
+        label: 'Self-Driving report takeovers',
+        description: 'When someone takes over a Self-Driving report you were working on',
+    },
     feature_flag_failure: {
         label: 'Feature flag failures',
         description: 'When a feature flag in your project fails to evaluate',

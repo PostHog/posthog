@@ -27,6 +27,8 @@ from pydantic.dataclasses import dataclass
 
 from posthog.integrations import IntegrationUsage
 
+from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
+
 # The request flag that confirms an edit of credentials that other sources or products also use.
 UPDATE_SHARED_CREDENTIALS_PARAM = "update_shared_credentials"
 
@@ -84,6 +86,29 @@ class UnsupportedSyncTypeError(ValueError):
 class UnreadableSourceInputsError(ValueError):
     """A source's stored inputs do not decode to a mapping. The message never holds the value, because the
     value can hold credentials."""
+
+
+# Set in `job_inputs` when the store has moved the connection fields of a source to its credentials row and
+# removed them from `job_inputs`. The value is the time of the strip, as an ISO 8601 string.
+CONNECTION_FIELDS_STRIPPED_KEY = "connection_fields_stripped_at"
+# Keeps a stripped typed-in source typed-in when, without its connection fields, it would read as OAuth (Slack).
+CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY = "connection_fields_stripped_typed_in"
+STRIPPED_STORE_KEYS: frozenset[str] = frozenset(
+    {CONNECTION_FIELDS_STRIPPED_KEY, CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY}
+)
+
+SOURCE_CREDENTIALS_MISSING_ERROR = "The credentials of this source are missing or cannot be read"
+
+
+class SourceCredentialsMissingError(UnreadableSourceInputsError):
+    """The connection fields of a stripped source are not in its credentials row. `job_inputs` holds no copy,
+    so nothing can replace them: the user must enter the credentials again."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            f"{SOURCE_CREDENTIALS_MISSING_ERROR}. Enter the credentials of the source again, or reconnect its "
+            "account, then enable the sync again."
+        )
 
 
 class UndecryptedConfigError(ValueError):
@@ -344,6 +369,14 @@ class ExternalDataJob:
 
 
 # --- Column annotation ---
+
+
+@dataclass(frozen=True)
+class TableLevelDescription:
+    """What a warehouse table represents. `source` is null for text from the source schema."""
+
+    text: str
+    source: WarehouseColumnAnnotationDescriptionSource | None
 
 
 @dataclass(frozen=True)

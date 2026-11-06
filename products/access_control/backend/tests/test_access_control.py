@@ -14,7 +14,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -37,6 +36,7 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight

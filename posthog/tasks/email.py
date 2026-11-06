@@ -24,6 +24,7 @@ from posthog.dataclasses import frozen
 from posthog.email import (
     EMAIL_TASK_KWARGS,
     EmailMessage,
+    EmailRecipientUndeliverableError,
     get_email_team_and_org_context,
     is_email_available,
     is_http_email_service_available,
@@ -734,7 +735,8 @@ def send_code_based_verification(user_id: int, code: str) -> None:
         },
     )
     message.add_user_recipient(user)
-    message.send(send_async=False)
+    if message.send(send_async=False):
+        raise EmailRecipientUndeliverableError("the login code email was refused as undeliverable")
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="login verification code sent",

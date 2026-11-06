@@ -14,6 +14,7 @@ export interface StoryEvidence {
     text: string
     url: string | null
     query?: Record<string, unknown> | null
+    insightShortId?: string | null
     queryTool?: string | null
     chart?: StoryEvidenceChartData | null
 }
@@ -33,6 +34,7 @@ export interface StorySeriesResult {
     label?: string
     data?: number[]
     days?: string[]
+    compare_label?: 'current' | 'previous' | null
 }
 
 export interface StoryTrendsQuery {
@@ -43,7 +45,11 @@ export interface StoryTrendsQuery {
     [key: string]: unknown
 }
 
+// What the explanation walks through, whichever insight drew it: a funnel over time is a time series too.
+export type ExplainChartShape = 'time_series'
+
 export interface ExplainChartData {
+    shape: ExplainChartShape
     query: StoryTrendsQuery
     results: StorySeriesResult[]
     seriesIndex: number
