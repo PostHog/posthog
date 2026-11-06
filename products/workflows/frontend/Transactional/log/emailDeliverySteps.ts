@@ -9,7 +9,7 @@ import type {
 
 import { EMAIL_STATUS_LABEL, emailReasonText } from './emailLogStatus'
 
-export type DeliveryStepState = 'done' | 'failed' | 'pending'
+export type DeliveryStepState = 'done' | 'failed' | 'pending' | 'untracked'
 
 export interface DeliveryStep {
     key: string
@@ -51,6 +51,7 @@ export function buildDeliverySteps(email: TransactionalEmailLogDetailApi): Deliv
     const sent = firstOf(timeline, 'sent')
     const delivered = firstOf(timeline, 'delivered')
     const opened = firstOf(timeline, 'opened')
+    const clicked = firstOf(timeline, 'clicked')
     // A rerun can fail and then bounce, so the last step reads from the row behind the final status.
     const failure = firstOf(timeline, email.status)
     const queuedAt = firstOf(timeline, 'queued')?.at ?? email.created_at
@@ -91,18 +92,20 @@ export function buildDeliverySteps(email: TransactionalEmailLogDetailApi): Deliv
             stopped('complained', delivered?.at ?? sent?.at ?? null, 'The recipient reported this email as spam'),
         ]
     }
+    const clickedStep = step(
+        'clicked',
+        'Clicked',
+        clicked,
+        opened?.at ?? delivered?.at ?? null,
+        repeated(countOf(timeline, 'clicked'), 'Clicked')
+    )
     return [
         ...lead,
         sentStep,
         deliveredStep,
         step('opened', 'Opened', opened, delivered?.at ?? null, repeated(countOf(timeline, 'opened'), 'Opened')),
-        step(
-            'clicked',
-            'Clicked',
-            firstOf(timeline, 'clicked'),
-            opened?.at ?? delivered?.at ?? null,
-            repeated(countOf(timeline, 'clicked'), 'Clicked')
-        ),
+        // A send from before an email was marked sensitive can still have a recorded click.
+        email.sensitive && !clicked ? { ...clickedStep, state: 'untracked' } : clickedStep,
     ]
 }
 

@@ -1,11 +1,14 @@
 import clsx from 'clsx'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck, IconInfo, IconMinus, IconX } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { DeliveryStep, gapLabel } from './emailDeliverySteps'
+
+const NOT_TRACKED_EXPLANATION =
+    "Links in sensitive emails aren't tracked, because they can contain login codes or reset tokens."
 
 function StepDetail({ detail }: { detail: string }): JSX.Element {
     const text = <span className="text-xs text-secondary truncate">{detail}</span>
@@ -29,17 +32,19 @@ export function TransactionalEmailDeliveryStep({
                         'flex items-center justify-center size-6 rounded-full shrink-0 border',
                         step.state === 'done' && 'bg-success border-success text-white',
                         step.state === 'failed' && 'bg-danger border-danger text-white',
-                        step.state === 'pending' && 'bg-surface-primary border-dashed border-border-bold'
+                        step.state === 'pending' && 'bg-surface-primary border-dashed border-border-bold',
+                        step.state === 'untracked' && 'bg-surface-secondary border-border text-tertiary'
                     )}
                 >
                     {step.state === 'done' && <IconCheck className="size-4" />}
                     {step.state === 'failed' && <IconX className="size-4" />}
+                    {step.state === 'untracked' && <IconMinus className="size-4" />}
                 </span>
                 {next && (
                     <span
                         className={clsx(
                             'hidden @2xl:block h-px flex-1 mx-2',
-                            next.state === 'pending' ? 'bg-border' : 'bg-border-bold'
+                            next.state === 'pending' || next.state === 'untracked' ? 'bg-border' : 'bg-border-bold'
                         )}
                     />
                 )}
@@ -48,7 +53,7 @@ export function TransactionalEmailDeliveryStep({
                 <span
                     className={clsx(
                         'text-sm font-semibold',
-                        step.state === 'pending' && 'text-secondary',
+                        (step.state === 'pending' || step.state === 'untracked') && 'text-secondary',
                         step.state === 'failed' && 'text-danger'
                     )}
                 >
@@ -65,6 +70,21 @@ export function TransactionalEmailDeliveryStep({
                             {step.key === 'opened' || step.key === 'clicked' ? 'Not yet' : 'Waiting'}
                         </span>
                     )
+                )}
+                {step.state === 'untracked' && (
+                    <span className="text-xs text-secondary flex items-center gap-1">
+                        Not tracked
+                        <Tooltip title={NOT_TRACKED_EXPLANATION} openOnClick>
+                            <button
+                                type="button"
+                                aria-label={NOT_TRACKED_EXPLANATION}
+                                className="inline-flex cursor-help text-sm"
+                                data-attr="transactional-email-clicks-not-tracked"
+                            >
+                                <IconInfo />
+                            </button>
+                        </Tooltip>
+                    </span>
                 )}
                 {step.detail && step.state !== 'failed' && <StepDetail detail={step.detail} />}
             </div>
