@@ -94,6 +94,8 @@ jobs:
                         - 'posthog/security/crosslang/**'
                         # The rust mirror of the AI event limits has a parity test against the shared json.
                         - 'products/ai_observability/shared/crosslang/**'
+                        # The hogvm crate's parity test runs the shared Hog corpus against its committed snapshots.
+                        - 'common/hogvm/__tests__/**'
                         # Hypercache contract: Python serializer changes may break Rust deserialization
                         - 'posthog/api/feature_flag.py'
                         - 'posthog/models/feature_flag/flags_cache.py'

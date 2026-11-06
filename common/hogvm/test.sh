@@ -72,6 +72,8 @@ else
     rm -f common/hogvm/__tests__/__snapshots__/*.stdout.compiledjs
 fi
 
+failed_files=()
+
 for file in "${test_files[@]}"; do
     echo "Testing $file"
 
@@ -105,6 +107,7 @@ for file in "${test_files[@]}"; do
             echo "Test passed"
         else
             echo "Test failed: Output differs between Node.js and Python interpreters."
+            failed_files+=("$file")
         fi
         set -e
     else
@@ -126,10 +129,18 @@ for file in "${test_files[@]}"; do
                 echo "Test passed"
             else
                 echo "Test failed: Output differs between Node.js and Python interpreters."
+                failed_files+=("$file")
             fi
         else
             echo "Test failed: Output differs between Node.js interpreter and compiled JavaScript."
+            failed_files+=("$file")
         fi
         set -e
     fi
 done
+
+if [ ${#failed_files[@]} -gt 0 ]; then
+    echo "The VMs disagree on ${#failed_files[@]} file(s):"
+    printf '  %s\n' "${failed_files[@]}"
+    exit 1
+fi
