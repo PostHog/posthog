@@ -528,6 +528,59 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             sorted(kept),
         )
 
+    def test_not_on_any_dashboard_filter(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "the dashboard"})
+
+        # Insight attached to a dashboard via the `dashboards` write path,
+        # which creates a DashboardTile under the hood.
+        self.dashboard_api.create_insight({"name": "On dashboard", "dashboards": [dashboard_id], "saved": True})
+
+        # Orphan insight — no DashboardTile.
+        Insight.objects.create(
+            name="Not on dashboard",
+            query=browser_filtered_pageview_query(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Insight whose only DashboardTile was soft-deleted — should be treated
+        # as not on a dashboard, since the default DashboardTile manager hides
+        # soft-deleted rows.
+        soft_deleted_insight = Insight.objects.create(
+            name="Soft-deleted tile",
+            query=browser_filtered_pageview_query(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+        DashboardTile.objects_including_soft_deleted.create(
+            dashboard_id=dashboard_id, insight=soft_deleted_insight, deleted=True
+        )
+
+        # Insight on an unlisted (system-generated) dashboard — should be treated
+        # as not on a dashboard, mirroring the `saved` filter's semantics.
+        unlisted_dashboard = Dashboard.objects.create(name="d-unlisted", team=self.team, creation_mode="unlisted")
+        on_unlisted_insight = Insight.objects.create(
+            name="On unlisted dashboard",
+            query=browser_filtered_pageview_query(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+        DashboardTile.objects.create(dashboard=unlisted_dashboard, insight=on_unlisted_insight)
+
+        # Without filter: all 4 saved insights returned.
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 4)
+
+        # With filter: insights with no active non-unlisted dashboard tile.
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&not_on_any_dashboard=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = sorted(r["name"] for r in response.json()["results"])
+        self.assertEqual(names, ["Not on dashboard", "On unlisted dashboard", "Soft-deleted tile"])
+
     def test_get_insight_in_dashboard_context(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard(
             {"name": "the dashboard", "filters": {"date_from": "-180d"}}
