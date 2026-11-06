@@ -169,8 +169,13 @@ def _stored_email_values(context: dict[str, Any]) -> list[object]:
     return stored
 
 
-def _matches_stored_sender(email_value: dict, stored_values: list[object]) -> bool:
-    return any(isinstance(stored, dict) and email_value["from"] == stored.get("from") for stored in stored_values)
+def _stored_reply_tos_for_sender(email_value: dict, stored_values: list[object]) -> list[str] | None:
+    reply_tos = [
+        stored.get("replyTo") or ""
+        for stored in stored_values
+        if isinstance(stored, dict) and email_value["from"] == stored.get("from")
+    ]
+    return reply_tos or None
 
 
 def _matches_stored_email(email_value: dict, stored_values: list[object]) -> bool:
@@ -203,13 +208,25 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
         raise serializers.ValidationError({"input": f"At most {MAX_WORKFLOW_EMAIL_SENDERS} email senders are allowed."})
     sandbox_ids = _sandbox_email_sender_ids(context)
     stored_step_values = [*_stored_email_values(context), *(context.get("existing_action_email_values") or [])]
-    if templated_sender and sandbox_ids and not _matches_stored_sender(email_value, stored_step_values):
-        raise serializers.ValidationError(
-            {
-                "input": "A templated sender is not supported while the project has the sandbox sender. "
-                "Set 'from.integrationId' to the ID of one sender and remove 'from.integrationIds'."
-            }
-        )
+    if templated_sender and sandbox_ids:
+        stored_reply_tos = _stored_reply_tos_for_sender(email_value, stored_step_values)
+        if stored_reply_tos is None:
+            raise serializers.ValidationError(
+                {
+                    "input": "A templated sender is not supported while the project has the sandbox sender. "
+                    "Set 'from.integrationId' to the ID of one sender and remove 'from.integrationIds'."
+                }
+            )
+        # The templated sender can resolve to the sandbox sender, which allows no Reply-To override,
+        # so a stored step may keep or clear its Reply-To but not take a new one.
+        reply_to = email_value.get("replyTo") or ""
+        if reply_to and reply_to not in stored_reply_tos:
+            raise serializers.ValidationError(
+                {
+                    "input": "A templated sender can't take a new Reply-To while the project has the sandbox sender. "
+                    "Remove the Reply-To, or set 'from.integrationId' to the ID of one sender."
+                }
+            )
     if not integration_ids & sandbox_ids:
         return
     if context.get("workflow_origin_product") == "broadcasts":
