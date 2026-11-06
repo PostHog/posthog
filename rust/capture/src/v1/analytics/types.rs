@@ -463,6 +463,7 @@ impl Publishable for WrappedEvent {
             dlq_step,
             dlq_timestamp,
             content_encoding: None,
+            legacy_property_splice: Some(true),
         }
     }
 
@@ -710,7 +711,8 @@ pub struct IngestionEvent<'a> {
 
 /// Consumers of the capture topics read these keys, so a rename breaks them.
 /// They override the property for each present key, but fill `$lib` /
-/// `$lib_version` from `req_lib` / `req_lib_version` only when `$lib` is absent.
+/// `$lib_version` from `req_lib` / `req_lib_version` only when `$lib` is missing
+/// or null, and `$lib_version` alone when `$lib` already equals `req_lib`.
 #[derive(Debug, Default, Serialize, PartialEq)]
 pub struct OutboundOptions<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1489,6 +1491,7 @@ mod tests {
         assert!(h.force_disable_person_processing.is_none());
         assert!(h.session_id.is_none());
         assert!(h.dlq_reason.is_none());
+        assert_eq!(h.legacy_property_splice, Some(true));
     }
 
     #[test]
@@ -2016,7 +2019,7 @@ mod tests {
         };
 
         let ctx = serialize_ctx();
-        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
         let props = &data.properties;
 
         assert_eq!(props["$session_id"], "sess-abc");
@@ -2025,6 +2028,14 @@ mod tests {
         assert!(!props.contains_key("$ignore_sent_at"));
         assert!(!props.contains_key("$product_tour_id"));
         assert!(!props.contains_key("$process_person_profile"));
+
+        let expected = serde_json::json!({
+            "session_id": "sess-abc",
+            "cookieless_mode": false,
+            "req_lib": "posthog-rs",
+            "req_lib_version": "1.0.0",
+        });
+        assert_eq!(captured.options.map(Value::Object), Some(expected));
     }
 
     #[test]

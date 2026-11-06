@@ -124,6 +124,8 @@ pub struct CapturedEventHeaders {
     pub dlq_step: Option<String>,
     pub dlq_timestamp: Option<String>,
     pub content_encoding: Option<String>,
+    /// Node labels its v1 `options` metrics with it, so re-producers must keep it.
+    pub legacy_property_splice: Option<bool>,
 }
 
 impl CapturedEventHeaders {
@@ -228,6 +230,13 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
                 value: Some(encoding.as_str()),
             });
         }
+        if let Some(legacy_property_splice) = headers.legacy_property_splice {
+            let val = legacy_property_splice.to_string();
+            owned = owned.insert(Header {
+                key: "legacy_property_splice",
+                value: Some(val.as_str()),
+            });
+        }
 
         owned
     }
@@ -265,6 +274,9 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
             dlq_step: headers_map.get("dlq_step").cloned(),
             dlq_timestamp: headers_map.get("dlq_timestamp").cloned(),
             content_encoding: headers_map.get("content-encoding").cloned(),
+            legacy_property_splice: headers_map
+                .get("legacy_property_splice")
+                .and_then(|v| v.parse::<bool>().ok()),
         }
     }
 }
@@ -329,6 +341,7 @@ impl CapturedEvent {
             dlq_step: None,
             dlq_timestamp: None,
             content_encoding: None,
+            legacy_property_splice: None,
         }
     }
 
@@ -869,6 +882,42 @@ mod tests {
             recovered.dlq_timestamp,
             Some("2023-01-02T10:05:00Z".to_string())
         );
+    }
+
+    #[test]
+    fn test_legacy_property_splice_round_trips_through_owned_headers() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+            options: None,
+        };
+
+        let owned: OwnedHeaders = event.to_headers().into();
+        assert!(!owned.iter().any(|h| h.key == "legacy_property_splice"));
+
+        let mut headers = event.to_headers();
+        headers.legacy_property_splice = Some(true);
+        let owned: OwnedHeaders = headers.into();
+        let raw = owned
+            .iter()
+            .find(|h| h.key == "legacy_property_splice")
+            .and_then(|h| h.value);
+        assert_eq!(raw, Some(b"true".as_slice()));
+
+        let recovered: CapturedEventHeaders = owned.into();
+        assert_eq!(recovered.legacy_property_splice, Some(true));
     }
 
     #[test]
