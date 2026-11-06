@@ -128,7 +128,8 @@ export function HoglakeCredentials(): JSX.Element | null {
                 <h3 className="mb-1">Hoglake credentials</h3>
                 <p className="text-muted text-xs mb-0">
                     OAuth client credentials for reading this organization's hoglake catalog directly, e.g. from Spark,
-                    DuckDB or PyIceberg. Exchange one for a short-lived token at the token URL.
+                    DuckDB or PyIceberg. Exchange one for a short-lived token at the token URL. Members' personal
+                    credentials are listed too: you can revoke them, and only their owners can rotate them.
                 </p>
             </div>
 
@@ -144,6 +145,19 @@ export function HoglakeCredentials(): JSX.Element | null {
                 emptyState="No hoglake credentials yet"
                 columns={[
                     { title: 'Name', dataIndex: 'name' },
+                    {
+                        title: 'Owner',
+                        key: 'owner',
+                        render: (_, c) =>
+                            c.kind === 'team' ? (
+                                <span className="flex items-center gap-1">
+                                    <LemonTag type="muted">Personal</LemonTag>
+                                    {c.owner_name || c.owner_email || 'Former member'}
+                                </span>
+                            ) : (
+                                'Organization'
+                            ),
+                    },
                     {
                         title: 'Client ID',
                         dataIndex: 'client_id',
@@ -167,25 +181,28 @@ export function HoglakeCredentials(): JSX.Element | null {
                         width: 0,
                         render: (_, c) => (
                             <div className="flex gap-1">
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    disabledReason={isSubmitting ? 'Working…' : undefined}
-                                    onClick={() =>
-                                        LemonDialog.open({
-                                            title: `Rotate the secret for "${c.name}"?`,
-                                            description:
-                                                'The current secret stops working immediately. Clients need the new one to get tokens.',
-                                            primaryButton: {
-                                                children: 'Rotate secret',
-                                                onClick: () => rotateCredential(c.client_id),
-                                            },
-                                            secondaryButton: { children: 'Cancel' },
-                                        })
-                                    }
-                                >
-                                    Rotate
-                                </LemonButton>
+                                {/* A personal credential's secret is its owner's alone: admins can only revoke it. */}
+                                {c.kind !== 'team' && (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        disabledReason={isSubmitting ? 'Working…' : undefined}
+                                        onClick={() =>
+                                            LemonDialog.open({
+                                                title: `Rotate the secret for "${c.name}"?`,
+                                                description:
+                                                    'The current secret stops working immediately. Clients need the new one to get tokens.',
+                                                primaryButton: {
+                                                    children: 'Rotate secret',
+                                                    onClick: () => rotateCredential(c.client_id),
+                                                },
+                                                secondaryButton: { children: 'Cancel' },
+                                            })
+                                        }
+                                    >
+                                        Rotate
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     size="xsmall"
                                     type="secondary"
@@ -195,7 +212,9 @@ export function HoglakeCredentials(): JSX.Element | null {
                                         LemonDialog.open({
                                             title: `Revoke "${c.name}"?`,
                                             description:
-                                                'New tokens are refused and its S3 access stops now. This cannot be undone.',
+                                                c.kind === 'team'
+                                                    ? `This is ${c.owner_name || c.owner_email || 'a former member'}'s personal credential. New tokens are refused and its S3 access stops now. This cannot be undone.`
+                                                    : 'New tokens are refused and its S3 access stops now. This cannot be undone.',
                                             primaryButton: {
                                                 children: 'Revoke',
                                                 status: 'danger',

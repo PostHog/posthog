@@ -1414,13 +1414,49 @@ def _hoglake_connect(organization_id: UUID | str) -> dict[str, str]:
     return connect
 
 
+def _add_owners(organization_id: UUID | str, credentials: list[dict[str, Any]]) -> None:
+    """Name the owner of each personal (team) credential, from the organization's own members.
+
+    A uuid that is no longer a member of the organization keeps no name: the credential
+    stops minting tokens when its owner leaves, and is listed only so it can be revoked.
+    """
+    from posthog.models.organization import OrganizationMembership
+
+    uuids = {c["owner_user_uuid"] for c in credentials if c.get("owner_user_uuid")}
+    if not uuids:
+        return
+    members = {
+        str(m.user.uuid): m.user
+        for m in OrganizationMembership.objects.filter(
+            organization_id=organization_id, user__uuid__in=uuids
+        ).select_related("user")
+    }
+    for c in credentials:
+        if (user := members.get(str(c.get("owner_user_uuid")))) is not None:
+            c["owner_email"] = user.email
+            c["owner_name"] = user.first_name or user.email
+
+
 def list_hoglake_credentials(organization_id: UUID | str) -> Response:
     if (refused := _hogtower_only()) is not None:
         return refused
     resp = _request("GET", organization_id, "/hoglake-credentials")
     if status.is_success(resp.status_code) and isinstance(resp.data, dict):
+        _add_owners(organization_id, resp.data.get("hoglake_credentials") or [])
         resp.data["connect"] = _hoglake_connect(organization_id)
     return resp
+
+
+def _hoglake_credential_kind(organization_id: UUID | str, credential_id: str) -> str | None:
+    """The kind ("org" or "team") of one of the organization's hoglake credentials, or None
+    when hogtower cannot list them or does not have it."""
+    resp = _request("GET", organization_id, "/hoglake-credentials")
+    if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
+        return None
+    for c in resp.data.get("hoglake_credentials") or []:
+        if c.get("client_id") == credential_id:
+            return c.get("kind") or "org"
+    return None
 
 
 def create_hoglake_credential(
@@ -1439,6 +1475,13 @@ def create_hoglake_credential(
 def rotate_hoglake_credential(organization_id: UUID | str, credential_id: str, *, triggered_by: str) -> Response:
     if (refused := _hogtower_only()) is not None:
         return refused
+    # A personal credential's tokens name its owner, so its secret is for its owner alone.
+    # An admin may revoke one, never take a working secret for it.
+    if _hoglake_credential_kind(organization_id, credential_id) == "team":
+        return Response(
+            {"error": "This is a member's personal credential: only its owner can rotate it. Revoke it instead."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
     resp = _request("POST", organization_id, f"/hoglake-credentials/{credential_id}/rotate")
     _log_hoglake_action(resp, "rotate_hoglake_credential", organization_id, triggered_by, credential_id=credential_id)
     return resp

@@ -258,6 +258,17 @@ class HoglakeCredentialSerializer(serializers.Serializer):
     client_id = serializers.CharField(help_text="The OAuth client_id, hlc_…")
     name = serializers.CharField()
     scope = serializers.CharField(help_text="read or write")
+    kind = serializers.CharField(
+        required=False,
+        help_text="org: reaches the whole catalog. team: a member's personal credential, limited to the "
+        "projects in team_ids that its owner can still see.",
+    )
+    owner_user_uuid = serializers.UUIDField(required=False, help_text="A personal credential's owner")
+    owner_email = serializers.CharField(required=False, help_text="The owner's email, while they are a member")
+    owner_name = serializers.CharField(required=False, help_text="The owner's name, while they are a member")
+    team_ids = serializers.ListField(
+        child=serializers.IntegerField(), required=False, help_text="A personal credential's projects"
+    )
     created_at = serializers.DateTimeField()
     last_rotated_at = serializers.DateTimeField()
     expires_at = serializers.DateTimeField()
@@ -281,6 +292,7 @@ class HoglakeCredentialIssuedSerializer(serializers.Serializer):
     name = serializers.CharField()
     scope = serializers.CharField()
     expires_at = serializers.DateTimeField()
+    kind = serializers.CharField(required=False, help_text="org or team")
 
 
 class HoglakeCredentialRevokedSerializer(serializers.Serializer):

@@ -717,3 +717,57 @@ class TestHoglakeCredentialViews:
             {"error": "Hoglake credentials are not available in this region yet"},
         )
         assert fake.calls == []
+
+
+_TEAM_HLC = "hlc_fedcba9876543210fedcba98"
+_TEAM_HLC_ROW = {**_HLC_ROW, "client_id": _TEAM_HLC, "kind": "team", "owner_user_uuid": str(uuid4()), "team_ids": [7]}
+
+
+@patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
+class TestHoglakeCredentialRotateByAdmin:
+    @pytest.fixture(autouse=True)
+    def _public_token_url(self):
+        with override_settings(HOGLAKE_OAUTH_TOKEN_URL="https://hogtower-oauth.example.test/oauth/token"):
+            yield
+
+    @_routes(
+        {
+            ("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": [{**_HLC_ROW, "kind": "org"}]}),
+            ("POST", f"{W}/hoglake-credentials/{_HLC}/rotate"): (200, _HLC_ISSUED),
+        }
+    )
+    def test_rotates_an_org_credential(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        resp = managed_warehouse.rotate_hoglake_credential(ORG, _HLC, triggered_by=PRINCIPAL)
+
+        assert (resp.status_code, resp.data["client_secret"]) == (200, _FAKE_SECRET)
+
+    @_routes(
+        {
+            ("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": [_TEAM_HLC_ROW]}),
+            ("POST", f"{W}/hoglake-credentials/{_TEAM_HLC}/rotate"): (200, _HLC_ISSUED),
+        }
+    )
+    def test_never_rotates_a_members_personal_credential(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        resp = managed_warehouse.rotate_hoglake_credential(ORG, _TEAM_HLC, triggered_by=PRINCIPAL)
+
+        assert resp.status_code == 403
+        assert [c["method"] for c in fake.calls] == ["GET"]
+
+
+@pytest.mark.django_db
+def test_list_names_owners_only_from_the_organizations_members() -> None:
+    from posthog.models import Organization, User
+
+    org = Organization.objects.create(name="acme")
+    member = User.objects.create_and_join(org, "member@acme.test", None, first_name="Mia")
+    outsider = User.objects.create_and_join(Organization.objects.create(name="other"), "out@other.test", None)
+    creds = [
+        {"client_id": "hlc_1", "kind": "team", "owner_user_uuid": str(member.uuid)},
+        {"client_id": "hlc_2", "kind": "team", "owner_user_uuid": str(outsider.uuid)},
+        {"client_id": "hlc_3", "kind": "org"},
+    ]
+
+    managed_warehouse._add_owners(org.id, creds)
+
+    assert (creds[0]["owner_name"], creds[0]["owner_email"]) == ("Mia", "member@acme.test")
+    assert "owner_email" not in creds[1] and "owner_email" not in creds[2]

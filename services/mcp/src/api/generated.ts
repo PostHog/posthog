@@ -57856,6 +57856,16 @@ export namespace Schemas {
       name: string;
       /** read or write */
       scope: string;
+      /** org: reaches the whole catalog. team: a member's personal credential, limited to the projects in team_ids that its owner can still see. */
+      kind?: string;
+      /** A personal credential's owner */
+      owner_user_uuid?: string;
+      /** The owner's email, while they are a member */
+      owner_email?: string;
+      /** The owner's name, while they are a member */
+      owner_name?: string;
+      /** A personal credential's projects */
+      team_ids?: number[];
       created_at: string;
       last_rotated_at: string;
       expires_at: string;
@@ -57905,6 +57915,8 @@ export namespace Schemas {
       name: string;
       scope: string;
       expires_at: string;
+      /** org or team */
+      kind?: string;
     }
 
     export interface HoglakeCredentialListResponse {
