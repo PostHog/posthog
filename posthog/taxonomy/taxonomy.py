@@ -1468,6 +1468,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "App build",
             "description": "The build number for the app.",
         },
+        "$app_language": {
+            "label": "App language",
+            "description": "The language the app displays, which can differ from the device's locale.",
+            "examples": ["en", "pt-BR"],
+        },
         "$app_name": {
             "label": "App name",
             "description": "The name of the app.",

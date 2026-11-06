@@ -24,7 +24,8 @@ export const scene: SceneExport = {
 
 export function DestinationConnectScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { kind, destinationDefinition, isModalOpen, integrationId } = useValues(destinationConnectSceneLogic)
+    const { kind, destinationDefinition, isModalOpen, integrationId, handBackStatus } =
+        useValues(destinationConnectSceneLogic)
     const { setModalOpen, setIntegrationId } = useActions(destinationConnectSceneLogic)
 
     if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]) {
@@ -63,12 +64,24 @@ export function DestinationConnectScene(): JSX.Element {
             />
             <div className="max-w-200">
                 {integrationId !== null ? (
-                    <LemonBanner type="success">
+                    <LemonBanner type={handBackStatus === 'sending' ? 'info' : 'success'}>
                         <p className="font-semibold mb-1">{typeLabel} connection saved</p>
-                        <p className="m-0 text-sm">
-                            Copy this connection id into your chat: <code>{integrationId}</code>. The assistant uses it
-                            to create the destination, which doesn't exist yet. Then you can close this tab.
-                        </p>
+                        {handBackStatus === 'sending' ? (
+                            <p className="m-0 text-sm">Sending the connection to the assistant…</p>
+                        ) : handBackStatus === 'sent' ? (
+                            <p className="m-0 text-sm">
+                                The assistant can see this connection now. Go back to your terminal or chat to finish
+                                creating the destination. You can close this tab.
+                            </p>
+                        ) : (
+                            <p className="m-0 text-sm">
+                                {handBackStatus === 'failed'
+                                    ? "We couldn't send the connection to the assistant. "
+                                    : ''}
+                                Copy this connection id into your chat: <code>{integrationId}</code>. The assistant uses
+                                it to create the destination, which doesn't exist yet. Then you can close this tab.
+                            </p>
+                        )}
                     </LemonBanner>
                 ) : (
                     !isModalOpen && (

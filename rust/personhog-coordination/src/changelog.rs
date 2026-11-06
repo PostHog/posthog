@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::{Error, Result};
 use crate::store::PersonhogStore;
-use crate::types::ChangelogConfig;
+use crate::types::{ChangelogConfig, ClusterEndpoint};
 use crate::util;
 
 /// Whether boot keeps polling through `err`: any etcd error, since there is
@@ -155,14 +155,16 @@ pub struct KeyFilter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WarmSource {
     pub topic: Arc<str>,
+    pub cluster: Option<ClusterEndpoint>,
     pub partition: u32,
     pub keep: Option<KeyFilter>,
 }
 
 impl WarmSource {
-    pub fn live(topic: &str, partition: u32) -> Self {
+    pub fn live(topic: &str, cluster: Option<&ClusterEndpoint>, partition: u32) -> Self {
         Self {
             topic: Arc::from(topic),
+            cluster: cluster.cloned(),
             partition,
             keep: None,
         }
@@ -189,6 +191,7 @@ pub fn warm_sources(config: &ChangelogConfig, partition: u32) -> Vec<WarmSource>
         for q in (0..generation.partitions).filter(|q| q % g == partition % g) {
             sources.push(WarmSource {
                 topic: Arc::from(generation.topic.as_str()),
+                cluster: generation.cluster.clone(),
                 partition: q,
                 keep: Some(KeyFilter {
                     modulus: config.partitions,
@@ -197,7 +200,11 @@ pub fn warm_sources(config: &ChangelogConfig, partition: u32) -> Vec<WarmSource>
             });
         }
     }
-    sources.push(WarmSource::live(&config.topic, partition));
+    sources.push(WarmSource::live(
+        &config.topic,
+        config.cluster.as_ref(),
+        partition,
+    ));
     sources
 }
 
@@ -398,6 +405,7 @@ mod tests {
 
     fn config(partitions: u32, draining: Vec<(u32, u64)>) -> ChangelogConfig {
         ChangelogConfig {
+            cluster: None,
             topic: "new".to_string(),
             partitions,
             epoch: 9,
@@ -406,6 +414,7 @@ mod tests {
             draining: draining
                 .into_iter()
                 .map(|(partitions, epoch)| Generation {
+                    cluster: None,
                     topic: format!("old{epoch}"),
                     partitions,
                     epoch,
@@ -510,6 +519,17 @@ mod tests {
         let live = sources.last().unwrap();
         assert!(live.keep.is_none());
         assert_eq!(live.partition, 1);
+        let mut moved = config(8, vec![(4, 2)]);
+        let dedicated = ClusterEndpoint {
+            name: "dedicated".to_string(),
+            hosts: "dedicated:9092".to_string(),
+            tls: false,
+        };
+        moved.cluster = Some(dedicated.clone());
+        let moved_sources = warm_sources(&moved, 1);
+        let clusters: Vec<Option<&ClusterEndpoint>> =
+            moved_sources.iter().map(|s| s.cluster.as_ref()).collect();
+        assert_eq!(clusters, vec![None, Some(&dedicated)]);
         assert!(sources[0]
             .keep
             .as_ref()

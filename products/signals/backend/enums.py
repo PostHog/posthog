@@ -104,6 +104,8 @@ class SignalSourceProduct(StrEnum):
     # A report check that failed after its report was resolved. Not a source a team connects:
     # the inbox emits it to itself so a fix that stopped holding starts a fresh report.
     SIGNALS_CHECK = "signals_check"
+    # A report a project member filed by hand through the report API. Not a source a team connects.
+    USER_AUTHORED = "user_authored"
     LOGS = "logs"
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
@@ -243,6 +245,7 @@ class SignalSourceType(StrEnum):
     HEALTH_ISSUE = "health_issue"
     SCANNER_FINDING = "scanner_finding"
     ANOMALY_INVESTIGATION = "anomaly_investigation"
+    ALERT_FIRING = "alert_firing"
     FEEDBACK = "feedback"
     REVIEW = "review"
     CI_FLAKY_CHECK = "ci_flaky_check"
@@ -250,6 +253,7 @@ class SignalSourceType(StrEnum):
     CI_DURATION_REGRESSION = "ci_duration_regression"
     SEARCH_OPPORTUNITY = "search_opportunity"
     CHECK_FAILED = "check_failed"
+    MONITORING_UNRESOLVED = "monitoring_unresolved"
     INCIDENT = "incident"
 
 
@@ -272,6 +276,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.PGANALYZE: "pganalyze",
     SignalSourceProduct.SIGNALS_SCOUT: "Signals scout",
     SignalSourceProduct.SIGNALS_CHECK: "Report check",
+    SignalSourceProduct.USER_AUTHORED: "Team member",
     SignalSourceProduct.LOGS: "Logs",
     SignalSourceProduct.HEALTH_CHECKS: "Health checks",
     SignalSourceProduct.ENDPOINTS: "Endpoints",

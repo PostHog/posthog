@@ -60,6 +60,7 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SlackIntegrationScope,
+    SlackIntegrationScopeInReview,
     StepOrderValue,
 } from '~/types'
 
@@ -67,9 +68,9 @@ import { BIVisualizationNode } from './schema-business-intelligence'
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
-// Re-exported so the codegen picks it up and emits a matching `StrEnum` in posthog/schema.py.
-// The runtime const lives in `~/types` as `SLACK_INTEGRATION_SCOPES`.
-export { SlackIntegrationScope }
+// Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
+// The runtime consts live in `~/types` as `SLACK_INTEGRATION_SCOPES` and `SLACK_INTEGRATION_SCOPES_IN_REVIEW`.
+export { SlackIntegrationScope, SlackIntegrationScopeInReview }
 
 /**
  * PostHog Query Schema definition.
@@ -187,6 +188,7 @@ export enum NodeKind {
     // AI queries
     SuggestedQuestionsQuery = 'SuggestedQuestionsQuery',
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
+    InboxUsageQuery = 'InboxUsageQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
@@ -293,6 +295,7 @@ export type AnyDataNode =
     | SessionQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
+    | InboxUsageQuery
     | UsageMetricsQuery
     | AccountsQuery
     | AccountsTableQuery
@@ -427,6 +430,7 @@ export type QuerySchema =
     | VectorSearchQuery
 
     // Customer analytics
+    | InboxUsageQuery
     | UsageMetricsQuery
     | AccountsQuery
     | AccountsTableQuery
@@ -979,6 +983,8 @@ export interface HogQLMetadataColumn {
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
+    /** The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid. */
+    internalError?: boolean
     isUsingIndices?: QueryIndexUsage
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsage[]
@@ -1093,6 +1099,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     debug?: boolean
     /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
     indexUsage?: boolean
+    /** Validate on the Python validator with freshly fetched sources, the same sources query execution uses. Adds a sources fetch on every request, so only set it where the result blocks an action. */
+    freshSources?: boolean
     /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */
     includeOutputTypes?: boolean
 }
@@ -1476,6 +1484,7 @@ export interface ChartSettingsFormatting {
 export interface ChartSettingsDisplay {
     color?: string
     label?: string
+    description?: string
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
     displayType?: 'auto' | 'line' | 'bar' | 'area'
@@ -1590,6 +1599,8 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showAnnotations?: boolean
+    /** Shows only the annotations saved at this level. Unset shows every level. */
+    annotationsScope?: AnnotationScope
     /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: boolean
@@ -3537,7 +3548,14 @@ export type WebAnalyticsSampling = {
     enabled?: boolean
     forceSamplingRate?: SamplingRate
 }
+export interface WebAnalyticsQueryModifiers {
+    /** Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise. */
+    useDimensionalTables?: boolean
+}
+
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiers
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
     conversionGoal?: WebAnalyticsConversionGoal | null
@@ -4170,6 +4188,8 @@ export interface MCPMissingCapabilitiesQueryResponse extends AnalyticsQueryRespo
 export interface MCPMissingCapabilitiesQuery extends DataNode<MCPMissingCapabilitiesQueryResponse> {
     kind: NodeKind.MCPMissingCapabilitiesQuery
     dateRange?: DateRange
+    /** Exclude reports from the project's internal and test users. */
+    filterTestAccounts?: boolean
     /** Case-insensitive substring match over the report text. */
     search?: string
     /** Page size; defaults to 100, capped at 500. */
@@ -4552,6 +4572,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     dateRange: DateRange
     /** Filter by issue status. */
     status?: ErrorTrackingQueryStatus
+    /** Filter by issue severity. */
+    severity?: ErrorTrackingQueryIssueSeverity | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */
@@ -5962,9 +5984,22 @@ export interface ExperimentEventExposureConfig extends Node {
     properties: AnyPropertyFilter[]
 }
 
+/** What the `entity_id` column of a warehouse-native query identifies. Exposures and outcomes join on
+ *  `entity_id` inside the warehouse, and the same connection does not make two queries compatible:
+ *  one can return account ids and another customer ids. Every warehouse-native source stores its
+ *  binding so a saved metric keeps it when it is attached to another experiment, and so attachment
+ *  can compare bindings instead of guessing from SQL. Equal labels are required for compatibility
+ *  but cannot prove the SQL returns the same identities; the author confirms that. */
+export interface ExperimentWarehouseNativeUnitBinding {
+    /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+    unit_type: string
+    /** Which ids represent that unit, such as `billing_customer_id`. */
+    id_namespace: string
+}
+
 /** Exposures that live in the customer's warehouse, read through a direct connection. An experiment
  *  with this exposure runs entirely in the warehouse, so every metric source must be an
- *  `ExperimentWarehouseNativeNode` on the same connection. */
+ *  `ExperimentWarehouseNativeNode` on the same connection with the same unit binding. */
 export interface ExperimentWarehouseNativeExposureConfig extends Node {
     kind: NodeKind.ExperimentWarehouseNativeExposureConfig
     /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
@@ -5973,6 +6008,7 @@ export interface ExperimentWarehouseNativeExposureConfig extends Node {
      *  `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies
      *  the experiment's date range and multiple-variant handling. */
     query: string
+    unit: ExperimentWarehouseNativeUnitBinding
 }
 
 // ── Slim API types for experiment create/update ──────────────────────
@@ -6248,6 +6284,7 @@ export interface ExperimentWarehouseNativeNode extends Node {
     /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and
      *  `timestamp` columns plus any numeric columns a metric can measure. */
     query: string
+    unit: ExperimentWarehouseNativeUnitBinding
     /** How to aggregate the rows per entity. Defaults to `total` (row count). */
     math?: ExperimentWarehouseNativeMathType
     /** The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve
@@ -6581,6 +6618,8 @@ export interface ExperimentExposureHealthFinding {
     actions: ExperimentExposureHealthFindingActionKind[]
     /** The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A2'. Null when the skill has none. */
     diagnostic_ref: string | null
+    /** The key of the check in `health_checks` that reported the finding. Missing on an answer cached before the field existed. */
+    check?: ExperimentExposureHealthCheckKey
 }
 
 export type ExperimentExposureHealthCheckKey =
@@ -6592,16 +6631,60 @@ export type ExperimentExposureHealthCheckKey =
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
+/** The keys in the `values` of an exposure check. Same meaning as in the experiment's `health.checks`. */
+export type ExperimentExposureHealthValueKey =
+    | 'exposed_count'
+    | 'compared_count'
+    | 'multiple_variant_count'
+    | 'multiple_variant_percentage'
+    | 'multiple_variant_handling'
+    | 'p_value'
+    | 'since_launch_hours'
+    | 'exposed_without_test_account_filter_count'
+    | 'kept_by_test_account_filter_percentage'
+
+export type ExperimentExposureHealthRuleSide = 'above' | 'below'
+
+export type ExperimentExposureHealthRuleTest = 'chi_squared'
+
+/** What an exposure check needs before it judges. */
+export interface ExperimentExposureHealthRuleMinimum {
+    /** The key in `values` that must reach the threshold before the check judges. */
+    value: ExperimentExposureHealthValueKey
+    /** The value that the key must reach. Below it, the check reports no finding. */
+    threshold: number
+}
+
+/** How an exposure check decides. Same shape as the `rule` of the experiment's `health.checks`. */
+export interface ExperimentExposureHealthCheckRule {
+    /** The key in `values` that the check compares with the threshold. */
+    value: ExperimentExposureHealthValueKey
+    /** The threshold, in the unit that the suffix of the key gives. */
+    threshold: number
+    /** above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes. */
+    warns: ExperimentExposureHealthRuleSide
+    /** The statistical test that computes the value. Null for a count or a share. */
+    test: ExperimentExposureHealthRuleTest | null
+    /** What the check needs before it judges. Null when the check judges from the first value. */
+    minimum: ExperimentExposureHealthRuleMinimum | null
+}
+
 /** What one health check concluded on the exposure answer. Same shape as the experiment's `health.checks`. */
 export interface ExperimentExposureHealthCheck {
     /** Stable identifier of the check. */
     key: ExperimentExposureHealthCheckKey
     /** The problem the check looks for, as the health panel lists it. */
     name: string
+    /** What the check looks for and why it matters. Missing on an answer cached before the field existed. */
+    description?: string
     /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
     status: ExperimentExposureHealthCheckStatus
     /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
     reason: string | null
+    /** What the check read on the experiment, for every status. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours. A key without a suffix is a setting. Missing on an answer cached before the field existed. */
+    values?: Record<string, string | number | boolean | null>
+    /** How the check decides, the same for every experiment. Null for a check without a numeric rule. Missing on an answer cached before the field existed. */
+    rule?: ExperimentExposureHealthCheckRule | null
 }
 
 export interface ExperimentExposureQueryResponse {
@@ -7198,6 +7281,8 @@ export interface MetricsAlertConfig {
     type: 'MetricsAlertConfig'
     /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
     check_ongoing_interval?: boolean
+    /** Values for the `$name` variables in the insight's query. */
+    variables?: Record<string, MetricsDashboardVariableSelection>
 }
 
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
@@ -7448,6 +7533,69 @@ export interface TeamTaxonomyItem {
 }
 
 export type TeamTaxonomyResponse = TeamTaxonomyItem[]
+
+export interface InboxUsageQuery extends DataNode<InboxUsageQueryResponse> {
+    kind: NodeKind.InboxUsageQuery
+    /** UTC date range. Use explicitDate for exact bounds; the end is exclusive. */
+    dateRange: DateRange
+}
+
+export interface InboxUsageCredits {
+    /** Recorded finalized credits, including exemptions. Decimal strings preserve fractional credits. */
+    total_credits: string
+    /** Billing-exempt subset of total_credits. */
+    exempt_credits: string
+    incomplete: boolean
+}
+
+export interface InboxUsageSource extends InboxUsageCredits {
+    source_product: string | null
+    source_type: string | null
+    processing_credits: string
+    research_credits: string
+    implementation_credits: string
+}
+
+export interface InboxUsageScout extends InboxUsageCredits {
+    scout_config_id: string | null
+    skill_name: string
+    display_name: string
+    run_count: integer
+    /** Distinct reports emitted by this scout; reports may be shared across scouts. */
+    reports_produced: integer
+}
+
+export interface InboxUsage extends InboxUsageCredits {
+    project_id: integer
+    /** @format date-time */
+    period_start: string
+    /** @format date-time */
+    period_end: string
+    /** @format date-time */
+    as_of: string
+    /** Unfinalized credits created in the selected range, excluded from total_credits. */
+    unsettled_credits: string
+    untracked_scout_run_count: integer
+    /** Missing source metadata is retained in a null-source bucket. */
+    attribution_incomplete: boolean
+    /** Processing, research and implementation. Excludes scout execution. */
+    sources: InboxUsageSource[]
+    /** Scout execution only. These totals and source totals sum to total_credits. */
+    scouts: InboxUsageScout[]
+    pricing: InboxUsagePricing
+}
+
+export interface InboxUsagePricing {
+    currency: 'USD'
+    /** Multiply credits by this value for recorded USD usage, before billing adjustments. */
+    usd_per_credit: string
+}
+
+export interface InboxUsageQueryResponse extends AnalyticsQueryResponseBase {
+    results: InboxUsage
+}
+
+export type CachedInboxUsageQueryResponse = CachedQueryResponse<InboxUsageQueryResponse>
 
 export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     kind: NodeKind.TeamTaxonomyQuery
@@ -8560,6 +8708,8 @@ export interface MarketingAnalyticsRecommendationsSource {
     performanceMaxSearchTermTable?: string
     /** Google Search Console table with one row per query, or per query and page. */
     queryTable?: string
+    /** Google Search Console table with one row per query and page, used to find the page that ranks for a search. */
+    queryPageTable?: string
     /** Google Search Console sites table, used to infer the brand name. */
     sitesTable?: string
 }
@@ -8589,6 +8739,16 @@ export type MarketingAnalyticsRecommendationImpactDirection = 'save' | 'gain' | 
 
 export type MarketingAnalyticsRecommendationImpactType = 'measured' | 'estimated'
 
+export interface MarketingAnalyticsRecommendationStep {
+    text: string
+    /** Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line. */
+    copyValue?: string | null
+    /** Google Ads page for this step. It opens the section for the whole account, because links cannot filter to one campaign. */
+    url?: string | null
+    /** The words in `text` that link to `url`, usually the section name. */
+    linkText?: string | null
+}
+
 export interface MarketingAnalyticsRecommendation {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendationLevel
@@ -8603,6 +8763,8 @@ export interface MarketingAnalyticsRecommendation {
     impactDirection: MarketingAnalyticsRecommendationImpactDirection
     impactType: MarketingAnalyticsRecommendationImpactType
     currency?: string | null
+    /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
+    steps?: MarketingAnalyticsRecommendationStep[]
 }
 
 export interface MarketingAnalyticsRecommendationsQueryResponse extends AnalyticsQueryResponseBase {
@@ -9043,6 +9205,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'audience_network',
             'facebook_marketplace',
             'threads',
+            'th',
         ] as const,
         primarySource: 'meta',
         adsetTableName: 'adsets' as const,
@@ -9487,6 +9650,12 @@ export interface AnalyticsListDisplayConfiguration {
     default_sort?: '-last_viewed_at' | '-created_at'
 }
 
+export interface TicketSidebarConfiguration {
+    /** Widget keys in display order. Typed as strings so a layout naming a removed widget still validates. */
+    order?: string[]
+    hidden?: string[]
+}
+
 export interface UserUIConfiguration {
     /**
      * Schema version of this configuration blob, for future format migrations.
@@ -9495,6 +9664,7 @@ export interface UserUIConfiguration {
     version: number
     sql_editor?: SQLEditorConfiguration
     analytics_list?: AnalyticsListDisplayConfiguration
+    ticket_sidebar?: TicketSidebarConfiguration
     [key: string]: unknown
 }
 

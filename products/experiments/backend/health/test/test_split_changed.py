@@ -664,6 +664,63 @@ class TestSrmAfterSplitChange(TestCase):
 
         self.assertEqual((reads_flag_history(ctx), reads_segments(ctx), segments_first_exposed_after(ctx)), expected)
 
+    @parameterized.expand(
+        [
+            (
+                "same_skew_before_the_change",
+                {"control": 600, "test": 400},
+                {"control": 0, "test": 0},
+                (None, True, None),
+                "The variant split changed after launch, but the users first exposed before the change show the same "
+                "mismatch as those first exposed after it, so the change doesn't explain it.",
+            ),
+            (
+                "another_skew_before_the_change",
+                {"control": 500, "test": 500},
+                {"control": 0, "test": 0},
+                ("split_changed", True, date(2026, 9, 14)),
+                "don't match the current split either (p < 0.001), so look for another cause too.",
+            ),
+            (
+                "another_skew_on_the_change_day",
+                {"control": 600, "test": 400},
+                {"control": 5000, "test": 0},
+                ("split_changed", True, date(2026, 9, 14)),
+                "don't match the current split either (p < 0.001), so look for another cause too.",
+            ),
+        ]
+    )
+    def test_rules_out_a_split_change_when_the_skew_predates_it(
+        self,
+        _name: str,
+        before_change: dict[str, int],
+        on_change_day: dict[str, int],
+        expected: tuple[str | None, bool, date | None],
+        text: str,
+    ) -> None:
+        after_change = {"control": 600, "test": 400}
+        days = {date(2026, 9, 12): before_change, date(2026, 9, 14): on_change_day, date(2026, 9, 15): after_change}
+        total_exposures = {variant: sum(day[variant] for day in days.values()) for variant in after_change}
+        whole_run = sum(total_exposures.values())
+        totals = replace(
+            _totals(after_change),
+            total_exposures=total_exposures,
+            sample_ratio_expected={"control": 0.8 * whole_run, "test": 0.2 * whole_run},
+            daily_exposures={
+                variant: {day: day_counts[variant] for day, day_counts in days.items()} for variant in after_change
+            },
+        )
+        ctx = replace(
+            _context(EVEN, UNEVEN, exposed_units=5, first_change_at=datetime(2026, 9, 14, 13, 4, tzinfo=UTC)),
+            exposures=totals,
+        )
+
+        outcome = srm(ctx)
+
+        assert isinstance(outcome, ExperimentHealthFinding)
+        self.assertEqual((outcome.subcode, reads_segments(ctx), segments_first_exposed_after(ctx)), expected)
+        self.assertIn(text, outcome.detail)
+
     def test_names_the_cause_the_evidence_and_the_next_step(self) -> None:
         outcome = srm(replace(_context(EVEN, UNEVEN, exposed_units=5), exposures=_totals(MATCHES_THE_NEW_SPLIT)))
 

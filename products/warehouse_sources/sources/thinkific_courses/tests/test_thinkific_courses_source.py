@@ -1,0 +1,49 @@
+from typing import Optional
+
+from parameterized import parameterized
+
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
+from products.warehouse_sources.sources.thinkific_courses._config import ThinkificCoursesSourceConfig
+from products.warehouse_sources.sources.thinkific_courses.source import ThinkificCoursesSource
+
+
+def _config(api_key: str = "key", subdomain: str = "mycompany") -> ThinkificCoursesSourceConfig:
+    return ThinkificCoursesSourceConfig(api_key=api_key, subdomain=subdomain)
+
+
+class TestThinkificCoursesValidateCredentials:
+    def test_rejects_invalid_subdomain_without_calling_api(self) -> None:
+        with scripted_network([]) as network:
+            ok, err = ThinkificCoursesSource().validate_credentials(_config(subdomain="bad domain"), team_id=1)
+        assert ok is False
+        assert err is not None
+        assert network.requests_log == []
+
+    @parameterized.expand(
+        [
+            # (status, schema_name, expected_ok) - 403 at source-create (schema None) is accepted, but a
+            # per-schema 403 is surfaced as a failure.
+            ("forbidden_at_create", 403, None, True),
+            ("forbidden_for_schema", 403, "courses", False),
+            ("unauthorized_at_create", 401, None, False),
+        ]
+    )
+    def test_status_handling(self, _name: str, status: int, schema_name: Optional[str], expected_ok: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status)]):
+            ok, _err = ThinkificCoursesSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
+        assert ok is expected_ok
+
+    @parameterized.expand(
+        [
+            # Fan-out schemas can't be probed directly (their path needs a parent id), so the check
+            # must probe the parent list endpoint instead of the templated child path.
+            ("fanout_probes_parent", "course_reviews", "/courses"),
+            ("fanout_probes_promotions_parent", "coupons", "/promotions"),
+            ("top_level_probes_itself", "enrollments", "/enrollments"),
+        ]
+    )
+    def test_schema_probe_path(self, _name: str, schema_name: str, expected_path: str) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            ok, _err = ThinkificCoursesSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
+        assert ok is True
+        assert network.requests_log[0].path == f"/api/public/v1{expected_path}"

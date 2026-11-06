@@ -304,7 +304,9 @@ class TestUntaggedFollowupInteractivity(TestCase):
                 opens_thread=False,
             )
 
-        assert [c.kwargs["user"] for c in slack.client.chat_postEphemeral.call_args_list] == ["U_ALICE", "U_BOB"]
+        # The creator gets a DM, which notifies them. The joiner hears in the thread that the creator was asked.
+        assert [c.kwargs["channel"] for c in slack.client.chat_postMessage.call_args_list] == ["U_ALICE"]
+        assert [c.kwargs["user"] for c in slack.client.chat_postEphemeral.call_args_list] == ["U_BOB"]
 
     @parameterized.expand([("thread_creator", "U_ALICE", True), ("someone_else", "U_MALLORY", False)])
     def test_only_the_thread_creator_can_let_someone_join(

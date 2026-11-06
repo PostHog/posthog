@@ -11,7 +11,6 @@ import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { InboxUsageWidget } from '../shell/InboxUsageWidget'
-import { InstallationSetupSection } from '../shell/InstallationSetupSection'
 import { UsageOverview } from '../spend/UsageOverview'
 import { SettingsSection } from './SettingsSection'
 
@@ -20,11 +19,10 @@ export function SettingsTab(): JSX.Element {
     useMountedLogic(integrationsLogic)
     // The usage widget renders nothing without the billing product, so the section title
     // must hide with it rather than sit over an empty area.
-    const { product: inboxUsageProduct, isLoading: inboxUsageLoading } = useValues(inboxUsageLogic)
+    const { product: inboxUsageProduct, spendProduct, isLoading: inboxUsageLoading } = useValues(inboxUsageLogic)
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-6">
-            <InstallationSetupSection />
             <SettingsSection
                 title="Autonomy"
                 description="How much agents do on their own: opening pull requests, and how many reports arrive each day."
@@ -54,10 +52,14 @@ export function SettingsTab(): JSX.Element {
             >
                 <SlackNotificationsSection />
             </SettingsSection>
-            {(inboxUsageProduct != null || inboxUsageLoading) && (
+            {(inboxUsageProduct != null || spendProduct != null || inboxUsageLoading) && (
                 <SettingsSection
-                    title={usageEnabled ? 'Pull request usage' : 'Usage'}
-                    description="Pull requests agents opened this billing period."
+                    title={spendProduct ? 'Billing usage' : usageEnabled ? 'Pull request usage' : 'Usage'}
+                    description={
+                        spendProduct
+                            ? 'Recorded billable usage this billing period.'
+                            : 'Pull requests agents opened this billing period.'
+                    }
                 >
                     <InboxUsageWidget />
                 </SettingsSection>
