@@ -107,8 +107,7 @@ const providers = {
                 },
             ],
             can_resolve_subject: true,
-            setup_snippet:
-                'your-job:\n  id_tokens:\n    HOG_ID_TOKEN:\n      aud: https://us.posthog.com\n',
+            setup_snippet: 'your-job:\n  id_tokens:\n    HOG_ID_TOKEN:\n      aud: https://us.posthog.com\n',
         },
     ],
     job_settings: {
