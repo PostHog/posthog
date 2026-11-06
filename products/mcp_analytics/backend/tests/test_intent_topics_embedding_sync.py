@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 
 import pytest
@@ -5,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
+from products.mcp_analytics.backend.intent_topics.constants import MAX_EMBEDDING_TEXT_LENGTH
 from products.mcp_analytics.backend.intent_topics.corpus import DistinctIntent
 from products.mcp_analytics.backend.intent_topics.embedding_sync import emit_intent_embeddings, select_intents_to_emit
 
@@ -46,6 +48,18 @@ class TestEmitIntentEmbeddings(APIBaseTest):
             timestamp=now,
             metadata={"calls": 3},
         )
+
+    @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
+    def test_an_oversized_intent_is_cut_to_fit_one_kafka_message_and_keeps_its_hash(self, mock_emit) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        huge = _intent("🦔" * 90_000)
+
+        emit_intent_embeddings(self.team, [huge], now=NOW)
+
+        kwargs = mock_emit.call_args.kwargs
+        assert (len(kwargs["content"]), kwargs["document_id"]) == (MAX_EMBEDDING_TEXT_LENGTH, huge.hash)
+        assert len(json.dumps(kwargs["content"])) < 1_000_000
 
     @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
     def test_refuses_without_ai_data_processing_consent(self, mock_emit) -> None:

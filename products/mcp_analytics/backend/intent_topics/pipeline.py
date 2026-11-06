@@ -94,11 +94,13 @@ class SyncSlice:
 
 
 def _sync_slices(window_start: datetime, window_end: datetime) -> Iterator[SyncSlice]:
+    # The first slice also takes the replayed overlap, so a run the budget stops after one slice still moves a full hour.
     cursor = window_start
+    slice_end = min(window_start + SYNC_RESUME_OVERLAP + SYNC_SLICE, window_end)
     while cursor < window_end:
-        slice_end = min(cursor + SYNC_SLICE, window_end)
         yield SyncSlice(start=cursor, end=slice_end)
         cursor = slice_end
+        slice_end = min(cursor + SYNC_SLICE, window_end)
 
 
 def _run_sync(team: Team, *, window_start: datetime, window_end: datetime, budget: int, page_size: int) -> RunOutcome:
