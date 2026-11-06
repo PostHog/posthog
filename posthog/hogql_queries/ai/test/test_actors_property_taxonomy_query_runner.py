@@ -5,10 +5,10 @@ from django.test import override_settings
 from posthog.schema import ActorsPropertyTaxonomyQuery, ActorsPropertyTaxonomyResponse
 
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
-from posthog.models import PropertyDefinition
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 

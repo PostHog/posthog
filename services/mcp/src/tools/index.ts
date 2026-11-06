@@ -17,6 +17,7 @@ import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 import explainChart from './insights/explainChart'
+import explainChartSave from './insights/explainChartSave'
 // Insights
 import queryInsight from './insights/query'
 import insightTrustCheck from './insights/trustCheck'
@@ -104,6 +105,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'insight-query': queryInsight,
     'insight-trust-check': insightTrustCheck,
     'explain-chart': explainChart,
+    'explain-chart-save': explainChartSave,
 
     // Links (utility — canonical app URLs so the model never hand-builds/mis-slugs entity links)
     'generate-app-url': generateAppUrl,

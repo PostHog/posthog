@@ -591,7 +591,7 @@ CREATE TABLE posthog.metrics4_samples (
   instrumentation_scope SimpleAggregateFunction(any, String),
   histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
   _topic SimpleAggregateFunction(any, LowCardinality(String)),
-  timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
+  timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(Delta(8), Default),
   observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
   value_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Float64)) CODEC(Gorilla(8), Default),
   count_arr SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64)) CODEC(T64, Default),
@@ -1405,38 +1405,6 @@ FROM posthog.trace_spans
 GROUP BY
   _partition, _topic;
 CREATE VIEW posthog.metrics4_view AS SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  series_fingerprint,
-  resource_fingerprint,
-  timestamp,
-  original_expiry_timestamp,
-  service_name,
-  metric_type,
-  value,
-  count,
-  histogram_bounds,
-  histogram_counts,
-  trace_id,
-  span_id,
-  trace_flags,
-  has_labels,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  instrumentation_scope
-FROM posthog.metrics2
-WHERE
-  (time_bucket > toDateTime('2026-08-25 00:00:00'))
-AND
-  (time_bucket < toDateTime('2026-09-14 00:00:00'))
-AND
-  (timestamp > toDateTime('2026-08-25 00:00:00'))
-AND
-  (timestamp < toDateTime('2026-09-14 00:00:00'))
-UNION ALL
-SELECT
   team_id,
   metric_name,
   time_bucket,

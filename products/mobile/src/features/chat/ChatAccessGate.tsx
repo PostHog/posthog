@@ -1,8 +1,7 @@
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
-import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native'
+import { Linking } from 'react-native'
 
 import { track } from '@/lib/analytics'
-import { useColors } from '@/ui/theme'
 import { AiConsentSheet } from './AiConsentSheet'
 import { AiOrgNotice } from './AiOrgNotice'
 import { PRIVACY_POLICY_URL } from './aiAccess'
@@ -15,9 +14,7 @@ interface ChatAccessGateProps {
     children: ReactNode
 }
 
-/** Shows `children` only once the organization allows PostHog AI and the person agreed on this device. */
 export function ChatAccessGate({ onDecline, children }: ChatAccessGateProps): ReactElement {
-    const colors = useColors()
     const { access, rechecking, accept, checkAgain } = useChatAccess()
     const [declined, setDeclined] = useState(false)
     const kind = access.kind
@@ -43,13 +40,6 @@ export function ChatAccessGate({ onDecline, children }: ChatAccessGateProps): Re
         onDecline()
     }
 
-    if (access.kind === 'checking') {
-        return (
-            <View style={styles.checking} accessibilityLabel="Checking PostHog AI access" testID="chat-access-checking">
-                <ActivityIndicator color={colors.ink} />
-            </View>
-        )
-    }
     if (access.kind === 'org_blocked' || access.kind === 'org_unknown') {
         const settingsUrl = access.kind === 'org_blocked' ? access.settingsUrl : null
         return (
@@ -72,7 +62,7 @@ export function ChatAccessGate({ onDecline, children }: ChatAccessGateProps): Re
     }
     return (
         <>
-            {access.kind === 'ready' ? children : null}
+            {access.kind === 'ready' || access.kind === 'checking' ? children : null}
             {/* The sheet stays mounted after Continue, so it slides out while the composer appears. */}
             <AiConsentSheet
                 visible={access.kind === 'needs_consent' && !declined}
@@ -85,11 +75,3 @@ export function ChatAccessGate({ onDecline, children }: ChatAccessGateProps): Re
         </>
     )
 }
-
-const styles = StyleSheet.create({
-    checking: {
-        height: 64,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-})
