@@ -1,16 +1,22 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
-import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { userLogic } from 'scenes/userLogic'
+
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { accountUsersTableLogic } from './accountUsersTableLogic'
+import { IMPERSONATE_COLUMN, accountUsersTableLogic } from './accountUsersTableLogic'
 
 describe('accountUsersTableLogic', () => {
     beforeEach(() => {
         initKeaTests()
     })
 
-    it('queries the current account and saves the table without an account', async () => {
+    it('queries the current account and saves the table without an account or the staff column', async () => {
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: true })
         const onConfigChange = jest.fn()
         const savedOnAnotherAccount: DataTableNode = {
             kind: NodeKind.DataTableNode,
@@ -27,9 +33,9 @@ describe('accountUsersTableLogic', () => {
         })
         logic.mount()
 
-        expect((logic.values.query.source as ActorsQuery).source).toEqual({
-            kind: NodeKind.AccountUsersQuery,
-            accountId: 'current-account',
+        expect(logic.values.query.source).toMatchObject({
+            select: ['properties.email', IMPERSONATE_COLUMN],
+            source: { kind: NodeKind.AccountUsersQuery, accountId: 'current-account' },
         })
 
         await expectLogic(logic, () => logic.actions.setQuery(logic.values.query)).toFinishAllListeners()
