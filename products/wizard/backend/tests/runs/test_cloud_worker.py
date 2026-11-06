@@ -25,6 +25,7 @@ from products.wizard.backend.logic.artifacts.config import MAX_GIT_DIFF_BYTES
 from products.wizard.backend.logic.workers.commands import wizard_handoff_output_path
 from products.wizard.backend.logic.workers.config import (
     LOCAL_WIZARD_ARCHIVE_PATH,
+    LOCAL_WIZARD_GATEWAY_TOKEN_PATH,
     LOCAL_WIZARD_INSTALL_PATH,
     WIZARD_DIFF_OUTPUT_PATH,
     WIZARD_PACKAGE_INSTALL_PATH,
@@ -325,6 +326,29 @@ def test_prepare_local_wizard_reports_build_stderr(get_sandbox_class: MagicMock,
         prepare_local_wizard("worker-id", source_root)
 
     assert error.value.detail == "Build complete\nLocal build failed"
+
+
+@pytest.mark.parametrize("debug,expected_token", [(True, b"phs_test_token"), (False, None)])
+@patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
+def test_prepare_local_wizard_uploads_the_gateway_token_only_in_debug_mode(
+    get_sandbox_class: MagicMock, tmp_path: Path, debug: bool, expected_token: bytes | None
+) -> None:
+    source_root = tmp_path / "wizard"
+    source_root.mkdir()
+    (source_root / "package.json").write_text('{"name":"@posthog/wizard"}')
+    (source_root / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'")
+    token_file = tmp_path / "gateway-token"
+    token_file.write_text("phs_test_token\n")
+    sandbox = get_sandbox_class.return_value.get_by_id.return_value
+    sandbox.write_file.return_value = _execution_result()
+    sandbox.execute.return_value = _execution_result()
+
+    with override_settings(DEBUG=debug, LOCAL_WIZARD_GATEWAY_TOKEN_FILE=str(token_file)):
+        prepare_local_wizard("worker-id", source_root)
+
+    uploads = {call.args[0]: call.args[1] for call in sandbox.write_file.call_args_list}
+    assert LOCAL_WIZARD_ARCHIVE_PATH in uploads
+    assert uploads.get(LOCAL_WIZARD_GATEWAY_TOKEN_PATH) == expected_token
 
 
 @parameterized.expand(

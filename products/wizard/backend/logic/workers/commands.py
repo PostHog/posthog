@@ -10,11 +10,13 @@ from products.wizard.backend.facade.validation import is_executable_wizard_versi
 from products.wizard.backend.logic.artifacts.config import MAX_GIT_DIFF_BYTES
 from products.wizard.backend.logic.workers.config import (
     LOCAL_WIZARD_ARCHIVE_PATH,
+    LOCAL_WIZARD_GATEWAY_TOKEN_PATH,
     LOCAL_WIZARD_INSTALL_PATH,
     MAX_HANDOFF_BODY_BYTES,
     WIZARD_DIFF_OUTPUT_PATH,
     WIZARD_PACKAGE_INSTALL_PATH,
     WIZARD_TIMEOUT_SECONDS,
+    local_wizard_gateway_token_file,
 )
 from products.wizard.backend.logic.workers.errors import InvalidWizardProgramCommandError, InvalidWizardVersionError
 
@@ -53,6 +55,8 @@ def build_wizard_command(
     setup_commands: list[str] = []
     if use_local_wizard_source:
         executable = f"node {shlex.quote(f'{LOCAL_WIZARD_INSTALL_PATH}/dist/bin.js')}"
+        if local_wizard_gateway_token_file() is not None:
+            executable = f"WIZARD_CI_GATEWAY_TOKEN_FILE={shlex.quote(LOCAL_WIZARD_GATEWAY_TOKEN_PATH)} {executable}"
     else:
         install_path = shlex.quote(WIZARD_PACKAGE_INSTALL_PATH)
         package = shlex.quote(f"@posthog/wizard@{wizard_version}")

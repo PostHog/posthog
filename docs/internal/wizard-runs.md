@@ -273,6 +273,7 @@ The chart must run a worker that polls `wizard-task-queue` before cloud run crea
 `WIZARD_RUN_ARTIFACTS_S3_BUCKET` must identify the provisioned artifact bucket.
 `WIZARD_RUN_CREATE_THROTTLE_RATE` and `WIZARD_RUN_READ_THROTTLE_RATE` can override the default API limits.
 `LOCAL_WIZARD_ROOT` only enables local source uploads when Django runs in debug mode.
+`LOCAL_WIZARD_GATEWAY_TOKEN_FILE` also has no effect outside debug mode.
 
 ## Run Artifacts
 

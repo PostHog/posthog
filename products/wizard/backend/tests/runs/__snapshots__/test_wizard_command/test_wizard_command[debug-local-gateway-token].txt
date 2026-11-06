@@ -1,0 +1,5 @@
+timeout -k 30 2700 sh -c 'cd '"'"'/workspace/example user'"'"'"'"'"'"'"'"'s project'"'"' && WIZARD_CI_GATEWAY_TOKEN_FILE=/tmp/posthog-local-wizard-gateway-token node /tmp/posthog-local-wizard/dist/bin.js audit spend --headless-DONOTUSE-EXPERIMENTAL --install-dir . --region us --project-id 7 --base-url "$POSTHOG_API_URL"'
+
+Shell script:
+cd '/workspace/example user'"'"'s project'
+WIZARD_CI_GATEWAY_TOKEN_FILE=/tmp/posthog-local-wizard-gateway-token node /tmp/posthog-local-wizard/dist/bin.js audit spend --headless-DONOTUSE-EXPERIMENTAL --install-dir . --region us --project-id 7 --base-url "$POSTHOG_API_URL"

@@ -17,12 +17,13 @@ class CommandSnapshotExtension(SingleFileSnapshotExtension):
 
 
 @pytest.mark.parametrize(
-    "region,debug,use_local_wizard_source,program_command",
+    "region,debug,use_local_wizard_source,program_command,gateway_token_file",
     [
-        pytest.param("US", False, False, (), id="default-us"),
-        pytest.param("EU", False, False, ("audit", "web-analytics"), id="audit-eu"),
-        pytest.param("US", True, False, (), id="debug-package"),
-        pytest.param("EU", True, True, ("audit", "web-analytics"), id="debug-local"),
+        pytest.param("US", False, False, (), None, id="default-us"),
+        pytest.param("EU", False, False, ("audit", "web-analytics"), None, id="audit-eu"),
+        pytest.param("US", True, False, (), "/tmp/gateway-token", id="debug-package"),
+        pytest.param("EU", True, True, ("audit", "web-analytics"), None, id="debug-local"),
+        pytest.param("US", True, True, ("audit", "spend"), "/tmp/gateway-token", id="debug-local-gateway-token"),
     ],
 )
 def test_wizard_command(
@@ -31,9 +32,10 @@ def test_wizard_command(
     debug: bool,
     use_local_wizard_source: bool,
     program_command: tuple[str, ...],
+    gateway_token_file: str | None,
 ) -> None:
     with (
-        override_settings(DEBUG=debug),
+        override_settings(DEBUG=debug, LOCAL_WIZARD_GATEWAY_TOKEN_FILE=gateway_token_file),
         patch("products.wizard.backend.logic.workers.commands.get_instance_region", return_value=region),
     ):
         command = build_wizard_command(

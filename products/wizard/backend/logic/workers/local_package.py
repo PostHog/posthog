@@ -10,6 +10,13 @@ class InvalidLocalWizardSourceError(Exception):
     pass
 
 
+def read_local_wizard_gateway_token(token_file: Path) -> str:
+    try:
+        return token_file.read_text().strip()
+    except OSError as error:
+        raise InvalidLocalWizardSourceError(f"Local Wizard gateway token file is unreadable: {token_file}") from error
+
+
 def build_local_wizard_source_archive(source_root: Path) -> bytes:
     _validate_local_wizard_source(source_root)
 

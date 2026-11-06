@@ -162,6 +162,7 @@ SANDBOX_AGENT_OTEL_TRACES_URL: str | None = get_from_env("SANDBOX_AGENT_OTEL_TRA
 # run and the token carries the wizard's scope ceiling. Empty disables cloud wizard runs.
 WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID: str = get_from_env("WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID", "")
 LOCAL_WIZARD_ROOT: str | None = get_from_env("LOCAL_WIZARD_ROOT", None, optional=True)
+LOCAL_WIZARD_GATEWAY_TOKEN_FILE: str | None = get_from_env("LOCAL_WIZARD_GATEWAY_TOKEN_FILE", None, optional=True)
 
 # When True, cloud-to-cloud resume can create legacy Modal filesystem snapshots
 # at end-of-run. Modal filesystem image storage is not EU-compliant, so this is
