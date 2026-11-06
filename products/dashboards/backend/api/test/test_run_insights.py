@@ -67,13 +67,13 @@ class TestDashboardRunInsights(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return response.json()
 
-    def _restrict_insight_for_new_member(self, insight_id: int) -> None:
+    def _restrict_insight_for_new_member(self, insight_id: int, team: Team | None = None) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
         AccessControl.objects.create(
-            team=self.team, resource="insight", resource_id=str(insight_id), access_level="none"
+            team=team or self.team, resource="insight", resource_id=str(insight_id), access_level="none"
         )
         member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
         self.client.force_login(member)
@@ -108,6 +108,22 @@ class TestDashboardRunInsights(APIBaseTest):
         self.assertIn("result", by_insight[allowed_id])
         # Only the viewable insight's query runs.
         self.assertEqual([call.args[0].id for call in mock_calculate.call_args_list], [allowed_id])
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_masks_insights_restricted_in_a_sibling_environment(self, mock_calculate: MagicMock) -> None:
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        dashboard = Dashboard.objects.create(team=sibling, name="dash")
+        insight = Insight.objects.create(team=sibling, name="Revenue by account", query=_trends_query_dict())
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        self._restrict_insight_for_new_member(insight.id, team=sibling)
+
+        body = self._run(dashboard.id)
+
+        self.assertEqual(
+            body["results"][0]["insight"],
+            {"id": insight.id, "short_id": insight.short_id, "user_access_level": "none"},
+        )
+        mock_calculate.assert_not_called()
 
     def test_restricted_insights_stay_out_of_budget_markers(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

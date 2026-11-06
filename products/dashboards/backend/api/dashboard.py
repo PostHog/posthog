@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from enum import StrEnum
 from functools import partial
-from typing import Any, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -23,6 +23,7 @@ from django.db.models import (
     Exists,
     F,
     FilteredRelation,
+    Model,
     OuterRef,
     Prefetch,
     Q,
@@ -39,6 +40,7 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
+from drf_spectacular.extensions import OpenApiSerializerExtension
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
@@ -228,6 +230,10 @@ from products.product_analytics.backend.presentation.insight import (
 from products.subscriptions.backend.facade.api import dashboard_ids_with_subscriptions
 
 from ee.hogai.utils.aio import async_to_sync
+
+if TYPE_CHECKING:
+    from drf_spectacular.openapi import AutoSchema
+    from drf_spectacular.utils import Direction
 
 AGENT_CONTEXT_HELP_TEXT = (
     "Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, "
@@ -1235,7 +1241,9 @@ class InsightResultSerializer(InsightSerializer):
         # but keep its dashboard-context access check so a restricted insight never renders a result.
         user_access_control = self.user_access_control
         if self.context.get("dashboard") and user_access_control:
-            user_access_level = user_access_control.get_user_access_level(instance)
+            # Dashboards are project-wide, so the insight can belong to a sibling environment whose own rules decide.
+            insight_access = user_access_control.for_team_ids([instance.team_id])[instance.team_id]
+            user_access_level = insight_access.get_user_access_level(instance)
             if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
                 return {
                     "id": instance.id,
@@ -1243,6 +1251,18 @@ class InsightResultSerializer(InsightSerializer):
                     "user_access_level": user_access_level,
                 }
         return serializers.ModelSerializer.to_representation(self, instance)
+
+
+class InsightResultSerializerExtension(OpenApiSerializerExtension):
+    target_class = "products.dashboards.backend.api.dashboard.InsightResultSerializer"
+
+    def map_serializer(self, auto_schema: AutoSchema, direction: Direction) -> dict[str, Any]:
+        schema: dict[str, Any] = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
+        required = schema.get("required")
+        if isinstance(required, list):
+            # An insight the caller cannot view comes back as only its identifiers and access level.
+            schema["required"] = [name for name in required if name in {"id", "short_id", "user_access_level"}]
+        return schema
 
 
 class DashboardTileResultSerializer(DashboardTileSerializer):
@@ -4094,11 +4114,17 @@ class DashboardsViewSet(
         ]
 
         # Insight access is independent of dashboard access: a viewer of this dashboard may still be
-        # restricted on individual insights. Mask those tiles before any query runs.
-        self.user_access_control.preload_object_access_controls([insight for _, _, insight in insight_tiles])
+        # restricted on individual insights. Mask those tiles before any query runs. Dashboards are project-wide,
+        # so each insight is resolved against its own environment's rules, not the URL's.
+        insights_by_team: dict[int, list[Model]] = {}
+        for _, _, insight in insight_tiles:
+            insights_by_team.setdefault(insight.team_id, []).append(insight)
+        access_by_team = self.user_access_control.for_team_ids(insights_by_team.keys())
+        for team_id, team_insights in insights_by_team.items():
+            access_by_team[team_id].preload_object_access_controls(team_insights)
         restricted_levels: dict[int, str] = {}
         for _, tile, insight in insight_tiles:
-            user_access_level = self.user_access_control.get_user_access_level(insight)
+            user_access_level = access_by_team[insight.team_id].get_user_access_level(insight)
             if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
                 restricted_levels[tile.id] = user_access_level
 
