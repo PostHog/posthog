@@ -593,6 +593,14 @@ describe('Hono MCP analytics contexts', () => {
                 false,
             ],
             ['starting a provider import', 'provider-imports-create', { api_key: 're_key' }, false],
+            ['reading a provider import', 'provider-imports-get', { id: 'run' }, false],
+            ['listing provider imports', 'provider-imports-list', {}, false],
+            [
+                'reading a provider import through exec',
+                'exec',
+                { command: 'call provider-imports-get {"id":"run"}' },
+                false,
+            ],
             [
                 'a provider import through exec',
                 'exec',

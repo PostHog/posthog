@@ -356,16 +356,17 @@ const EMAIL_RECIPIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
 
 const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'
 
-// Its input holds a vendor API key that can do anything in the customer's account. Key-based redaction misses it
-// when the call arrives as an exec command string. `$mcp_tool_call` still records the call.
-const PROVIDER_IMPORT_START_TOOL_NAME = 'provider-imports-create'
+// A start holds a vendor API key that can do anything in the customer's account, and results quote sender addresses and
+// template text. Key-based redaction misses both, also when the call arrives as an exec command string.
+// `$mcp_tool_call` still records the call.
+const PROVIDER_IMPORT_TOOL_PREFIX = 'provider-imports-'
 
-function startsProviderImport(toolName: string, input: unknown): boolean {
-    if (toolName === PROVIDER_IMPORT_START_TOOL_NAME) {
+function isProviderImportTool(toolName: string, input: unknown): boolean {
+    if (toolName.startsWith(PROVIDER_IMPORT_TOOL_PREFIX)) {
         return true
     }
     const command = (input as { command?: unknown } | null | undefined)?.command
-    return toolName === 'exec' && typeof command === 'string' && command.includes(PROVIDER_IMPORT_START_TOOL_NAME)
+    return toolName === 'exec' && typeof command === 'string' && command.includes(PROVIDER_IMPORT_TOOL_PREFIX)
 }
 
 function sendsEmailContent(toolName: string, input: unknown): boolean {
@@ -397,7 +398,7 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (sendsEmailContent(toolName, input)) {
         return false
     }
-    if (startsProviderImport(toolName, input)) {
+    if (isProviderImportTool(toolName, input)) {
         return false
     }
     // A proxied third-party tool's args and result are the vendor's content — an issue
