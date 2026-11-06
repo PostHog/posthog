@@ -1569,38 +1569,6 @@ CREATE VIEW posthog.metrics4_view AS SELECT
   time_bucket,
   series_fingerprint,
   resource_fingerprint,
-  timestamp,
-  original_expiry_timestamp,
-  service_name,
-  metric_type,
-  value,
-  count,
-  histogram_bounds,
-  histogram_counts,
-  trace_id,
-  span_id,
-  trace_flags,
-  has_labels,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  instrumentation_scope
-FROM posthog.metrics2
-WHERE
-  (time_bucket > toDateTime('2026-08-25 00:00:00'))
-AND
-  (time_bucket < toDateTime('2026-09-14 00:00:00'))
-AND
-  (timestamp > toDateTime('2026-08-25 00:00:00'))
-AND
-  (timestamp < toDateTime('2026-09-14 00:00:00'))
-UNION ALL
-SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  series_fingerprint,
-  resource_fingerprint,
   point_timestamp AS timestamp,
   toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
   service_name,

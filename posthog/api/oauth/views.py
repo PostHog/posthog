@@ -47,6 +47,7 @@ from posthog.api import id_jag
 from posthog.api.oauth.cimd import (
     CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
+    CIMDSigningKeyMissingError,
     CIMDValidationError,
     enqueue_cimd_refresh_if_stale,
     get_or_create_cimd_application,
@@ -112,6 +113,7 @@ from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, get_instance_region, get_trusted_client_ip, render_template
 from posthog.views import login_required
+from posthog.workload_identity import token_exchange as workload_token_exchange
 
 from products.access_control.backend.facade.api import user_organizations_use_access_controls
 from products.security.backend.facade.api import access_refused as security_access_refused
@@ -171,7 +173,9 @@ _OTHER_CLOUD_REGION_HOST = {"US": "https://eu.posthog.com", "EU": "https://us.po
 # InvalidClientIdError doesn't carry the request, so this is how error_response learns the
 # reason. validate_client_id resets it on every call, and error_response only uses it for the
 # same client_id.
-_cimd_resolution_error: ContextVar[tuple[str, str] | None] = ContextVar("cimd_resolution_error", default=None)
+_cimd_resolution_error: ContextVar[tuple[str, CIMDFetchError | CIMDValidationError] | None] = ContextVar(
+    "cimd_resolution_error", default=None
+)
 
 
 def unknown_client_id_description(client_id: str | None, cimd_error: str | None = None) -> str:
@@ -763,7 +767,7 @@ class OAuthValidator(OAuth2Validator):
                 return True
             except (CIMDFetchError, CIMDValidationError) as e:
                 logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e), cause=repr(e.__cause__))
-                _cimd_resolution_error.set((client_id, str(e)))
+                _cimd_resolution_error.set((client_id, e))
                 return False
 
         # Standard UUID lookup
@@ -1147,7 +1151,8 @@ class OAuthValidator(OAuth2Validator):
         # A rotating family holds every access token of one login, so revoking it ends only that
         # login. A token already rotated away still ends its family: during the grace period it can
         # still refresh.
-        if rt and self._is_dynamic_client(request) and self.rotate_refresh_token(request):
+        dynamic_or_device = self._is_dynamic_client(request) or self._is_device_client(request)
+        if rt and dynamic_or_device and self.rotate_refresh_token(request):
             revoke_oauth_refresh_family(rt)
             return
         # A non-rotating token can't be traced to its access tokens, so the whole connection goes.
@@ -2024,8 +2029,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             # only ever reaches the JSON body.
             client_id = self.request.query_params.get("client_id")
             failure = _cimd_resolution_error.get()
+            cimd_error = failure[1] if failure and failure[0] == client_id else None
+            if isinstance(cimd_error, CIMDSigningKeyMissingError):
+                return Response(
+                    {"error": "server_error", "error_description": str(cimd_error)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
             oauthlib_error.description = unknown_client_id_description(
-                client_id, cimd_error=failure[1] if failure and failure[0] == client_id else None
+                client_id, cimd_error=str(cimd_error) if cimd_error else None
             )
 
         redirect, error_response = super().error_response(error, **kwargs)
@@ -2231,7 +2242,9 @@ class OAuthTokenView(TokenView):
             )
 
         try:
-            issued_access_token = id_jag.issue_access_token(assertion, request.POST.get("scope"), client.client_id)
+            issued_access_token = id_jag.issue_access_token(
+                assertion, request.POST.get("scope"), client.client_id, request.POST.get("resource")
+            )
         except id_jag.IdJagError as e:
             logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)
             self._capture_token_rejected(id_jag.JWT_BEARER_GRANT_TYPE, client.client_id, e.error_code)
@@ -2263,6 +2276,46 @@ class OAuthTokenView(TokenView):
                 "expires_in": issued_access_token.expires_in_seconds,
                 "scope": " ".join(issued_access_token.granted_scopes),
             }
+        )
+
+    def _handle_token_exchange_grant(self, request) -> JsonResponse:
+        """Workload OIDC token exchange (RFC 8693). A workload has no client registration, so the grant takes
+        no client authentication: the OIDC token, checked against a trust policy, is the only credential."""
+        grant_type = workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE
+        try:
+            issued = workload_token_exchange.exchange_workload_token(
+                subject_token=request.POST.get("subject_token") or "",
+                subject_token_type=request.POST.get("subject_token_type") or "",
+                resource=request.POST.get("resource") or "",
+            )
+        except workload_token_exchange.WorkloadExchangeError as e:
+            logger.info("workload_token_exchange_rejected", error_code=e.code.value)
+            self._capture_token_rejected(grant_type, "", e.code.value)
+            return JsonResponse(e.body(), status=e.http_status)
+        except (OperationalError, RedisError) as e:
+            logger.warning("workload_token_exchange_unavailable", error=str(e))
+            return _temporarily_unavailable_response()
+
+        posthoganalytics.capture(
+            distinct_id=f"workload_trust_policy:{issued.policy_id}",
+            event="oauth_token_issued",
+            properties={
+                "grant_type": grant_type,
+                "granted_scope_count": len(issued.scopes),
+                "$process_person_profile": False,
+                **(get_region_info() or {}),
+            },
+        )
+        # RFC 6749 section 5.1: a response that carries a token must not be cached.
+        return JsonResponse(
+            {
+                "access_token": issued.access_token,
+                "issued_token_type": workload_token_exchange.ISSUED_TOKEN_TYPE,
+                "token_type": "Bearer",
+                "expires_in": issued.expires_in_seconds,
+                "scope": " ".join(issued.scopes),
+            },
+            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
         )
 
     def post(self, request, *args, **kwargs):
@@ -2303,6 +2356,8 @@ class OAuthTokenView(TokenView):
 
         if grant_type == id_jag.JWT_BEARER_GRANT_TYPE:
             return self._handle_jwt_bearer_grant(request)
+        if grant_type == workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE:
+            return self._handle_token_exchange_grant(request)
 
         # DOT reads `device_code` with a bare subscript, which turns a missing one into a 500.
         if grant_type == DEVICE_CODE_GRANT_TYPE and not request.POST.get("device_code"):

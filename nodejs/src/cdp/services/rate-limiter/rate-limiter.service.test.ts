@@ -242,66 +242,38 @@ describe('RateLimiterService', () => {
         })
     })
 
-    describe('claimAllOrNothingPair', () => {
-        const KEY_A = `${KEY}/pair-a`
-        const KEY_B = `${KEY}/pair-b`
+    describe('claimAllOrNothing', () => {
+        const AON_KEY = `${KEY}/all-or-nothing`
 
-        it('grants from both buckets when both can cover the request', async () => {
-            const claim = await limiter.claimAllOrNothingPair(
-                [
-                    { key: KEY_A, capacity: 50, refillPerSecond: 0 },
-                    { key: KEY_B, capacity: 100, refillPerSecond: 0 },
-                ],
-                30
+        it('grants and charges the pool when the bucket covers the request', async () => {
+            const claim = await limiter.claimAllOrNothing(
+                { key: AON_KEY, requested: 30, capacity: 50, refillPerSecond: 0 },
+                600_000
             )
-            expect(claim).toEqual({ granted: true, deniedIndex: null, retryAfterMs: null, reserved: false })
-            // Both pools were charged: the remainder is all that is left to claim.
-            expect(await limiter.claimUpTo({ key: KEY_A, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(20)
-            expect(await limiter.claimUpTo({ key: KEY_B, requested: 100, capacity: 100, refillPerSecond: 0 })).toBe(70)
+            expect(claim).toEqual({ granted: true, retryAfterMs: null, reserved: false })
+            // The remainder is all that is left to claim.
+            expect(await limiter.claimUpTo({ key: AON_KEY, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(20)
         })
 
-        it('consumes nothing on denial, so retries cannot starve the buckets', async () => {
-            // The second bucket cannot cover the request, so the claim must leave BOTH pools
-            // untouched. Without that, a rescheduled multi-recipient send would burn the first
-            // bucket's refill on every retry while never sending.
-            const claim = await limiter.claimAllOrNothingPair(
-                [
-                    { key: KEY_A, capacity: 50, refillPerSecond: 0 },
-                    { key: KEY_B, capacity: 10, refillPerSecond: 0 },
-                ],
-                30
-            )
+        it('consumes nothing on denial, so retries cannot starve the bucket', async () => {
+            // The bucket cannot cover the request, so the claim must leave the pool untouched.
+            // Without that, a rescheduled multi-recipient send would burn the refill on every
+            // retry while never sending.
+            const req = { key: `${AON_KEY}/denied`, requested: 30, capacity: 10, refillPerSecond: 0 }
+            const claim = await limiter.claimAllOrNothing(req, 600_000)
             // refillPerSecond 0 means the missing tokens never accrue, so no horizon is reported.
-            expect(claim).toEqual({ granted: false, deniedIndex: 1, retryAfterMs: null, reserved: false })
-            expect(await limiter.claimUpTo({ key: KEY_A, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(50)
-            expect(await limiter.claimUpTo({ key: KEY_B, requested: 10, capacity: 10, refillPerSecond: 0 })).toBe(10)
+            expect(claim).toEqual({ granted: false, retryAfterMs: null, reserved: false })
+            expect(await limiter.claimUpTo({ ...req, requested: 10 })).toBe(10)
         })
 
         it('reports on denial how long until the missing tokens accrue', async () => {
-            // Cold start: the denying bucket holds exactly its capacity of 10, so the request
-            // for 30 is missing 20 tokens. At 2 tokens/s that is 10 seconds.
-            const claim = await limiter.claimAllOrNothingPair(
-                [
-                    { key: KEY_A, capacity: 50, refillPerSecond: 0 },
-                    { key: KEY_B, capacity: 10, refillPerSecond: 2 },
-                ],
-                30
+            // Cold start: the bucket holds exactly its capacity of 10, so the request for 30 is
+            // missing 20 tokens. At 2 tokens/s that is 10 seconds.
+            const claim = await limiter.claimAllOrNothing(
+                { key: `${AON_KEY}/horizon`, requested: 30, capacity: 10, refillPerSecond: 2 },
+                600_000
             )
-            expect(claim).toEqual({ granted: false, deniedIndex: 1, retryAfterMs: 10_000, reserved: false })
-        })
-
-        it('reports the slower bucket when both are short', async () => {
-            // Both buckets are 20 tokens short of the request. The first one covers that in 10
-            // seconds, the second needs 40. Reporting the first would wake the caller while the
-            // second still cannot grant, costing a whole extra dequeue and reschedule.
-            const claim = await limiter.claimAllOrNothingPair(
-                [
-                    { key: KEY_A, capacity: 10, refillPerSecond: 2 },
-                    { key: KEY_B, capacity: 10, refillPerSecond: 0.5 },
-                ],
-                30
-            )
-            expect(claim).toEqual({ granted: false, deniedIndex: 0, retryAfterMs: 40_000, reserved: false })
+            expect(claim).toEqual({ granted: false, retryAfterMs: 10_000, reserved: true })
         })
 
         it('fails closed when the Lua call throws', async () => {
@@ -310,85 +282,12 @@ describe('RateLimiterService', () => {
                 usePipeline: jest.fn(),
             } as unknown as RedisV2
             const brokenLimiter = new RateLimiterService(brokenValkey, { name: 'broken-limiter' })
-            const claim = await brokenLimiter.claimAllOrNothingPair(
-                [
-                    { key: KEY_A, capacity: 50, refillPerSecond: 0 },
-                    { key: KEY_B, capacity: 10, refillPerSecond: 0 },
-                ],
-                5
+            // A null horizon is how the caller tells an unreachable limiter from a reached cap.
+            const claim = await brokenLimiter.claimAllOrNothing(
+                { key: AON_KEY, requested: 5, capacity: 50, refillPerSecond: 1 },
+                600_000
             )
-            expect(claim).toEqual({ granted: false, deniedIndex: null, retryAfterMs: null, reserved: false })
-        })
-
-        it('hands successive reserved denials distinct, later slots, paced by the slower bucket', async () => {
-            // Both buckets are short, so the slower one (0.5/s) sets the pace. The first
-            // caller waits 40s (its missing tokens). The next one gets the slot after
-            // that, a full 60s later. Nobody wakes at the same time.
-            const buckets: [
-                { key: string; capacity: number; refillPerSecond: number },
-                { key: string; capacity: number; refillPerSecond: number },
-            ] = [
-                { key: `${KEY_A}/resv`, capacity: 10, refillPerSecond: 2 },
-                { key: `${KEY_B}/resv`, capacity: 10, refillPerSecond: 0.5 },
-            ]
-            const first = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
-            const second = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
-
-            expect(first.granted).toBe(false)
-            expect(first.reserved).toBe(true)
-            // First in line pays only the 40s shortfall, not a full 60s slot.
-            expect(first.retryAfterMs).toBe(40_000)
-            expect(second.reserved).toBe(true)
-            expect(second.retryAfterMs!).toBeGreaterThan(first.retryAfterMs!)
-            expect(second.retryAfterMs!).toBeLessThanOrEqual(100_000)
-        })
-
-        it('stops advancing the reservation cursor at the horizon', async () => {
-            const buckets: [
-                { key: string; capacity: number; refillPerSecond: number },
-                { key: string; capacity: number; refillPerSecond: number },
-            ] = [
-                { key: `${KEY_A}/resv-cap`, capacity: 50, refillPerSecond: 0 },
-                { key: `${KEY_B}/resv-cap`, capacity: 10, refillPerSecond: 2 },
-            ]
-            // The first slot (10s) fits inside the 20s horizon. The next one would not,
-            // so everyone after the first just gets "come back in 20s" with no slot.
-            const first = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
-            const second = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
-            const third = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
-
-            expect(first.retryAfterMs).toBe(10_000)
-            expect(first.reserved).toBe(true)
-            expect(second.retryAfterMs).toBe(20_000)
-            expect(second.reserved).toBe(false)
-            expect(third.retryAfterMs).toBe(20_000)
-            expect(third.reserved).toBe(false)
-        })
-
-        it('keeps one reservation line when the slower bucket changes', async () => {
-            const buckets: [
-                { key: string; capacity: number; refillPerSecond: number },
-                { key: string; capacity: number; refillPerSecond: number },
-            ] = [
-                { key: `${KEY_A}/line`, capacity: 10, refillPerSecond: 2 },
-                { key: `${KEY_B}/line`, capacity: 100, refillPerSecond: 0.5 },
-            ]
-            // The second bucket still covers the request, so the first one (10s
-            // shortfall, 15s spacing) sets the pace for the first two denials.
-            const first = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
-            const second = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
-
-            // Now drain the second bucket so it becomes the slower one. The line has
-            // to continue behind the parked sends. A cursor kept only on the bucket
-            // that is currently slower would start a fresh line here and hand this
-            // send a slot at ~16s, ahead of the send already parked at ~25s.
-            await limiter.claimUpTo({ key: buckets[1].key, requested: 78, capacity: 100, refillPerSecond: 0.5 })
-            const third = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
-
-            expect(first.reserved).toBe(true)
-            expect(second.retryAfterMs!).toBeGreaterThan(first.retryAfterMs!)
-            expect(third.reserved).toBe(true)
-            expect(third.retryAfterMs!).toBeGreaterThan(second.retryAfterMs!)
+            expect(claim).toEqual({ granted: false, retryAfterMs: null, reserved: false })
         })
     })
 
@@ -483,7 +382,7 @@ describe('RateLimiterService', () => {
             limiter
         )
 
-        const claimAllOrNothing = jest.spyOn(limiter, 'claimAllOrNothing')
+        const claimAllOrNothing = jest.spyOn(limiter, 'claimAllBuckets')
         try {
             expect(await sender.claimDailyCaps(1, ['member@example.com'])).toMatchObject({ type: 'granted' })
             const spentOverADay = expect.objectContaining({ capacity: 1, refillPerSecond: 1 / 86_400 })
@@ -526,17 +425,17 @@ describe('RateLimiterService', () => {
         }
     })
 
-    describe('claimAllOrNothing', () => {
+    describe('claimAllBuckets', () => {
         it('refills a bucket that a claim emptied', async () => {
             const bucket = { key: `${KEY}/refill`, requested: 1, capacity: 1, refillPerSecond: 1 / 3_600 }
 
-            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
-            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: false })
+            expect(await limiter.claimAllBuckets([bucket])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllBuckets([bucket])).toMatchObject({ granted: false })
             await redis.useClient({ name: 'age-bucket' }, async (client) => {
                 const lastClaimAt = Number(await client.hget(bucket.key, 'ts'))
                 await client.hset(bucket.key, 'ts', lastClaimAt - 3_600_000)
             })
-            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllBuckets([bucket])).toMatchObject({ granted: true })
         })
 
         it('spends an unanswered claim once when the same EVAL is replayed', async () => {
@@ -559,9 +458,9 @@ describe('RateLimiterService', () => {
             }
             const replayingLimiter = new RateLimiterService(replayingRedis, { name: 'ses-rate-limiter' })
 
-            expect(await replayingLimiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
-            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
-            expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
+            expect(await replayingLimiter.claimAllBuckets([bucket])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllBuckets([bucket])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllBuckets([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
         })
 
         it('takes no tokens for a claim that reaches Valkey after its caller gave up', async () => {
@@ -569,12 +468,12 @@ describe('RateLimiterService', () => {
             const issuedAt = Date.now() - 5000
             const lateClock = jest.spyOn(Date, 'now').mockReturnValue(issuedAt)
             try {
-                expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: null })
+                expect(await limiter.claimAllBuckets([bucket])).toEqual({ granted: false, deniedIndexes: null })
             } finally {
                 lateClock.mockRestore()
             }
 
-            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllBuckets([bucket])).toMatchObject({ granted: true })
         })
 
         it('names every short bucket and spends none of the others', async () => {
@@ -585,16 +484,16 @@ describe('RateLimiterService', () => {
                 refillPerSecond: 0,
             })
             const [roomy, drained, empty] = [bucket('roomy', 2), bucket('drained', 1), bucket('empty', 0)]
-            expect(await limiter.claimAllOrNothing([drained])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllBuckets([drained])).toMatchObject({ granted: true })
 
-            expect(await limiter.claimAllOrNothing([roomy, drained, empty])).toEqual({
+            expect(await limiter.claimAllBuckets([roomy, drained, empty])).toEqual({
                 granted: false,
                 deniedIndexes: [1, 2],
             })
 
-            expect(await limiter.claimAllOrNothing([roomy])).toMatchObject({ granted: true })
-            expect(await limiter.claimAllOrNothing([roomy])).toMatchObject({ granted: true })
-            expect(await limiter.claimAllOrNothing([roomy])).toEqual({ granted: false, deniedIndexes: [0] })
+            expect(await limiter.claimAllBuckets([roomy])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllBuckets([roomy])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllBuckets([roomy])).toEqual({ granted: false, deniedIndexes: [0] })
         })
 
         it.each([
@@ -602,7 +501,7 @@ describe('RateLimiterService', () => {
             ['the same bucket twice', [`${KEY}/twice`, `${KEY}/twice`]],
         ])('refuses a claim with %s', async (_name, keys) => {
             await expect(
-                limiter.claimAllOrNothing(keys.map((key) => ({ key, requested: 1, capacity: 1, refillPerSecond: 0 })))
+                limiter.claimAllBuckets(keys.map((key) => ({ key, requested: 1, capacity: 1, refillPerSecond: 0 })))
             ).rejects.toThrow('every bucket key only once')
         })
 
@@ -622,7 +521,7 @@ describe('RateLimiterService', () => {
             const unreachable = new RateLimiterService(unreachableValkey, { name: 'sandbox-email' })
 
             expect(
-                await unreachable.claimAllOrNothing([
+                await unreachable.claimAllBuckets([
                     { key: `${KEY}/optional-pool`, requested: 1, capacity: 1, refillPerSecond: 0 },
                 ])
             ).toEqual({ granted: false, deniedIndexes: null })
@@ -777,7 +676,7 @@ describe('RateLimiterService', () => {
             )
 
             expect(
-                await unreachable.claimAllOrNothing([
+                await unreachable.claimAllBuckets([
                     { key: `${KEY}/unreachable`, requested: 1, capacity: 1, refillPerSecond: 0 },
                 ])
             ).toEqual({ granted: false, deniedIndexes: null })
@@ -786,7 +685,7 @@ describe('RateLimiterService', () => {
 
     describe('returnClaim', () => {
         const grantedClaim = async (bucket: ClaimRequest): Promise<IssuedClaim> => {
-            const claim = await limiter.claimAllOrNothing([bucket])
+            const claim = await limiter.claimAllBuckets([bucket])
             if (!claim.granted) {
                 throw new Error('Expected the claim to be granted.')
             }
@@ -801,26 +700,26 @@ describe('RateLimiterService', () => {
             await limiter.returnClaim(claim)
             await limiter.returnClaim(claim)
 
-            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
-            expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
+            expect(await limiter.claimAllBuckets([bucket])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllBuckets([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
         })
 
         it('gives each bucket of a claim back once, even when the return is replayed', async () => {
             const first = { key: `${KEY}/return-pair-first`, requested: 1, capacity: 2, refillPerSecond: 0 }
             const second = { key: `${KEY}/return-pair-second`, requested: 1, capacity: 3, refillPerSecond: 0 }
-            const claim = await limiter.claimAllOrNothing([first, second])
+            const claim = await limiter.claimAllBuckets([first, second])
             if (!claim.granted) {
                 throw new Error('Expected the claim to be granted.')
             }
-            expect(await limiter.claimAllOrNothing([first, second])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllBuckets([first, second])).toMatchObject({ granted: true })
 
             await limiter.returnClaim(claim)
             await limiter.returnClaim(claim)
 
-            expect(await limiter.claimAllOrNothing([first, second])).toMatchObject({ granted: true })
-            expect(await limiter.claimAllOrNothing([first, second])).toEqual({ granted: false, deniedIndexes: [0] })
-            expect(await limiter.claimAllOrNothing([second])).toMatchObject({ granted: true })
-            expect(await limiter.claimAllOrNothing([second])).toEqual({ granted: false, deniedIndexes: [0] })
+            expect(await limiter.claimAllBuckets([first, second])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllBuckets([first, second])).toEqual({ granted: false, deniedIndexes: [0] })
+            expect(await limiter.claimAllBuckets([second])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllBuckets([second])).toEqual({ granted: false, deniedIndexes: [0] })
         })
 
         it('ignores the return of a claim issued longer ago than its window', async () => {
@@ -829,7 +728,7 @@ describe('RateLimiterService', () => {
 
             await limiter.returnClaim({ ...claim, returnBy: Date.now() - 1000 })
 
-            expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
+            expect(await limiter.claimAllBuckets([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
         })
 
         it('ignores the return of a claim whose bucket could have expired and been drained again', async () => {
@@ -846,7 +745,7 @@ describe('RateLimiterService', () => {
 
             await limiter.returnClaim(claim)
 
-            expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
+            expect(await limiter.claimAllBuckets([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
         })
     })
 })
