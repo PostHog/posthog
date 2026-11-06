@@ -1507,6 +1507,10 @@ AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
 # A full daily run covers the whole prompt set, so the cap only guards against a runaway import.
 AEO_MAX_PROMPTS_PER_RUN = get_from_env("AEO_MAX_PROMPTS_PER_RUN", 2000, type_cast=int)
 AEO_RUN_CONCURRENCY = get_from_env("AEO_RUN_CONCURRENCY", 16, type_cast=int)
+# The run day starts here, just before the first beat dispatch at 07:30 UTC. A prompt checked
+# since the boundary is not due until the next one, so the catch-up dispatches that follow a
+# killed run only pick up the prompts it missed, however late the previous day's run finished.
+AEO_RUN_DAY_START_UTC_HOUR = get_from_env("AEO_RUN_DAY_START_UTC_HOUR", 7, type_cast=int)
 EXA_API_KEY = get_from_env("EXA_API_KEY", "")
 CONTENT_AUTOPILOT_MODEL = get_from_env("CONTENT_AUTOPILOT_MODEL", "claude-sonnet-5")
 CONTENT_AUTOPILOT_SAFETY_MODEL = get_from_env("CONTENT_AUTOPILOT_SAFETY_MODEL", "claude-haiku-4-5")
@@ -1638,4 +1642,4 @@ WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS: list[int] = [
 # 0 rejects every stream (emergency lever).
 SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS = get_from_env("SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS", 500, type_cast=int)
 
-CONTEXT_SELECTION_TIMEOUT_SECONDS = 3.0
+CONTEXT_SELECTION_TIMEOUT_SECONDS = 8.0

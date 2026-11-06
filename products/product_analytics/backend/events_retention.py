@@ -20,6 +20,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.events_plan_deletion import (
     TeamEventsPlanDeletion,
     cleanup_date,
+    deleting_plans,
     deletion_months,
     next_cleanup_on,
     next_pass_on,
@@ -45,7 +46,6 @@ from posthog.models.team.event_retention import (
     has_standard_retention,
     organization_events_retention_months,
     should_delete_past_default_period,
-    team_plan,
 )
 from posthog.models.user import User
 
@@ -170,8 +170,8 @@ def project_events_retention(team: Team) -> ProjectEventsRetention:
     )
 
 
-def _next_cleanup_cutoff(months: int) -> datetime:
-    return whole_month_cutoff(datetime.combine(next_cleanup_on(), time()), months).replace(tzinfo=UTC)
+def _cutoff_on(deletes_on: date, months: int) -> datetime:
+    return whole_month_cutoff(datetime.combine(deletes_on, time()), months).replace(tzinfo=UTC)
 
 
 def _events_before(team: Team, cutoff: datetime, seconds: int, concurrency_slots: ConcurrencySlots) -> int:
@@ -194,17 +194,36 @@ def _events_before(team: Team, cutoff: datetime, seconds: int, concurrency_slots
     return count
 
 
+def _teams_events_before(teams: Iterable[Team], cutoff: datetime, concurrency_slots: ConcurrencySlots) -> int:
+    deadline = monotonic() + EVENTS_DELETED_QUERY_SECONDS
+    return sum(_events_before(team, cutoff, math.ceil(deadline - monotonic()), concurrency_slots) for team in teams)
+
+
 def project_events_deleted(team: Team, months: int, *, concurrency_slots: ConcurrencySlots) -> int:
-    return _events_before(team, _next_cleanup_cutoff(months), EVENTS_DELETED_QUERY_SECONDS, concurrency_slots)
+    return _events_before(team, _cutoff_on(next_cleanup_on(), months), EVENTS_DELETED_QUERY_SECONDS, concurrency_slots)
 
 
 def organization_events_deleted(organization: Organization, months: int, *, concurrency_slots: ConcurrencySlots) -> int:
-    cutoff = _next_cleanup_cutoff(months)
-    deadline = monotonic() + EVENTS_DELETED_QUERY_SECONDS
     teams = Team.objects.filter(organization_id=organization.id).exclude(
         id__in=TeamEventsRetentionConfig.objects.filter(events_retention_months__isnull=False).values("team_id")
     )
-    return sum(_events_before(team, cutoff, math.ceil(deadline - monotonic()), concurrency_slots) for team in teams)
+    return _teams_events_before(teams, _cutoff_on(next_cleanup_on(), months), concurrency_slots)
+
+
+def organization_downgrade_events_deleted(
+    organization: Organization, months: int, *, concurrency_slots: ConcurrencySlots
+) -> int:
+    teams = list(Team.objects.filter(organization_id=organization.id))
+    kept = {
+        setting.team_id
+        for setting in effective_events_retention(team_ids=[team.id for team in teams])
+        if setting.months <= months
+    }
+    return _teams_events_before(
+        [team for team in teams if team.id not in kept],
+        _cutoff_on(next_pass_on(cleanup_date()), months),
+        concurrency_slots,
+    )
 
 
 def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -> None:
@@ -220,10 +239,6 @@ def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -
         raise ValidationError(
             f"Events retention has to be {describe_months_range(retention.min_months, retention.max_months)}."
         )
-
-
-def _deleting_plans(teams: Iterable[Team]) -> list[TeamPlan]:
-    return [team_plan(team) for team in teams if should_delete_past_default_period(team)]
 
 
 def _schedule_passes(plans: Sequence[TeamPlan]) -> None:
@@ -246,7 +261,7 @@ def set_organization_events_retention(
         if months == before:
             return
         _check_allowed(organization_events_retention(organization), months)
-        plans = _deleting_plans(Team.objects.filter(organization_id=organization.id))
+        plans = deleting_plans(Team.objects.filter(organization_id=organization.id))
         _schedule_passes(plans)
         config = config or OrganizationEventsRetentionConfig(organization_id=organization.id)
         config.default_events_retention_months = months
@@ -290,7 +305,7 @@ def set_project_events_retention(
         if months == before:
             return
         _check_allowed(organization_events_retention(team.organization), months)
-        plans = _deleting_plans([team])
+        plans = deleting_plans([team])
         _schedule_passes(plans)
         if months is None:
             TeamEventsRetentionConfig.objects.filter(team_id=team.id).delete()

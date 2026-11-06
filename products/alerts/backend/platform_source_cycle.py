@@ -2,14 +2,12 @@
 
 A parallel run. The production insight fleet evaluates the same alerts against
 `AlertConfiguration` and notifies their destinations. This decides what the platform would have
-said, and asks for a delivery for the alerts the platform owns and for the alerts in
-`LIVE_DELIVERY_INSIGHT_ALERT_IDS`. An owned alert sends without the platform's live delivery flag.
-Every other alert on the list still sends only to projects on that flag.
+said, and asks for a delivery only for the alerts the platform owns.
 
 Each platform row resolves to its production alert through `legacy_configuration_id`, because
 `check_alert_for_insight` reads the insight, the threshold and the condition off that model. The
 query runs the way production runs it, and the verdict comes from the shared machine under
-`INSIGHT_ALERT_POLICY`, applied to the platform's own state. `add_alert_check` is the production
+`insight_alert_policy`, applied to the platform's own state. `add_alert_check` is the production
 writer, and nothing here calls it.
 
 A check that production skips without a query is skipped here too, so both stacks answer the
@@ -46,7 +44,11 @@ from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES
 from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
-from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
+from products.alerts.backend.insight_alert_state_machine import (
+    INSIGHT_ALERT_POLICY,
+    insight_alert_policy,
+    insight_snapshot,
+)
 from products.alerts.backend.judge.contract import (
     LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -87,6 +89,7 @@ from products.alerts_platform.backend.facade.grouping import (
 )
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
+    AlertPolicy,
     AlertSnapshot,
     AlertState,
     CheckInput,
@@ -178,11 +181,6 @@ EVALUATED_INTERVALS = frozenset(
     }
 )
 
-
-# The production insight alerts whose platform evaluations ask for a native delivery while production
-# still owns them, as a test. The platform's live delivery flag still has to be on for the project.
-# The list stays short because production also sends for these alerts, so each one sends twice.
-LIVE_DELIVERY_INSIGHT_ALERT_IDS: Final = frozenset({"01a11d6f-598e-0000-8529-4bcb65526f6d"})
 
 # Which event each announced kind's destinations listen on. A resolve is left out, because
 # production never announces one and the analytics platform team has not agreed to start. A kind
@@ -580,16 +578,15 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
     paging destination needs one resolve for every trigger. An alert with no such destination gets
     no incident action, so its edges start no delivery.
     """
+    # Destinations are matched on the legacy alert's id, so a copy without one has nobody to send to.
+    # A source-owned alert is the insight stack's to send.
+    if check.legacy_configuration_id is None or not check.owned_by_platform:
+        return None
+    legacy_id = str(check.legacy_configuration_id)
     kinds = [group.kind for group in outcome.groups]
     if outcome.failure is not None:
         kinds.append(outcome.failure.kind)
     sends_messages = any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds)
-    # Destinations are matched on the legacy alert's id, so a copy without one has nobody to send to.
-    if check.legacy_configuration_id is None:
-        return None
-    legacy_id = str(check.legacy_configuration_id)
-    if not check.owned_by_platform and legacy_id not in LIVE_DELIVERY_INSIGHT_ALERT_IDS:
-        return None
     actions = _incident_actions(check, outcome)
     if actions and not configured_destination_template_ids(
         team_id=check.team_id,
@@ -611,7 +608,7 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         incident_actions=actions,
         sends_messages=sends_messages,
         source_alert_url=_alert_url(check, legacy_id),
-        owned_by_platform=check.owned_by_platform,
+        owned_by_platform=True,
         overflowed=outcome.overflowed,
         overflow_is_lower_bound=outcome.overflow_is_lower_bound,
         parts=delivery_parts(outcome, actions),
@@ -624,7 +621,7 @@ def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutc
     A failed check moves no instance, so its incident stays open with its firing. Closing it would
     leave a re-enabled alert that still breaches firing with no incident.
     """
-    policy = INSIGHT_ALERT_POLICY if check.grouping.mode == GroupingMode.SINGLE else GROUPED_INSIGHT_ALERT_POLICY
+    policy = _policy(check) if check.grouping.mode == GroupingMode.SINGLE else GROUPED_INSIGHT_ALERT_POLICY
     return {
         group.grouping_key: action
         for group in outcome.groups
@@ -674,6 +671,11 @@ def _snapshot(
         firing_started_at=instance.firing_started_at,
         snooze_until=snooze_until,
     )
+
+
+def _policy(check: PlatformAlertCheckInput) -> AlertPolicy:
+    """The policy production runs for the alert, read from the detector the copy stores."""
+    return insight_alert_policy(check.condition.get("detector"))
 
 
 def _evaluation_key(check: PlatformAlertCheckInput, cutoff: datetime) -> str:
@@ -944,6 +946,7 @@ MAX_TOTAL_DETAIL_CHARS: Final = 200_000
 # A breakdown value can be muted on its own, which production cannot express, so the platform's
 # mute applies: the value is still judged and only its announcement is held. A snooze of the
 # production alert never reaches here, because `_decide` records that check without a query.
+# Built on the statistical policy alone, because the AI detector is refused on a breakdown insight.
 GROUPED_INSIGHT_ALERT_POLICY: Final = replace(INSIGHT_ALERT_POLICY, mute_gates_notification_only=True)
 
 
@@ -1199,7 +1202,7 @@ def _verdict(
     context: dict[str, Any] | None = None,
     check_detail: dict[str, Any] | None = None,
 ) -> PlatformAlertOutcome:
-    outcome = evaluate_alert_check(snapshot, check_input, now, policy=INSIGHT_ALERT_POLICY)
+    outcome = evaluate_alert_check(snapshot, check_input, now, policy=_policy(check))
     source_detail: dict[str, Any] | None
     if firing is not None and outcome.notification == NotificationAction.FIRE:
         source_detail = _firing_detail(check, *firing, breach_details=breach_details)
@@ -1289,7 +1292,7 @@ def _recorded(
         new_state=outcome.new_state.value,
         notified=notified,
         failed=failed,
-        firing_episode=decide_firing_episode(snapshot, outcome, now, policy=INSIGHT_ALERT_POLICY),
+        firing_episode=decide_firing_episode(snapshot, outcome, now, policy=_policy(check)),
         value=value,
         error_message=error_message,
         query_duration_ms=query_duration_ms,

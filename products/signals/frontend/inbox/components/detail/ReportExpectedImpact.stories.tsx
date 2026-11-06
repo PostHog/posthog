@@ -85,11 +85,6 @@ const monitoringCheck: SignalReportCheckApi = {
         next_measurement_at: '2026-08-29T18:00:00Z',
     },
 }
-const flagOffCheck: SignalReportCheckApi = {
-    ...check,
-    title: monitoringCheck.title,
-    config: { ...monitoringConfig, monitoring: undefined },
-}
 const fixedTargetCheck: SignalReportCheckApi = {
     ...monitoringCheck,
     config: { ...monitoringConfig, monitoring: { ...monitoringDefinition, threshold_scaling: 'fixed' } },
@@ -163,13 +158,6 @@ const meta: Meta<typeof ReportExpectedImpact> = {
 export default meta
 type Story = StoryObj<typeof ReportExpectedImpact>
 
-export const MonitoringDefinitionFlagOff: Story = {
-    parameters: {
-        check: flagOffCheck,
-        featureFlags: { 'signals-report-checks-replace': true, [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false },
-    },
-}
-
 export const MonitoringDefinition: Story = {
     args: { report: { ...report, monitoring_started_at: monitoringStartedAt } },
     parameters: {
@@ -217,10 +205,6 @@ export const RangeGoal: Story = { parameters: { check: rangeCheck } }
 export const Narrow: Story = { parameters: { narrow: true } }
 export const Failed: Story = { parameters: { check: failedCheck } }
 export const LoadFailure: Story = { parameters: { loadFailure: true } }
-
-export const ReplacementUnavailable: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false } },
-}
 
 export const MonitoringRateTarget: Story = {
     args: MonitoringDefinition.args,

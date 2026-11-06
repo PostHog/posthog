@@ -1203,7 +1203,46 @@ describe('inboxReportDetailLogic', () => {
                 message:
                     "GitHub can't read pull request checks. A project admin must reconnect GitHub and grant the Checks permission.",
                 remediationUrl: '/project/2/settings/project-integrations',
+                code: 'github_checks_permission_missing',
             })
+        })
+
+        it('links an inaccessible repository to the GitHub settings and stops polling its checks', async () => {
+            const inaccessible = {
+                code: 'github_repository_inaccessible',
+                error: "PostHog's GitHub connection can't access example/repo. A project admin must give the GitHub app access to this repository, or reconnect GitHub.",
+                remediation_url: '/project/2/settings/project-integrations',
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/pr_checks/': () => {
+                        prChecksRequests += 1
+                        return [404, inaccessible]
+                    },
+                    '/api/projects/:team_id/signals/reports/:id/pr_comments/': [404, inaccessible],
+                },
+            })
+            logic.unmount()
+            prChecksRequests = 0
+            jest.useFakeTimers()
+            logic = inboxReportDetailLogic({ reportId: PR_REPORT.id, report: PR_REPORT })
+            logic.mount()
+            try {
+                await jest.advanceTimersByTimeAsync(1000)
+                const expected = {
+                    message: inaccessible.error,
+                    remediationUrl: inaccessible.remediation_url,
+                    code: 'github_repository_inaccessible',
+                }
+                expect(logic.values.prChecksError).toEqual(expected)
+                expect(logic.values.prCommentsError).toEqual(expected)
+                expect(prChecksRequests).toBe(1)
+
+                await jest.advanceTimersByTimeAsync(15000 * 20)
+                expect(prChecksRequests).toBe(1)
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 

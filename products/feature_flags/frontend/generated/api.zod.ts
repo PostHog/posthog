@@ -1074,6 +1074,26 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Start a read-only analysis of where the project's GitHub repository checks this flag.
+ *
+ * An agent clones the repository, finds every check of the flag, and reports the code each outcome runs.
+ * It does not change code or the flag. Returns 400 when no repository can be chosen (see
+ * `code_analysis_target`), 403 when AI data processing is not approved or the request comes from a task
+ * sandbox, and 409 when an analysis is already running.
+ */
+export const featureFlagsAnalyzeCodeCreateBodyRepositoryMax = 255
+
+export const FeatureFlagsAnalyzeCodeCreateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .max(featureFlagsAnalyzeCodeCreateBodyRepositoryMax)
+        .nullish()
+        .describe(
+            "GitHub repository to analyze, as `organization\/repository`. It must be connected to the project's GitHub integration. Omit it to use the repository the last analysis used, the environment's default flag cleanup repository, or the only connected repository."
+        ),
+})
+
+/**
  * Disable a feature flag.
  *
  * Sets `active` to false and changes nothing else. Targeting, variants, payloads, tags and
@@ -1119,6 +1139,27 @@ export const FeatureFlagsEnableCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out."
+        ),
+})
+
+/**
+ * Open a draft pull request that removes this stale flag's checks from the code.
+ *
+ * An agent starts from the checks the latest code analysis found, keeps the code for one outcome, and
+ * opens the pull request in the repository the analysis read. It does not change the flag. Returns 400
+ * when the flag isn't stale, the analysis found no checks, or an outcome must be chosen (see
+ * `cleanup` on `code_analysis`), 403 when AI data processing is not approved or the request comes from a
+ * task sandbox, and 409 when a cleanup pull request is still being opened.
+ */
+export const featureFlagsOpenCleanupPrCreateBodyKeepOutcomeMax = 400
+
+export const FeatureFlagsOpenCleanupPrCreateBody = /* @__PURE__ */ zod.object({
+    keep_outcome: zod
+        .string()
+        .max(featureFlagsOpenCleanupPrCreateBodyKeepOutcomeMax)
+        .nullish()
+        .describe(
+            'Outcome whose code to keep: `enabled`, `disabled`, or a variant key from `cleanup.outcome_options`. Omit it to keep `cleanup.suggested_outcome`.'
         ),
 })
 

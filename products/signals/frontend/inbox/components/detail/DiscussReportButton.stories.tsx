@@ -151,6 +151,22 @@ export const MetricSuggestion: Story = {
     },
 }
 
+export const MonitoringUnavailable: Story = {
+    ...MetricSuggestion,
+    name: 'Monitoring unavailable',
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        if (canvas.queryByText('Suggest a better metric')) {
+            throw new Error('Metric suggestions must be hidden without Monitoring')
+        }
+        await canvas.findByText('Cancel this check')
+    },
+}
+
 async function openQuickAsk(canvasElement: HTMLElement): Promise<void> {
     await userEvent.click(await within(canvasElement).findByLabelText('Quick ask and more AI actions'))
     await waitFor(() => {

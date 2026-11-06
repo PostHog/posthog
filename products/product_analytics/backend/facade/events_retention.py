@@ -33,6 +33,14 @@ def organization_events_deleted(
     return events_retention.organization_events_deleted(organization, months, concurrency_slots=concurrency_slots)
 
 
+def organization_downgrade_events_deleted(
+    organization: Organization, months: int, *, concurrency_slots: events_retention.ConcurrencySlots
+) -> int:
+    return events_retention.organization_downgrade_events_deleted(
+        organization, months, concurrency_slots=concurrency_slots
+    )
+
+
 def set_organization_events_retention(
     organization: Organization,
     months: int | None,
