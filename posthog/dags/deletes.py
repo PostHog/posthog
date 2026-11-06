@@ -65,7 +65,6 @@ from posthog.models.events_plan_deletion import (
     cleanup_date,
     cleanup_timezone,
     deletion_months,
-    report_upcoming_deletions,
     reschedule_plan_deletions,
 )
 from posthog.models.events_retention_config import effective_events_retention, whole_month_cutoff
@@ -1920,23 +1919,3 @@ def monthly_retention_events_cleanup_job():
 )
 def monthly_retention_events_cleanup_schedule(context: dagster.ScheduleEvaluationContext) -> dagster.RunRequest:
     return dagster.RunRequest(run_key=f"{context.scheduled_execution_time:%Y%m}")
-
-
-@dagster.op
-def report_upcoming_events_deletions(context: dagster.OpExecutionContext) -> None:
-    """Tell organization admins two weeks ahead when a pass first deletes past their downgraded plan period."""
-    context.add_output_metadata({"organizations": dagster.MetadataValue.int(report_upcoming_deletions())})
-
-
-@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
-def events_deletion_notice_job():
-    report_upcoming_events_deletions()
-
-
-events_deletion_notice_schedule = dagster.ScheduleDefinition(
-    job=events_deletion_notice_job,
-    cron_schedule="0 10 * * *",
-    execution_timezone=cleanup_timezone(),
-    name="events_deletion_notice_schedule",
-    default_status=dagster.DefaultScheduleStatus.STOPPED,
-)

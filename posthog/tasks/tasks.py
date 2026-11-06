@@ -1077,6 +1077,13 @@ def sync_all_organization_available_product_features() -> None:
     sync_all_organization_available_product_features()
 
 
+@shared_task(ignore_result=True)
+def report_upcoming_events_deletions() -> None:
+    from posthog.models.events_plan_deletion import report_upcoming_deletions
+
+    report_upcoming_deletions()
+
+
 @shared_task(ignore_result=False, track_started=True, max_retries=0)
 def check_async_migration_health() -> None:
     from posthog.tasks.async_migrations import check_async_migration_health

@@ -59,6 +59,7 @@ from posthog.tasks.tasks import (
     redis_heartbeat,
     redispatch_orphaned_queued_task_runs,
     refresh_activity_log_fields_cache,
+    report_upcoming_events_deletions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -869,6 +870,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Sync all Organization.available_product_features every hour, only for billing v1 orgs
     sender.add_periodic_task(crontab(minute="30", hour="*"), sync_all_organization_available_product_features.s())
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="15", minute="0"),
+        report_upcoming_events_deletions.s(),
+        name="report upcoming events deletions",
+    )
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
 

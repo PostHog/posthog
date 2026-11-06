@@ -362,11 +362,11 @@ A billing sync that shortens the plan period writes the organization's rows stra
 Each row whose period got shorter keeps the plan period from before in `downgraded_from_months`.
 The sync then sends an `events retention period shortened` event to each organization admin, with the previous and new plan periods and the first pass past the shorter period.
 The first billing sync of a new organization sends nothing, because the organization has no previous plan period.
-`events_deletion_notice_schedule` runs daily at 10:00 local time and is stopped by default.
+The Celery beat task `report_upcoming_events_deletions` runs daily at 15:00 UTC.
 Once the next cleanup is 14 days away or less, it sends an `events retention deletion upcoming` event to the admins of each organization with a downgraded row due at that cleanup, then clears the rows' `downgraded_from_months`.
 It counts only rows of teams the cleanup deletes for, so a team the deletion flag no longer covers keeps its marker and gets no email.
 It sends nothing for an organization whose plan period went back up, and a completed pass also clears the field.
-A failed send fails the run and keeps the markers, so the next daily run sends the event again.
+A failed send fails the task and keeps the markers, so the next daily run sends the event again.
 Workflows turn both events into emails.
 
 The job runs `ensure_no_concurrent_deletes_run` before it plans, and that guard also runs in `deletes_job`. Each job fails at the start while a `deletes_job`, cleanup or squash run is executing, so the two never mutate the events tables at the same time.
