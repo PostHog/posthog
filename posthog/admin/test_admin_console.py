@@ -1,5 +1,6 @@
 import re
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 import time_machine
@@ -23,6 +24,7 @@ from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
 from posthog.csp_middleware import CSPMiddleware
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -515,3 +517,68 @@ class TestAdminConsoleViews(BaseTest):
         assert f"/admin/console/teams/{self.team.pk}/" in content
         assert "Organization default" in content
         assert "September 2025" in content
+
+    @patch("posthog.models.distinct_id_usage.report.DistinctIdUsageQueries")
+    def test_distinct_id_usage_report_keeps_the_old_query_and_marks_restrictions(self, queries: MagicMock) -> None:
+        EventIngestionRestrictionConfig.objects.create(
+            token=self.team.api_token,
+            restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+            distinct_ids=["heavy-user"],
+        )
+        queries.high_usage.return_value = [(self.team.pk, "heavy-user", 200_000, 300_000, 66.67)]
+        queries.high_cardinality.side_effect = RuntimeError("Timeout exceeded")
+        queries.distinct_id_bursts.return_value = [
+            (self.team.pk, "bursty-user", datetime(2026, 11, 6, 10, 5, tzinfo=UTC), 150_000)
+        ]
+        queries.team_bursts.return_value = []
+        query = (
+            "datetime_from=2026-11-06T04%3A00&datetime_to=2026-11-06T10%3A00&high_usage_percentage_threshold=30"
+            "&high_usage_min_events_threshold=10000&high_usage_distinct_id_min_events=100000"
+            "&high_cardinality_threshold=1000000&burst_distinct_id_threshold=100000&burst_team_threshold=500000"
+        )
+
+        response = self.client.get(f"/admin/distinct-id-usage/?{query}", follow=True)
+
+        assert response.redirect_chain == [(f"/admin/console/tools/distinct-id-usage/?{query}", 302)]
+        content = response.content.decode()
+        assert "Applied: Skip person processing" in content
+        assert "Not in list: Skip person processing" in content
+        assert "The high cardinality query failed: Timeout exceeded" in content
+        assert "/admin/console/tools/distinct-id-usage/restrict/?" in content
+
+    @parameterized.expand(
+        [
+            ("creates_a_restriction", None, "Spam traffic", 302, ["heavy-user"]),
+            ("adds_to_the_existing_restriction", ["other-user"], "Spam traffic", 302, ["other-user", "heavy-user"]),
+            ("refuses_to_narrow_a_restriction_on_every_distinct_id", [], "Spam traffic", 400, []),
+            ("needs_a_reason", None, "  ", 400, None),
+        ]
+    )
+    def test_restrict_a_distinct_id(
+        self,
+        _name: str,
+        existing_distinct_ids: list[str] | None,
+        reason: str,
+        expected_status: int,
+        expected_distinct_ids: list[str] | None,
+    ) -> None:
+        if existing_distinct_ids is not None:
+            EventIngestionRestrictionConfig.objects.create(
+                token=self.team.api_token,
+                restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+                distinct_ids=existing_distinct_ids,
+            )
+
+        response = self.client.post(
+            "/admin/console/tools/distinct-id-usage/restrict/",
+            {
+                "token": self.team.api_token,
+                "distinct_id": "heavy-user",
+                "restriction_type": RestrictionType.DROP_EVENT_FROM_INGESTION,
+                "reason": reason,
+            },
+        )
+
+        assert response.status_code == expected_status
+        restriction = EventIngestionRestrictionConfig.objects.filter(token=self.team.api_token).first()
+        assert (restriction.distinct_ids if restriction else None) == expected_distinct_ids
