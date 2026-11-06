@@ -10,12 +10,16 @@ import type {
     SurveysSiteSnapshotRetrieveDevice,
 } from 'products/surveys/frontend/generated/api.schemas'
 
-const POLL_INTERVAL_MS = 2000
-const GIVE_UP_AFTER_MS = 60_000
+const FIRST_POLL_DELAY_MS = 2000
+const MAX_POLL_DELAY_MS = 15_000
+// The export workflow retries a failed render with backoff, so a snapshot can land minutes after the first try.
+const GIVE_UP_AFTER_MS = 5 * 60_000
 
 export interface SurveySiteSnapshotLogicProps {
     surveyId: string
     device: SurveysSiteSnapshotRetrieveDevice
+    // The snapshot is rendered for a URL condition, so a new condition needs a new snapshot.
+    urlCondition: string
 }
 
 export interface ReadySiteSnapshot {
@@ -67,7 +71,7 @@ export type surveySiteSnapshotLogicType = MakeLogicType<
 
 export const surveySiteSnapshotLogic = kea<surveySiteSnapshotLogicType>([
     props({} as SurveySiteSnapshotLogicProps),
-    key((props) => `${props.surveyId}-${props.device}`),
+    key((props) => `${props.surveyId}-${props.device}-${props.urlCondition}`),
     path((key) => ['products', 'surveys', 'draftReview', 'surveySiteSnapshotLogic', key]),
     connect(() => ({ values: [projectLogic, ['currentProjectId']] })),
     loaders(({ props, values }) => ({
@@ -96,18 +100,30 @@ export const surveySiteSnapshotLogic = kea<surveySiteSnapshotLogicType>([
                     : null,
         ],
     }),
-    listeners(({ actions, cache }) => ({
-        loadSiteSnapshotSuccess: ({ siteSnapshot }) => {
-            if (siteSnapshot?.status === 'rendering' && Date.now() - cache.startedAt < GIVE_UP_AFTER_MS) {
-                cache.disposables.add(() => {
-                    const id = setTimeout(actions.loadSiteSnapshot, POLL_INTERVAL_MS)
-                    return () => clearTimeout(id)
-                }, 'poll')
+    listeners(({ actions, cache }) => {
+        const pollAgain = (): void => {
+            if (Date.now() - cache.startedAt >= GIVE_UP_AFTER_MS) {
+                return
             }
-        },
-    })),
+            const delay = Math.min(FIRST_POLL_DELAY_MS * 1.5 ** cache.polls, MAX_POLL_DELAY_MS)
+            cache.polls += 1
+            cache.disposables.add(() => {
+                const id = setTimeout(actions.loadSiteSnapshot, delay)
+                return () => clearTimeout(id)
+            }, 'poll')
+        }
+        return {
+            loadSiteSnapshotSuccess: ({ siteSnapshot }) => {
+                if (siteSnapshot?.status === 'rendering') {
+                    pollAgain()
+                }
+            },
+            loadSiteSnapshotFailure: pollAgain,
+        }
+    }),
     afterMount(({ actions, cache }) => {
         cache.startedAt = Date.now()
+        cache.polls = 0
         actions.loadSiteSnapshot()
     }),
 ])

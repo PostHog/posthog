@@ -40,7 +40,8 @@ export function SurveyPreviewBrowserFrame({
     preview: ReactNode
 }): JSX.Element {
     const { survey } = useValues(surveyLogic)
-    const { readySnapshot } = useValues(surveySiteSnapshotLogic({ surveyId: survey.id, device }))
+    const urlCondition = `${survey.conditions?.urlMatchType ?? ''}:${survey.conditions?.url ?? ''}`
+    const { readySnapshot } = useValues(surveySiteSnapshotLogic({ surveyId: survey.id, device, urlCondition }))
     const isMobile = device === 'mobile'
     const pageHighlight = highlightClasses(highlightedArea === 'page')
 

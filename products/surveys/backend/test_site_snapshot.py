@@ -12,6 +12,9 @@ from posthog.constants import AvailableFeature
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.surveys.backend.models import Survey
@@ -27,6 +30,7 @@ from products.surveys.backend.site_snapshot import (
 DOCS = "https://example.com/docs/intro"
 PRICING = "https://example.com/pricing"
 MOBILE_HOME = "https://m.example.org/home"
+EARLY_START = "https://example.com/early-start"
 SESSION_OFFSET_SECONDS = 10
 
 
@@ -41,6 +45,8 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         self._view("mobile", MOBILE_HOME, hours_ago=12, viewport=(390, 844))
         self._view("tablet", "https://example.com/tablet", hours_ago=6, viewport=(900, 1200))
         self._view("no-replay", "https://example.com/no-replay", hours_ago=1, has_replay=False)
+        self._view("giant", "https://example.com/giant", hours_ago=2, viewport=(1440, 100_000))
+        self._view("early", EARLY_START, hours_ago=60, pageview_offset=timedelta(seconds=-30))
         flush_persons_and_events()
 
     def _view(
@@ -51,13 +57,14 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         hours_ago: int,
         viewport: tuple[int, int] = (1440, 900),
         has_replay: bool = True,
+        pageview_offset: timedelta = timedelta(seconds=SESSION_OFFSET_SECONDS),
     ) -> None:
         replay_start = timezone.now() - timedelta(hours=hours_ago)
         _create_event(
             team=self.team,
             distinct_id=session_id,
             event="$pageview",
-            timestamp=replay_start + timedelta(seconds=SESSION_OFFSET_SECONDS),
+            timestamp=replay_start + pageview_offset,
             properties={
                 "$session_id": session_id,
                 "$current_url": url,
@@ -92,6 +99,8 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
             ("older_than_the_window", {"url": "legacy"}, None),
             ("without_a_replay", {"url": "no-replay"}, None),
             ("on_another_device", {"url": "tablet"}, None),
+            ("viewport_too_tall_to_render", {"url": "giant"}, None),
+            ("pageview_just_before_the_recorder_starts", {"url": "early-start"}, EARLY_START),
             ("regex_clickhouse_cannot_compile", {"url": "^(?!.*admin).*", "urlMatchType": "regex"}, None),
         ]
     )
@@ -183,6 +192,17 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         assert ExportedAsset.objects.count() == 2
 
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_ignores_an_export_a_user_created_with_the_snapshot_key(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+        ExportedAsset.objects.update(is_system=False, content=b"planted")
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot.status == SnapshotStatus.RENDERING
+        assert ExportedAsset.objects.count() == 2
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
     def test_renders_again_when_a_render_was_abandoned(self, _async_connect: AsyncMock) -> None:
         survey = self._survey(None)
         get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
@@ -192,6 +212,24 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
 
         assert snapshot.status == SnapshotStatus.RENDERING
         assert ExportedAsset.objects.count() == 2
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_is_unavailable_when_page_urls_are_restricted(self, _async_connect: AsyncMock) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        current_url = PropertyDefinition.objects.create(
+            team=self.team, name="$current_url", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=current_url, access_level=PropertyAccessLevel.NONE.value
+        )
+
+        snapshot = get_site_snapshot(self.team, self._survey(None), SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot == SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
+        assert not ExportedAsset.objects.exists()
 
     @parameterized.expand(
         [
