@@ -175,6 +175,14 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         actions: ['read', 'write'],
         docsUrl: 'https://posthog.com/docs/posthog-ai',
     },
+    cross_project_dashboard: {
+        name: 'Cross-project dashboard',
+        plural: 'cross-project dashboards',
+        description: 'Dashboards the organization owns that show insights from one or more projects, and their tiles.',
+        group: 'Product analytics',
+        actions: ['read', 'write'],
+        organizationWide: true,
+    },
     customer_analytics: {
         name: 'Customer analytics',
         plural: 'customer analytics',

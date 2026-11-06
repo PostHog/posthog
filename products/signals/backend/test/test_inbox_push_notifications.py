@@ -112,18 +112,26 @@ class TestInboxPushNotifications(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_reviewers", False, True, False),
-            ("flag_off", True, False, False),
-            ("visible_before", True, True, True),
+            ("no_reviewers", False, True, False, False),
+            ("flag_off", True, False, False, False),
+            ("visible_before", True, True, True, False),
+            ("already_addressed", True, True, False, True),
         ]
     )
     def test_report_visibility_pushes_nothing(
-        self, _name: str, has_reviewers: bool, flag_enabled: bool, visible_before: bool
+        self, _name: str, has_reviewers: bool, flag_enabled: bool, visible_before: bool, already_addressed: bool
     ) -> None:
         self.flag.return_value = flag_enabled
         report = self._report(SignalReport.Status.IN_PROGRESS, first_visible_at=VISIBLE_AT if visible_before else None)
         if has_reviewers:
             self._add_reviewers(report, self.reviewer)
+        if already_addressed:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                content=json.dumps({"actionability": "immediately_actionable", "already_addressed": True}),
+            )
 
         with self.captureOnCommitCallbacks(execute=True):
             self._make_visible(report)

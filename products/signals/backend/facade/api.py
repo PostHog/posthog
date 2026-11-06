@@ -31,15 +31,24 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.signals.backend.activity_summary import read as activity_summary_read
+from products.signals.backend.activity_logging import log_source_configs_disabled
+from products.signals.backend.activity_summary import (
+    read as activity_summary_read,
+    render as activity_summary_render,
+    search as activity_summary_search,
+)
+from products.signals.backend.activity_summary.prompt import ActivitySummaryMode as ActivitySummaryMode
 from products.signals.backend.activity_summary.read import (
+    ActivitySummaryStatus as ActivitySummaryStatus,
     ActivitySummaryTheme as ActivitySummaryTheme,
     ActivitySummaryVersionView as ActivitySummaryVersionView,
     ActivitySummaryView as ActivitySummaryView,
 )
 from products.signals.backend.activity_summary.search import (
     ActivitySummarySearchResult as ActivitySummarySearchResult,
-    SearchMode,
+    MatchKind as MatchKind,
+    SearchMode as SearchMode,
+    SemanticSearchUnavailable as SemanticSearchUnavailable,
     search_summaries,
 )
 from products.signals.backend.anomaly_scores import search as anomaly_search
@@ -143,6 +152,11 @@ logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 MAX_SIGNAL_REMEDIATION_TOKENS = 16000
+
+ActivitySummaryProductKey = activity_summary_render.Product
+ACTIVITY_SUMMARY_VERSIONS_DEFAULT_LIMIT = activity_summary_read.DEFAULT_VERSIONS_LIMIT
+ACTIVITY_SUMMARY_SEARCH_DEFAULT_LIMIT = activity_summary_search.DEFAULT_LIMIT
+ACTIVITY_SUMMARY_SEARCH_MAX_LIMIT = activity_summary_search.MAX_LIMIT
 
 
 @frozen
@@ -342,11 +356,15 @@ def set_signal_source_types_enabled(
     with transaction.atomic():
         Team.objects.select_for_update().only("id").get(id=team_id)
         if not enabled:
-            SignalSourceConfig.objects.filter(
+            disabled = SignalSourceConfig.objects.filter(
                 team_id=team_id,
                 source_product=source_product,
                 source_type__in=source_types,
-            ).update(enabled=False)
+                enabled=True,
+            )
+            disabled_rows = list(disabled)
+            disabled.update(enabled=False)
+            log_source_configs_disabled(disabled_rows)
             return
         for source_type in source_types:
             row, _ = SignalSourceConfig.objects.update_or_create(
@@ -749,9 +767,12 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                     obj.enabled = True
                     obj.save(update_fields=["enabled", "updated_at"])
             else:
-                SignalSourceConfig.objects.filter(
+                disabled = SignalSourceConfig.objects.filter(
                     team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
-                ).update(enabled=False)
+                )
+                disabled_rows = list(disabled)
+                disabled.update(enabled=False)
+                log_source_configs_disabled(disabled_rows)
 
 
 # Each source carries two names: the label, which is the product it comes from, and the watch, which
