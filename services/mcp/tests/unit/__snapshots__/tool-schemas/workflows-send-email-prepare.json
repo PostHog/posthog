@@ -3,7 +3,7 @@
     "additionalProperties": false,
     "properties": {
         "capture_engagement": {
-            "description": "Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.",
+            "description": "Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. A send with `template_id` takes it only in the beta for sending email from code.",
             "type": "boolean"
         },
         "distinct_id": {
@@ -19,7 +19,7 @@
             "description": "Distinct ID of the recipient's person. The send and its engagement events are recorded against that person. Defaults to the recipient's email address."
         },
         "from": {
-            "description": "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.",
+            "description": "Sender of the email, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, an email your code rendered goes out from the project's default sender, or from its only verified sender when it has no default, and an uploaded template from its own sender. A send with `template_id` doesn't take it.",
             "maxLength": 1024,
             "type": "string"
         },
@@ -28,7 +28,7 @@
             "type": "string"
         },
         "reply_to": {
-            "description": "Addresses replies to the email your code rendered go to.",
+            "description": "Addresses replies to the email go to. A send with `template_id` doesn't take it.",
             "items": {
                 "format": "email",
                 "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
@@ -42,7 +42,7 @@
             "type": "string"
         },
         "template_key": {
-            "description": "Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.",
+            "description": "Key that names the email, such as welcome, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only.",
             "maxLength": 400,
             "pattern": "^[a-zA-Z0-9_-]+$",
             "type": "string"

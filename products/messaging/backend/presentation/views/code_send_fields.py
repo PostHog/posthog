@@ -234,6 +234,10 @@ _REASONS_BY_CODE = {
         why="A send with `template_id` takes its recipients and content from the template.",
         fix="Send the email's content with `template_key`, or leave this field out.",
     ),
+    "uploaded_template": _Reason(
+        why="A send of an uploaded template takes its recipients and content from the template.",
+        fix="Leave this field out, or send the email's content with `subject` and `html` or `text`.",
+    ),
 }
 
 
@@ -246,6 +250,12 @@ def field_not_accepted_refusal(field: str) -> serializers.ValidationError:
 def template_send_refusal(field: str) -> serializers.ValidationError:
     return serializers.ValidationError(
         {field: "Only a send with `template_key` takes this field."}, code="template_key_only"
+    )
+
+
+def uploaded_template_send_refusal(field: str) -> serializers.ValidationError:
+    return serializers.ValidationError(
+        {field: "A send of an uploaded template doesn't take this field."}, code="uploaded_template"
     )
 
 

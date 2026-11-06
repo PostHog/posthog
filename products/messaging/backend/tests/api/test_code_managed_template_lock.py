@@ -140,7 +140,7 @@ class TestCodeManagedTemplateLock(APIBaseTest):
 
         assert refusal["fix"].startswith(f"Change {expected_file} and upload it again.")
 
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_a_code_managed_template_still_sends_takes_the_sensitive_setting_and_tags_and_stays_transactional(
         self, _reload, post: MagicMock, _flag, _capture
     ):
@@ -203,14 +203,15 @@ class TestCodeManagedTemplateLock(APIBaseTest):
         uploaded = self._upload(WELCOME)
         released = self.client.patch(self._url(uploaded["id"]), {"managed_by": "gui"}, format="json")
         assert released.status_code == status.HTTP_200_OK, released.json()
-        original = MessageTemplatesViewSet.dangerously_get_object
+        original = MessageTemplatesViewSet.read_object
 
         def read_then_upload_claims(viewset: MessageTemplatesViewSet) -> Any:
             template = original(viewset)
+            assert template is not None
             MessageTemplate.objects.filter(id=template.id).update(managed_by="code")
             return template
 
-        with patch.object(MessageTemplatesViewSet, "dangerously_get_object", read_then_upload_claims):
+        with patch.object(MessageTemplatesViewSet, "read_object", read_then_upload_claims):
             response = self.client.patch(self._url(uploaded["id"]), edit, format="json")
 
         self._assert_refused(response)

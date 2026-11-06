@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("messaging", "0014_transactional_email_key"),
+        ("messaging", "0016_first_code_send"),
     ]
 
     operations = [
