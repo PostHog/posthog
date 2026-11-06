@@ -16,7 +16,7 @@ export function getBIChartDateAxis(labels: string[], timezone: string, interval?
             const text = formatter ? formatter(label, indices.get(label) ?? 0) : label
             if (text && /^\d{4}$/.test(text)) {
                 return parseChartDate(label, timezone).format(
-                    interval === 'quarter' ? '[Q]Q' : interval === 'month' ? 'MMMM' : 'MMM D'
+                    interval === 'quarter' ? '[Q]Q' : interval === 'month' ? 'MMM' : 'MMM D'
                 )
             }
             return text

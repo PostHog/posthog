@@ -16,6 +16,6 @@ describe('BI date axis', () => {
     it('keeps January among the month ticks when years have their own row', () => {
         const labels = ['2025-10-01', '2026-01-01', '2026-04-01']
         const { tickFormatter } = getBIChartDateAxis(labels, 'UTC', 'month')
-        expect(labels.map((label, index) => tickFormatter?.(label, index))).toEqual(['October', 'January', 'April'])
+        expect(labels.map((label, index) => tickFormatter?.(label, index))).toEqual(['Oct', 'Jan', 'Apr'])
     })
 })
