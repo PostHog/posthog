@@ -630,14 +630,15 @@ class TestFeatureTipsToggle:
     def test_toggle_is_stored_for_the_clicking_user(self, slack_integration, mock_slack_client, checked):
         set_tips_enabled(SLACK_WORKSPACE_ID, "U001", not checked)
         selected = [{"value": FEATURE_TIPS_VALUE}] if checked else []
+        action = {"action_id": ACTION_SET_FEATURE_TIPS, "selected_options": selected}
         payload = {
             "type": "block_actions",
             "team": {"id": SLACK_WORKSPACE_ID},
             "user": {"id": "U001"},
-            "actions": [{"action_id": ACTION_SET_FEATURE_TIPS, "selected_options": selected}],
+            "actions": [action],
         }
         with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
-            handle_ai_preferences_block_action(payload, payload["actions"][0])
+            handle_ai_preferences_block_action(payload, action)
 
         assert (get_state(SLACK_WORKSPACE_ID, "U001").opted_out_at is None) is checked
         assert mock_slack_client.views_publish.called
