@@ -20,12 +20,19 @@ from django.test import SimpleTestCase
 
 from parameterized import param, parameterized
 
-from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode
+from posthog.schema import (
+    HogQLQueryModifiers,
+    InCohortVia,
+    InlineCohortCalculation,
+    MaterializationMode,
+    PersonsOnEventsMode,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DatabaseField, FieldTraverser, LazyJoin, StringJSONDatabaseField, VirtualTable
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.database.schema.util.where_clause_extractor import is_nondeterministic_function
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
@@ -56,7 +63,39 @@ E_MIXED = "e.event IN ('$pageview', '$feature_flag_called')"
 UNION = "posthog.events_with_flag_calls"
 READ = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
 ONLY = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+
+
 UNION_EXPANSION = "FROM flag_evaluations"
+
+
+def _performed_flag_call_cohort(team, flag_key: str) -> Cohort:
+    return Cohort.objects.create(
+        team=team,
+        name=f"called {flag_key}",
+        filters={
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$feature_flag_called",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "time_value": 30,
+                                "time_interval": "day",
+                                "event_filters": [
+                                    {"key": "$feature_flag", "type": "event", "value": flag_key, "operator": "exact"}
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        },
+    )
 
 
 class _TableCollector(TraversingVisitor):
@@ -130,10 +169,24 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
             # The flag_evaluations swap handles this scan. Events holds every flag call on mode 1. The swap swaps or
             # refuses the scan on mode 2.
             ("only_flag_calls", "SELECT count() FROM events WHERE event = '$feature_flag_called'", ["events"], []),
-            (
-                "only_flag_calls_with_sample",
+            param(
+                "only_flag_calls_with_sample_on_mode_1",
                 "SELECT count() FROM events SAMPLE 0.1 WHERE event = '$feature_flag_called'",
                 ["events"],
+                [],
+                False,
+            ),
+            # Phase 1 cannot swap a sampled scan, and the union applies the ratio.
+            (
+                "only_flag_calls_with_sample_on_mode_2",
+                "SELECT count() FROM events SAMPLE 0.1 WHERE event = '$feature_flag_called'",
+                [UNION],
+                [],
+            ),
+            (
+                "only_flag_calls_with_sample_on_posthog_events_on_mode_2",
+                "SELECT count() FROM posthog.events SAMPLE 0.1 WHERE event = '$feature_flag_called'",
+                [UNION],
                 [],
             ),
             (
@@ -242,7 +295,34 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 ["events"],
                 ["it names the events columns with column aliases"],
             ),
-            ("sample_ratio", f"SELECT count() FROM events SAMPLE 0.1 WHERE {MIXED}", ["events"], ["it uses SAMPLE"]),
+            ("sample_ratio", f"SELECT count() FROM events SAMPLE 0.1 WHERE {MIXED}", [UNION], []),
+            ("sample_fraction", f"SELECT count() FROM events SAMPLE 1/10 WHERE {MIXED}", [UNION], []),
+            (
+                "sample_row_count",
+                f"SELECT count() FROM events SAMPLE 10 WHERE {MIXED}",
+                ["events"],
+                ["it uses SAMPLE"],
+            ),
+            *(
+                (
+                    f"sample_{name}",
+                    f"SELECT count() FROM events SAMPLE {value} WHERE {MIXED}",
+                    ["events"],
+                    ["it uses SAMPLE"],
+                )
+                for name, value in (
+                    ("inf", "inf"),
+                    ("nan", "nan"),
+                    ("oversized_integer", "9" * 400),
+                    ("oversized_hex_integer", "0x" + "f" * 5000),
+                )
+            ),
+            (
+                "sample_with_offset",
+                f"SELECT count() FROM events SAMPLE 0.1 OFFSET 0.5 WHERE {MIXED}",
+                ["events"],
+                ["it uses SAMPLE"],
+            ),
             ("select_star", f"SELECT * FROM events WHERE {MIXED}", ["events"], ["it selects * or COLUMNS(...)"]),
             (
                 "cte_named_events",
@@ -293,6 +373,8 @@ class TestReadFlagCallsWithUnion(BaseTest):
         new_events_schema: bool | None = None,
         person_id_pushdown: bool | None = None,
         modifiers: HogQLQueryModifiers | None = None,
+        inline_cohorts: bool = False,
+        in_cohort_via: InCohortVia | None = None,
     ) -> str:
         _set_mode(self.organization, mode)
         with _enabled_flags(union=union):
@@ -304,6 +386,8 @@ class TestReadFlagCallsWithUnion(BaseTest):
                         "personIdPushdown": person_id_pushdown,
                         "personsOnEventsMode": persons_on_events,
                         "useNewEventsSchema": _events_schema_for(mode, new_events_schema),
+                        **({"inlineCohortCalculation": InlineCohortCalculation.ALWAYS} if inline_cohorts else {}),
+                        **({"inCohortVia": in_cohort_via} if in_cohort_via else {}),
                     },
                 ),
                 pretty=False,
@@ -428,6 +512,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 f"SELECT goe_0.properties.plan FROM events WHERE {MIXED}",
                 "goe_0.properties",
             ),
+            ("sample_row_count", f"SELECT count() FROM events SAMPLE 10 WHERE {MIXED}", "it uses SAMPLE"),
             param(
                 "join_whose_on_clause_reads_another_field",
                 f"SELECT probe_join.key FROM events WHERE {MIXED}",
@@ -608,6 +693,109 @@ class TestReadFlagCallsWithUnion(BaseTest):
 
         assert context.warnings == []
 
+    def test_ratio_sample_applies_in_every_branch_and_warns_of_nothing(self):
+        _set_mode(self.organization, READ)
+        query = f"SELECT count() FROM events SAMPLE 0.1 WHERE {MIXED}"
+        with _enabled_flags(union=True):
+            sql, context = HogQLQueryExecutor(
+                query=query, team=self.team, modifiers=HogQLQueryModifiers(useNewEventsSchema=False), pretty=False
+            ).generate_clickhouse_sql()
+        branches = self._branches(substitute_params(sql, context.values))
+
+        assert context.warnings == []
+        assert [("SAMPLE 0.1" in branch) for branch in branches] == [True, True, False]
+        assert "less(cityHash64(flag_evaluations.distinct_id), 1844674407370955161)" in branches[-1]
+
+    def test_ratio_sample_applies_when_a_joined_person_field_reads_a_second_union_scan(self):
+        sql = self._sql(
+            f"SELECT person.properties.email, count() FROM events SAMPLE 0.1 WHERE {MIXED} GROUP BY 1",
+            persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+        )
+
+        assert sql.count("SAMPLE 0.1") == 2
+        assert "less(cityHash64(flag_evaluations.distinct_id), 1844674407370955161)" in sql
+
+    @parameterized.expand(
+        [
+            ("subquery_on_mode_1", READ, InCohortVia.SUBQUERY, False),
+            ("subquery_on_mode_2", ONLY, InCohortVia.SUBQUERY, True),
+            ("leftjoin_on_mode_2", ONLY, InCohortVia.LEFTJOIN, True),
+            # IN COHORT splices the cohort in before the swap, which then reads its scans on either mode.
+            ("conjoined_on_mode_1", READ, InCohortVia.LEFTJOIN_CONJOINED, True),
+            ("conjoined_on_mode_2", ONLY, InCohortVia.LEFTJOIN_CONJOINED, True),
+        ]
+    )
+    def test_inline_cohort_reads_flag_calls_from_flag_evaluations_only_on_mode_2(
+        self, _name: str, mode: FlagEvaluationsMode, via: InCohortVia, expected_flag_evaluations: bool
+    ):
+        cohort = _performed_flag_call_cohort(self.team, "probe-flag")
+
+        sql = self._sql(
+            f"SELECT count() FROM events WHERE person_id IN COHORT {cohort.pk}",
+            mode=mode,
+            inline_cohorts=True,
+            in_cohort_via=via,
+        )
+
+        assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is expected_flag_evaluations
+
+    @parameterized.expand(
+        [
+            ("outer_query_names_no_flag_calls", "SELECT count() FROM events WHERE person_id IN COHORT {cohort}"),
+            (
+                "outer_query_excludes_flag_calls",
+                "SELECT count() FROM events WHERE event != '$feature_flag_called' AND person_id IN COHORT {cohort}",
+            ),
+            (
+                "outer_query_swapped_by_phase_1",
+                "SELECT count() FROM events WHERE event = '$feature_flag_called' AND person_id IN COHORT {cohort}",
+            ),
+            (
+                "left_join_cohort",
+                "SELECT count() FROM events WHERE person_id IN COHORT {cohort}",
+                InCohortVia.LEFTJOIN,
+            ),
+        ]
+    )
+    def test_mode_2_raises_when_an_inline_cohort_reads_a_field_the_union_cannot_supply(
+        self, _name: str, outer_query: str, via: InCohortVia | None = None
+    ):
+        self.addCleanup(cleanup_materialized_columns)
+        materialize("events", "probe", is_nullable=True, column_type="Nullable(Float64)")
+        cohort = _performed_flag_call_cohort(self.team, "probe-flag")
+        cohort_query = parse_select(
+            "SELECT person_id AS id FROM events WHERE event = '$feature_flag_called' "
+            "AND properties.probe > 1 GROUP BY person_id"
+        )
+
+        with (
+            patch("posthog.hogql_queries.hogql_cohort_query.HogQLCohortQuery.get_query", return_value=cohort_query),
+            pytest.raises(QueryError, match="probe, which events stores in a Nullable"),
+        ):
+            self._sql(
+                outer_query.format(cohort=cohort.pk),
+                mode=ONLY,
+                inline_cohorts=True,
+                in_cohort_via=via,
+                new_events_schema=False,
+            )
+
+    @parameterized.expand(
+        [
+            ("flag_calls_only", "SELECT count() FROM events SAMPLE 0.1 WHERE event = '$feature_flag_called'"),
+            (
+                "flag_calls_only_next_to_a_join",
+                "SELECT count() FROM events AS e SAMPLE 0.1 LEFT JOIN persons AS p ON e.person_id = p.id "
+                "WHERE e.event = '$feature_flag_called'",
+            ),
+        ]
+    )
+    def test_mode_2_reads_a_sampled_flag_call_scan_from_the_union(self, _name: str, query: str):
+        sql = self._sql(query, mode=ONLY)
+
+        assert re.search(r"FROM flag_evaluations\b", sql) is not None
+        assert "less(cityHash64(flag_evaluations.distinct_id), 1844674407370955161)" in sql
+
     def test_sessions_join_keeps_its_time_bound(self):
         sql = self._sql(
             f"SELECT session.$session_duration FROM events WHERE {MIXED} "
@@ -667,15 +855,6 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 "LIMIT 10) AS e LEFT JOIN",
                 "WHERE in(e.event",
                 "WHERE in(event, tuple('$pageview', '$feature_flag_called')) LIMIT 10) AS e LEFT JOIN",
-            ),
-            (
-                "json_extract_of_a_materialized_key_reads_its_column",
-                f"SELECT JSONExtractString(properties, 'mykey') FROM events WHERE {MIXED}",
-                PersonsOnEventsMode.DISABLED,
-                {},
-                "events.mat_mykey",
-                "events.properties, 'mykey'",
-                None,
             ),
         ]
     )
@@ -921,6 +1100,70 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             assert rows[:4] == [*history, *recent]
             assert [row[:3] for row in rows[4:]] == keyless
 
+    @parameterized.expand([("read_flag_evaluations", READ), ("flag_evaluations_only", ONLY)])
+    def test_flag_only_and_mixed_queries_count_a_call_from_before_the_coverage_start(
+        self, _name: str, mode: FlagEvaluationsMode
+    ):
+        # Mode 2 writes a flag call only to flag_evaluations.
+        timestamp = datetime.now(UTC) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS + 1)
+        if mode == READ:
+            _create_event(
+                event="$feature_flag_called",
+                distinct_id="edge",
+                team=self.team,
+                timestamp=timestamp,
+                properties={"$feature_flag": "edge-flag"},
+            )
+            flush_persons_and_events()
+        _create_flag_evaluations(self.team.pk, "edge-flag", timestamp=timestamp, distinct_id="edge")
+        bound = f"distinct_id = 'edge' AND timestamp >= now() - INTERVAL {FLAG_EVALUATIONS_COMPLETE_DAYS + 3} DAY"
+
+        flag_only = self._run(f"SELECT count() FROM events WHERE event = '$feature_flag_called' AND {bound}", mode)
+        mixed = self._run(f"SELECT countIf(event = '$feature_flag_called') FROM events WHERE {MIXED} AND {bound}", mode)
+
+        assert (flag_only.results, mixed.results) == ([(1,)], [(1,)])
+
+    def test_inline_cohort_counts_flag_calls_that_only_flag_evaluations_holds(self):
+        fresh = _create_person(distinct_ids=["fresh"], team_id=self.team.pk)
+        _create_flag_evaluations(
+            self.team.pk,
+            "fresh-flag",
+            timestamp=datetime.now(UTC) - timedelta(days=2),
+            distinct_id="fresh",
+            person_id=fresh.uuid,
+        )
+        flush_persons_and_events()
+        cohort = _performed_flag_call_cohort(self.team, "fresh-flag")
+        _set_mode(self.organization, ONLY)
+        with _enabled_flags(union=True):
+            response = execute_hogql_query(
+                f"SELECT id FROM persons WHERE id IN COHORT {cohort.pk}",
+                team=self.team,
+                modifiers=HogQLQueryModifiers(inlineCohortCalculation=InlineCohortCalculation.ALWAYS),
+            )
+
+        assert [str(row[0]) for row in response.results] == [str(fresh.uuid)]
+
+    def test_ratio_sample_keeps_the_same_distinct_ids_in_both_tables(self):
+        now = datetime.now(UTC)
+        for index in range(100):
+            distinct_id = f"sampled-{index}"
+            _create_event(event="$pageview", distinct_id=distinct_id, team=self.team, timestamp=now)
+            _create_flag_evaluations(
+                self.team.pk, "sample-flag", timestamp=now, distinct_id=distinct_id, person_id=uuid.uuid4()
+            )
+        flush_persons_and_events()
+
+        response = self._run(
+            f"SELECT event, groupUniqArray(distinct_id) FROM events SAMPLE 0.3 "
+            f"WHERE {MIXED} AND startsWith(distinct_id, 'sampled-') GROUP BY event",
+            ONLY,
+        )
+
+        sampled = {event: set(ids) for event, ids in response.results}
+        assert 0 < len(sampled["$pageview"]) < 100
+        assert sampled["$feature_flag_called"] == sampled["$pageview"]
+
     @parameterized.expand(
         [
             (
@@ -1022,6 +1265,59 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.results == [("$feature_flag_called", "flag_evaluations", 12.5), ("$pageview", None, 20.0)]
+
+    @parameterized.expand([("read_flag_evaluations", READ), ("flag_evaluations_only", ONLY)])
+    def test_json_extract_string_reads_the_raw_json_value(self, _name: str, mode: FlagEvaluationsMode):
+        for name, kind in (
+            ("probe", PropertyDefinition.Type.EVENT),
+            ("amount", PropertyDefinition.Type.EVENT),
+            ("probe", PropertyDefinition.Type.PERSON),
+        ):
+            PropertyDefinition.objects.create(team=self.team, name=name, property_type="Numeric", type=kind)
+        now = datetime.now(UTC)
+        person = _create_person(distinct_ids=["probe"], team_id=self.team.pk)
+        properties = {"probe": "text", "amount": "12.5", "newline": "a\nb", "a": {"b": "nested"}, "a___b": "flat"}
+        for event in ("$pageview", "$feature_flag_called"):
+            _create_event(
+                event=event,
+                distinct_id="probe",
+                person_id=person.uuid,
+                person_properties={"probe": "text"},
+                team=self.team,
+                timestamp=now - timedelta(days=1),
+                properties={"$feature_flag": "probe-flag", "source": "events", **properties},
+            )
+        _create_flag_evaluations(
+            self.team.pk,
+            "probe-flag",
+            timestamp=now - timedelta(days=1),
+            distinct_id="probe",
+            person_id=person.uuid,
+            person_properties={"probe": "text"},
+            properties={"source": "flag_evaluations", **properties},
+        )
+        flush_persons_and_events()
+
+        def run(alias: str, expressions: str):
+            return self._run(
+                f"SELECT {alias}.event, {alias}.properties.source, {expressions} FROM events AS {alias} "
+                f"WHERE {alias}.{MIXED} AND {alias}.distinct_id = 'probe' ORDER BY {alias}.event",
+                mode,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+            ).results
+
+        def rows(*values) -> list[tuple]:
+            return [("$feature_flag_called", "flag_evaluations", *values), ("$pageview", "events", *values)]
+
+        # A rewritten read of the flat key `a___b` gets the export name of `properties.a.b`.
+        assert run(
+            "events",
+            "JSONExtractString(properties, 'probe'), toFloatOrZero(JSONExtractString(properties, 'amount')), "
+            "JSONExtractString(properties, 'newline'), properties.a.b, JSONExtractString(properties, 'a___b')",
+        ) == rows("text", 12.5, "a\nb", "nested", "flat")
+        assert run("e", "JSONExtractString(e.properties, 'probe')") == rows("text")
+        # The union refuses a query that reads both `properties` and `person.properties`.
+        assert run("events", "JSONExtractString(person.properties, 'probe')") == rows("text")
 
     def test_prewhere_reads_both_tables(self):
         response = self._run(
