@@ -231,6 +231,7 @@ from .task_run_signals import hidden_task_ids, task_run_start_refusal
 
 if TYPE_CHECKING:
     from products.canvas.backend.facade.contracts import CanvasSummary
+    from products.signals.backend.facade.self_driving import SelfDrivingQuotaGate
 
 logger = logging.getLogger(__name__)
 
@@ -2108,7 +2109,11 @@ def create_and_run_task(
         if not continue_admitted_pipeline:
             enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
         enforce_self_driving_free_trial(
-            team, report_id=signal_report_id, stage="task_create", enabled=free_trial_enabled
+            team,
+            report_id=signal_report_id,
+            stage="task_create",
+            enabled=free_trial_enabled,
+            continue_admitted_pipeline=continue_admitted_pipeline,
         )
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     if channel is None and not internal and not readable_without_channel(origin_product, profile):
@@ -2128,6 +2133,7 @@ def create_and_run_task(
         scheduled_at=scheduled_at,
         branch=branch,
         signal_report_id=signal_report_id,
+        continue_admitted_pipeline=continue_admitted_pipeline,
         internal=internal,
         sandbox_environment_id=sandbox_environment_id,
         **extra,
@@ -3668,25 +3674,41 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
 
 
 def enforce_self_driving_free_trial(
-    team: Team, *, report_id: str | None = None, stage: str = "manual_create", enabled: bool | None = None
+    team: Team,
+    *,
+    report_id: str | None = None,
+    stage: str = "manual_create",
+    enabled: bool | None = None,
+    continue_admitted_pipeline: bool = False,
 ) -> None:
-    """Keep PR-opening report work unavailable during the self-driving trial.
+    """Keep fresh PR-opening work unavailable during the legacy reports-only trial.
 
     Resolve enabled before taking database locks, since flag evaluation can use the network.
     """
+    if enabled is False:
+        return
     from products.signals.backend.facade.self_driving import (  # noqa: PLC0415 — cross-product read kept off the api import path
         FreeTrialPullRequestRefused,
         capture_signal_report_free_trial_paused,
         self_driving_free_trial_enabled,
     )
 
-    if not (self_driving_free_trial_enabled(team) if enabled is None else enabled):
+    if not self_driving_free_trial_enabled(
+        team, admitted_report_id=report_id if continue_admitted_pipeline else None, enabled=enabled
+    ):
         return
     capture_signal_report_free_trial_paused(team, report_id=report_id, stage=stage)
     raise FreeTrialPullRequestRefused()
 
 
-def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
+def enforce_self_driving_pr_quota(
+    team: Team,
+    *,
+    report_id: str | None = None,
+    stage: str = "manual_create",
+    gate: "SelfDrivingQuotaGate | None" = None,
+) -> None:
+    """Pass a pre-resolved gate when enforcement must happen under a database lock."""
     from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
 
     from products.signals.backend.facade.self_driving import (  # noqa: PLC0415 — cross-product read kept off the api import path
@@ -3695,7 +3717,8 @@ def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, s
         self_driving_quota_gate,
     )
 
-    gate = self_driving_quota_gate(team)
+    if gate is None:
+        gate = self_driving_quota_gate(team)
     if gate.limited:
         capture_signal_report_quota_paused(team, report_id=report_id, stage=stage, enforced=gate.enforced)
     if gate.enforced:
@@ -6599,6 +6622,7 @@ def bootstrap_task_run(
     ``TaskRunCreateResult`` carrying either the created run DTO or a structured validation error.
     Mirrors ``TaskRunViewSet.create`` byte-for-byte (minus the usage gate, which the view applies).
     """
+    from products.signals.backend.facade.trial import prepare_task_trial  # noqa: PLC0415 -- Signals depends on Tasks
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
         RunSource,
@@ -6723,12 +6747,29 @@ def bootstrap_task_run(
             },
         )
 
+    trial_admission = None
+    if environment == TaskRun.Environment.CLOUD and task.uses_self_driving_billing(mode):
+        trial_admission = prepare_task_trial(
+            team=task.team, origin=task.origin_product, report_id=task.signal_report_source_id, mode=mode
+        )
+        if trial_admission is None:
+            enforce_self_driving_pr_quota(
+                task.team,
+                report_id=str(task.signal_report_source_id) if task.signal_report_source_id else None,
+                stage="task_bootstrap",
+            )
+
     logger.info(
         "Creating task run for task %s with mode=%s, branch=%s, environment=%s", task.id, mode, branch, environment
     )
     try:
         run = task.create_run(
-            environment=environment, mode=mode, branch=branch, extra_state=extra_state, acting_user_id=user_id
+            environment=environment,
+            mode=mode,
+            branch=branch,
+            extra_state=extra_state,
+            acting_user_id=user_id,
+            _trial_admission=trial_admission,
         )
     except InvalidModelAccess as error:
         return contracts.TaskRunCreateResult(error=contracts.TaskRunValidationError(kind="detail", detail=str(error)))
@@ -9835,6 +9876,7 @@ def run_task(
                 report_id=report_id_for_slot_check,
                 stage="task_run",
                 enabled=free_trial_enabled,
+                continue_admitted_pipeline=pipeline_rerun,
             )
         # Ahead of the warm-run reuse below, which returns early: a task released its slot when
         # its runs all failed, so another implementation may hold it by now. Refusing here also
@@ -9942,6 +9984,13 @@ def run_task(
     if warm_run is not None:
         _warm_retry_message_id(warm_retry_token, warm_run)
         warm_state = warm_run.state or {}
+        warm_billing_matches = task.origin_product not in {
+            Task.OriginProduct.SIGNAL_REPORT,
+            Task.OriginProduct.SIGNALS_SCOUT,
+        } or (
+            warm_state.get("mode", "background") == mode
+            and (warm_state.get("billing_product") != "posthog_ai") == task.uses_self_driving_billing(mode)
+        )
         # Both directions. A request that states no resume source must not be handed a successor
         # warmed to resume an earlier run — its filesystem was restored from that run's snapshot, so
         # a run asked to start fresh would silently inherit it.
@@ -9992,7 +10041,8 @@ def run_task(
                 "initial_permission_mode"
             ) == state_value(requested_permission_mode)
             if (
-                warm_runtime_matches
+                warm_billing_matches
+                and warm_runtime_matches
                 and warm_permission_matches
                 and _warm_sandbox_selection_is_accessible(
                     team_id=team_id,
@@ -10306,10 +10356,26 @@ def run_task(
             "create_pr": True,
             "posthog_mcp_scopes": mcp_scopes_for_run_source(run_source),
         }
+    from products.signals.backend.facade.trial import prepare_task_trial  # noqa: PLC0415 -- Signals depends on Tasks
+
+    trial_admission = prepare_task_trial(
+        team=task.team,
+        origin=task.origin_product,
+        report_id=task.signal_report_source_id,
+        mode=mode if task.uses_self_driving_billing(mode) else "interactive",
+        continue_admitted_pipeline=pipeline_rerun,
+    )
+    if trial_admission is None and not pipeline_rerun and task.uses_self_driving_billing(mode):
+        enforce_self_driving_pr_quota(task.team, report_id=report_id_for_slot_check, stage="task_run")
     try:
         with transaction.atomic():
             task_run = task.create_run(
-                mode=mode, branch=branch, extra_state=extra_state, acting_user_id=user_id, scheduled_at=scheduled_at
+                mode=mode,
+                branch=branch,
+                extra_state=extra_state,
+                acting_user_id=user_id,
+                scheduled_at=scheduled_at,
+                _trial_admission=trial_admission,
             )
             if report_id_for_slot_check is not None:
                 enforce_report_implementation_rerun_cap(
@@ -12703,12 +12769,37 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
     Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
     ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated``.
     """
+    from products.signals.backend.facade.self_driving import (
+        self_driving_quota_gate,  # noqa: PLC0415 -- resolve the gate before locking the task
+    )
+    from products.signals.backend.facade.trial import (
+        prepare_task_trial,  # noqa: PLC0415 -- Signals depends on the Tasks facade
+    )
     from products.tasks.backend.exceptions import (
         ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
     )
     from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
 
+    admission_task = Task.objects.select_related("team").filter(id=task_id, team_id=team_id).first()
+    if admission_task is None:
+        return "not_found"
+    if acting_user_id is None or admission_task.created_by_id != acting_user_id:
+        return "forbidden"
+    trial_admission = prepare_task_trial(
+        team=admission_task.team,
+        origin=admission_task.origin_product,
+        report_id=admission_task.signal_report_source_id,
+        mode="background" if admission_task.uses_self_driving_billing("background") else "interactive",
+    )
+    quota_gate = (
+        self_driving_quota_gate(admission_task.team)
+        if trial_admission is None and admission_task.uses_self_driving_billing("background")
+        else None
+    )
+
     with transaction.atomic():
+        if trial_admission is not None:
+            trial_admission.lock_report(admission_task.signal_report_source_id)
         # of=("self",): FOR UPDATE cannot span the nullable created_by join.
         task = (
             Task.objects.select_for_update(of=("self",))
@@ -12738,7 +12829,16 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                 return "already_queued"
             # The workflow is gone despite the non-terminal row (evicted or stale); fall
             # through to a fresh run rather than reporting a dead end.
-        task_run = task.create_run(mode="background", extra_state={"pending_user_message": prompt})
+        if quota_gate is not None:
+            enforce_self_driving_pr_quota(
+                task.team,
+                report_id=str(task.signal_report_source_id) if task.signal_report_source_id else None,
+                stage="canvas_fix",
+                gate=quota_gate,
+            )
+        task_run = task.create_run(
+            mode="background", extra_state={"pending_user_message": prompt}, _trial_admission=trial_admission
+        )
         from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
             WorkflowDispatchOptions,
             enqueue_or_start_workflow,
