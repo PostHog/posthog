@@ -63,6 +63,7 @@ from products.signals.backend.slack_formatting import (
     first_sentence as _first_sentence,
     is_safe_slack_http_url,
     prepare_slack_markdown as _prepare_markdown,
+    slack_text_length,
     strip_chart_references as _strip_chart_references,
     truncate_slack_text,
 )
@@ -83,6 +84,7 @@ logger = logging.getLogger(__name__)
 
 _SUMMARY_EXCERPT_MAX_LEN = 280
 _SLACK_HEADER_MAX_LEN = 150
+_SLACK_CONTEXT_MAX_LEN = 3000
 _INBOX_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=signals_inbox&utm_medium=slack"
 # Bound message size / avoid pinging a crowd.
 _MAX_REVIEWER_MENTIONS = 5
@@ -393,18 +395,35 @@ def _display_title(title: str | None) -> str:
 
 def _section_body(markdown: str) -> str:
     def safe_token(match: re.Match[str]) -> str:
-        destination = match.group(1).partition("|")[0]
+        destination = match.group(0)[1:-1].partition("|")[0]
         return match.group(0) if is_safe_slack_http_url(destination) else _escape_mrkdwn(match.group(0))
 
     # Conversion creates Slack tokens, so only HTTP links may survive in the untrusted body.
     converted = SlackMarkdownConverter().convert(markdown)
-    return truncate_slack_text(re.sub(r"<([^<>]*)>", safe_token, converted), 3000)
+    return truncate_slack_text(re.sub(r"<[^<>]*>|[<>]", safe_token, converted), 3000)
+
+
+def _owner_context_text(reviewer_labels: list[str], *, max_length: int = _SLACK_CONTEXT_MAX_LEN) -> str:
+    owner_label = "Suggested owner" if len(reviewer_labels) == 1 else "Suggested owners"
+    prefix = f"👤 {owner_label}:"
+    text = f"{prefix} {' '.join(reviewer_labels)}"
+    if slack_text_length(text) <= max_length:
+        return text
+
+    text = prefix
+    for index, label in enumerate(reviewer_labels):
+        remaining = len(reviewer_labels) - index - 1
+        suffix = f" (+{remaining} more)" if remaining else ""
+        if slack_text_length(text) + 1 + slack_text_length(label) + len(suffix) > max_length:
+            return f"{text} (+{remaining + 1} more)"
+        text += f" {label}"
+    return text
 
 
 def _build_message_blocks(
     report: SignalReport,
     *,
-    reviewer_mentions: list[str],
+    reviewer_labels: list[str],
     use_section_blocks: bool = False,
     priority: str | None = None,
     offer_implementation: bool = False,
@@ -446,11 +465,13 @@ def _build_message_blocks(
     if priority_emoji := _PRIORITY_EMOJI.get(priority or ""):
         context_parts.append(f"{priority_emoji} *{priority}*")
     # Plain-text blocks would show the raw mention token instead of resolving the user.
-    if reviewer_mentions:
-        owner_label = "Suggested owner" if len(reviewer_mentions) == 1 else "Suggested owners"
-        context_parts.append(f"👤 {owner_label}: {' '.join(reviewer_mentions)}")
+    if reviewer_labels:
+        prefix_length = slack_text_length(" · ".join(context_parts) + " · ") if context_parts else 0
+        context_parts.append(_owner_context_text(reviewer_labels, max_length=_SLACK_CONTEXT_MAX_LEN - prefix_length))
     if context_parts:
-        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(context_parts)}]})
+        blocks.append(
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(context_parts), "verbatim": True}]}
+        )
 
     action_elements: list[dict] = []
     # A link, not an interactive button: the inbox runs its own access, quota and repository checks.
@@ -476,7 +497,7 @@ def _build_message_blocks(
 
 
 class _ChannelRoute:
-    """One Slack destination and the reviewers routed to it (mentioned only there).
+    """One Slack destination and the reviewers notified or shown there.
 
     The destination is a channel, or a member whose id Slack turns into a direct message.
     """
@@ -487,6 +508,7 @@ class _ChannelRoute:
         self.is_team_channel = is_team_channel
         self.is_direct_message = is_slack_member_target(channel)
         self.users: list[User] = []
+        self.owner_users: dict[int, User] = {}
 
 
 @frozen
@@ -497,7 +519,7 @@ class _Destination:
 
 
 class _RouteTable:
-    """The destinations one report is posted to, each collecting the reviewers it mentions.
+    """The destinations one report is posted to, with reviewers to notify and display.
 
     Keyed by (integration_id, channel_id) so a reviewer's own channel and the team default
     collapse into one post when they resolve to the same Slack channel.
@@ -506,7 +528,7 @@ class _RouteTable:
     def __init__(self) -> None:
         self._routes: dict[tuple[int, str], _ChannelRoute] = {}
 
-    def add(self, destination: _Destination, *, user: User | None = None) -> None:
+    def add(self, destination: _Destination, *, user: User | None = None, owner_users: Iterable[User] = ()) -> None:
         key = (destination.integration.id, _channel_id_from_target(destination.channel))
         route = self._routes.get(key)
         if route is None:
@@ -518,6 +540,9 @@ class _RouteTable:
             route.is_team_channel = True
         if user is not None:
             route.users.append(user)
+            route.owner_users[user.id] = user
+        for owner_user in owner_users:
+            route.owner_users[owner_user.id] = owner_user
 
     def routes(self) -> list[_ChannelRoute]:
         return list(self._routes.values())
@@ -557,13 +582,12 @@ def _build_reviewer_routes(
     team_integration: IntegrationRecord | None,
     team_channel: str | None,
 ) -> list[_ChannelRoute]:
-    """Route resolvable suggested reviewers to a destination, mentioning them there.
+    """Route resolvable suggested reviewers to a destination.
 
     Own target (filtered by the reviewer's min-priority) if set, else the team default. A reviewer
-    filtered out of their own target is not mentioned in the team channel — that was their choice.
-    Reviewers sharing a destination are grouped so each channel is posted to once, mentioning only
-    its own reviewers. The team-default channel (if configured) receives every report, with no
-    mentions when no reviewer is routed there.
+    filtered out of their own target is not pinged. Reviewers sharing a destination are grouped so
+    each channel is posted to once. The team-default channel receives every report and shows every
+    suggested owner. It pings only the reviewers routed there.
     """
     reviewer_user_ids = (
         set() if report.latest_already_addressed is True else resolve_suggested_reviewer_user_ids(report)
@@ -586,10 +610,11 @@ def _build_reviewer_routes(
             continue
         table.add(destination, user=user)
 
-    # The team channel gets every report. It mentions only the reviewers routed there, so a reviewer
-    # with their own target is not pinged twice.
     if team_integration is not None and team_channel:
-        table.add(_Destination(integration=team_integration, channel=team_channel, is_team_channel=True))
+        table.add(
+            _Destination(integration=team_integration, channel=team_channel, is_team_channel=True),
+            owner_users=(reviewer_users[user_id] for user_id in sorted(reviewer_users)),
+        )
 
     return table.routes()
 
@@ -623,11 +648,19 @@ def _deliver_route_notification(
             logger.warning("Skipping signals inbox-item Slack DM to an ineligible member", extra=log_context)
             _capture_notification_delivered(report, route, trigger=trigger, delivered=False)
             return False
-        # The only reviewer a direct message could mention is the person already reading it.
-        mentions = [] if route.is_direct_message else _resolve_reviewer_mentions(slack, route.users)
+        if route.is_direct_message:
+            reviewer_labels: list[str] = []
+        else:
+            reviewer_labels = _resolve_reviewer_mentions(slack, route.users)
+            mentioned_user_ids = {user.id for user in route.users}
+            reviewer_labels.extend(
+                _escape_mrkdwn(_posthog_user_display_name(user))
+                for user_id, user in route.owner_users.items()
+                if user_id not in mentioned_user_ids
+            )
         blocks, text = _build_message_blocks(
             report,
-            reviewer_mentions=mentions,
+            reviewer_labels=reviewer_labels,
             use_section_blocks=organization_inbox_slack_section_blocks_enabled(report.team.organization_id),
             priority=priority,
             offer_implementation=offer_implementation,
