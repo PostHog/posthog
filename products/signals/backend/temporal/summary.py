@@ -960,28 +960,13 @@ class CheckReportQuotaGateInput:
 @scoped_temporal()
 @close_db_connections
 async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> bool:
-    """Check limits before accepting a report pipeline. Trial grants also stop it between stages."""
-    from products.signals.backend.trial.policy import TrialPolicy, TrialRefused  # noqa: PLC0415 -- lazy policy boundary
-    from products.signals.backend.trial.reports import (  # noqa: PLC0415 -- lazy policy boundary
-        active_report_pass,
-        research_pass_started,
-    )
-
+    """Check limits before accepting a report pipeline, never between its stages."""
+    # Existing histories still schedule these activities. Returning False preserves replay
+    # compatibility while letting the admitted pass finish repository selection and research.
+    if input.admitted or input.stage in {"pre_repo_selection", "pre_research"}:
+        return False
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-        if input.stage != "summary_entry" and await database_sync_to_async(TrialPolicy(team).enabled)():
-            parent = await database_sync_to_async(active_report_pass)(team, input.report_id)
-            if parent is not None and parent.grant_id is not None:
-                finishing = await database_sync_to_async(research_pass_started)(team.id, parent)
-                try:
-                    await database_sync_to_async(TrialPolicy(team).check_funding)(parent, finishing_research=finishing)
-                except TrialRefused:
-                    return True
-                return False
-        # Existing histories still schedule these activities. Returning False preserves replay
-        # compatibility while letting the admitted pass finish repository selection and research.
-        if input.admitted or input.stage in {"pre_repo_selection", "pre_research"}:
-            return False
         gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
         if gate.limited:
             capture_signal_report_quota_paused(

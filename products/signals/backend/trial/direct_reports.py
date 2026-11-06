@@ -15,8 +15,6 @@ def reserve_report(team: Team, run_id: UUID | None, emission_key: str) -> UUID |
     if run_id is None:
         return None
     policy = TrialPolicy(team)
-    if not policy.enabled():
-        return None
     funding = task_funding(team.id, run_id)
     if funding is None or funding.grant_id is None:
         return None
@@ -65,7 +63,7 @@ def trial_report_reservation_sync(*, team: Team, run_id: UUID | None, emission_k
 
 def _reserve_custom_report(team: Team, report_id: UUID) -> TrialFunding:
     policy = TrialPolicy(team)
-    grant = policy.active_grant()
+    grant = policy.admission_grant()
     paid_authorized = paid_trial_continuation_authorized(team) if grant and grant.exhausted_at else False
     funding = policy.admit(paid_authorized=paid_authorized)
     policy.reserve_direct_report(funding, report_id)
@@ -80,14 +78,11 @@ async def custom_report_reservation(
         async with trial_report_reservation(team=team, run_id=run_id, emission_key=emission_key) as report_id:
             yield report_id
         return
-    if not await database_sync_to_async(TrialPolicy(team).enabled)():
-        yield None
-        return
     report_id = uuid5(NAMESPACE_URL, f"signals-custom-trial-report:{team.id}:{emission_key}")
     funding = await database_sync_to_async_pool(_reserve_custom_report)(team, report_id)
     token = direct_report_funding.set((team.id, funding))
     try:
-        yield report_id
+        yield report_id if funding.grant_id else None
     finally:
         direct_report_funding.reset(token)
         if funding.grant_id is not None:

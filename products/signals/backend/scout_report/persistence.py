@@ -90,6 +90,7 @@ from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGH
 from products.signals.backend.source_issues import append_source_issues
 from products.signals.backend.spend import SignalMetadataChange, submit_signal_metadata_updates
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, research_implementation_context
+from products.signals.backend.trial.funding import direct_report_funding_snapshot
 
 if TYPE_CHECKING:
     from products.signals.backend.supersession import ImplementationResearchContext
@@ -289,6 +290,7 @@ def create_scout_report(
             report = SignalReport.objects.create(
                 id=report_id,
                 team_id=team_id,
+                self_driving_funding=direct_report_funding_snapshot(team_id),
                 status=status,
                 title=title,
                 summary=summary,

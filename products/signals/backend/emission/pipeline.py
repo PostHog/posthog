@@ -200,9 +200,14 @@ def build_emitter_outputs(
 
 
 async def _create_message(
-    client: AsyncAnthropic, *, team_id: int, messages: list[MessageParam], extra_headers: dict[str, str]
+    client: AsyncAnthropic,
+    *,
+    team_id: int,
+    signal_id: str | None,
+    messages: list[MessageParam],
+    extra_headers: dict[str, str],
 ) -> Message:
-    trial = await database_sync_to_async_pool(requires_trial_accounting)(team_id)
+    trial = await database_sync_to_async_pool(requires_trial_accounting)(team_id, signal_id)
     if trial:
         client = client.with_options(max_retries=0)
     return await accounted_message(
@@ -238,11 +243,18 @@ async def _summarize_description(
         summary = ""
         try:
             generation = asyncio.wait_for(
-                _create_message(client, team_id=team_id, messages=messages, extra_headers=extra_headers),
+                _create_message(
+                    client, team_id=team_id, signal_id=output.signal_id, messages=messages, extra_headers=extra_headers
+                ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
             priced = await generate_with_spend(
-                generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="summarization"
+                generation,
+                gateway=gateway,
+                team_id=team_id,
+                signal_id=output.signal_id,
+                stage="summarization",
+                billing_exempt=system_source_exempt(output.source_product),
             )
             response = priced.response
             summary = _extract_text(response).strip()
@@ -406,13 +418,19 @@ async def check_actionability(
                     _create_message(
                         client,
                         team_id=team_id,
+                        signal_id=output.signal_id,
                         messages=[{"role": "user", "content": prompt}],
                         extra_headers=extra_headers,
                     ),
                     timeout=LLM_CALL_TIMEOUT_SECONDS,
                 )
                 priced = await generate_with_spend(
-                    generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="actionability"
+                    generation,
+                    gateway=gateway,
+                    team_id=team_id,
+                    signal_id=output.signal_id,
+                    stage="actionability",
+                    billing_exempt=system_source_exempt(output.source_product),
                 )
                 response = priced.response
                 response_text = _extract_text(response).strip().upper()

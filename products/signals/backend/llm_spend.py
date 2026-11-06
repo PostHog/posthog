@@ -123,10 +123,13 @@ async def generate_with_spend(
     team_id: int | None,
     signal_id: str | None,
     stage: str,
+    billing_exempt: bool = False,
 ) -> PricedGeneration:
     trial = None
     token = None
     try:
+        if billing_exempt and team_id is not None and signal_id is not None:
+            await database_sync_to_async(begin_signal_spend)(team_id=team_id, signal_id=signal_id, billing_exempt=True)
         trial = await database_sync_to_async_pool(TrialLLMExecution.prepare)(
             team_id=team_id, gateway=gateway, signal_id=signal_id
         )

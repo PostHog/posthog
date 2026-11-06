@@ -1,4 +1,5 @@
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Literal, cast
 from uuid import UUID
@@ -40,3 +41,34 @@ class TrialFunding:
 
 
 direct_report_funding: ContextVar[tuple[int, TrialFunding] | None] = ContextVar("direct_report_funding", default=None)
+
+
+def direct_report_funding_snapshot(team_id: int) -> dict[str, str | int] | None:
+    context = direct_report_funding.get()
+    return context[1].as_dict() if context is not None and context[0] == team_id else None
+
+
+def signal_funding(team_id: int, signal_id: str | None) -> TrialFunding | None:
+    from products.signals.backend.models import SignalSpend  # noqa: PLC0415 -- model registration cycle
+
+    if signal_id is None:
+        return None
+    snapshot = (
+        SignalSpend.objects.for_team(team_id)
+        .filter(signal_id=signal_id, kind=SignalSpend.Kind.AD_HOC)
+        .values("trial_grant_id")
+        .first()
+    )
+    if snapshot is None:
+        return None
+    grant_id = snapshot["trial_grant_id"]
+    return TrialFunding(funding="trial", grant_id=grant_id) if grant_id else TrialFunding(funding="existing")
+
+
+@contextmanager
+def without_trial_funding(team_id: int) -> Iterator[None]:
+    token = direct_report_funding.set((team_id, TrialFunding(funding="existing")))
+    try:
+        yield
+    finally:
+        direct_report_funding.reset(token)
