@@ -127,6 +127,28 @@ def list_configurations(
     )
 
 
+def count_configurations(
+    *,
+    team_id: int,
+    source_kind: str,
+    native_only: bool = False,
+    enabled_only: bool = False,
+    check_interval_minutes: int | None = None,
+) -> int:
+    """How many alerts of a kind a team has on the platform, whoever owns them. With `native_only`, only
+    the ones with no source row."""
+    configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind=source_kind
+    )
+    if native_only:
+        configurations = configurations.filter(legacy_configuration_id__isnull=True)
+    if enabled_only:
+        configurations = configurations.filter(enabled=True)
+    if check_interval_minutes is not None:
+        configurations = configurations.filter(check_interval_minutes=check_interval_minutes)
+    return configurations.count()
+
+
 def get_configuration(
     *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, lock: bool = False
 ) -> PlatformAlertConfigurationView | None:

@@ -1,8 +1,12 @@
+import { useValues } from 'kea'
+
 import { IconChevronDown, IconEllipsis, IconLineGraph } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItem, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 
 import { TileId, TileVisualizationOption } from './common'
@@ -78,6 +82,8 @@ export function WebTileHeader({
     overflowMenuItems,
 }: WebTileHeaderProps): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
+    const { featureFlags } = useValues(featureFlagLogic)
+    const fitsContainer = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS_DIRECTORY]
     const isCompactHeader = isWindowLessThan('lg')
     const isGraph = visualizationToggle?.value === 'graph'
     const titleNode =
@@ -87,7 +93,7 @@ export function WebTileHeader({
                 {titleDropdown ? (
                     <TitleDropdown tileId={tileId} dropdown={titleDropdown} />
                 ) : (
-                    title && <span>{title}</span>
+                    title && <span className={fitsContainer ? 'truncate min-w-0' : undefined}>{title}</span>
                 )}
                 {breakdownDropdown && (
                     <>
@@ -104,7 +110,9 @@ export function WebTileHeader({
     return (
         <div
             className={cn(
-                'flex flex-row flex-wrap items-center self-stretch gap-1 sm:gap-2 min-h-10 px-3 py-2',
+                fitsContainer
+                    ? '@container/web-tile-header flex flex-row flex-wrap items-center self-stretch gap-1 @min-[24rem]/web-tile-header:gap-2 min-h-10 px-3 py-2 min-w-0'
+                    : 'flex flex-row flex-wrap items-center self-stretch gap-1 sm:gap-2 min-h-10 px-3 py-2',
                 className
             )}
         >
@@ -112,7 +120,15 @@ export function WebTileHeader({
 
             {intervalSelector && (
                 <span className="flex items-center gap-1">
-                    <span className="text-secondary text-xs hidden lg:inline">Interval</span>
+                    <span
+                        className={
+                            fitsContainer
+                                ? 'text-secondary text-xs hidden @min-[32rem]/web-tile-header:inline'
+                                : 'text-secondary text-xs hidden lg:inline'
+                        }
+                    >
+                        Interval
+                    </span>
                     {intervalSelector.node}
                 </span>
             )}
@@ -138,7 +154,11 @@ export function WebTileHeader({
                     onClick={openInsight.onClick}
                     data-attr={`web-analytics-open-insight-${tileId}`}
                 >
-                    {isCompactHeader ? undefined : 'Open as insight'}
+                    {fitsContainer ? (
+                        <span className="hidden @min-[30rem]/web-tile-header:inline">Open as insight</span>
+                    ) : isCompactHeader ? undefined : (
+                        'Open as insight'
+                    )}
                 </LemonButton>
             )}
 
