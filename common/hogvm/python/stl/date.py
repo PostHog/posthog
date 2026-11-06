@@ -93,7 +93,7 @@ DATE_LIKE = re.compile(
 )
 
 
-def _parse_date_like(input: str, timezone: Optional[str] = None) -> Optional[datetime.datetime]:
+def _parse_date_like(input: object, timezone: Optional[str] = None) -> Optional[datetime.datetime]:
     """An aware ``datetime`` for a string matching the shared date-like grammar, else None.
 
     The canonical copy of the grammar lives above ``parse_datetime_to_seconds`` in
@@ -110,6 +110,8 @@ def _parse_date_like(input: str, timezone: Optional[str] = None) -> Optional[dat
     ``timezone`` applies only to input carrying no zone of its own; an explicit offset or ``Z`` pins
     the absolute instant regardless.
     """
+    if not isinstance(input, str):
+        return None
     match = DATE_LIKE.match(input.strip())
     if not match:
         return None
@@ -151,7 +153,7 @@ def _parse_date_like(input: str, timezone: Optional[str] = None) -> Optional[dat
 
 def toDate(input):
     if isinstance(input, int) or isinstance(input, float):
-        dt = datetime.datetime.fromtimestamp(input)
+        dt = datetime.datetime.fromtimestamp(input, datetime.UTC)
     else:
         parsed = _parse_date_like(input)
         if parsed is None:

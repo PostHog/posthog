@@ -122,3 +122,4 @@ null null
 
 -- tryBase64Decode --
 hello héllo
+hello � true

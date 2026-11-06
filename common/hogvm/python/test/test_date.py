@@ -86,7 +86,7 @@ class TestDateLikeGrammar(unittest.TestCase):
         self.assertIsNone(toDateTime(value))
         self.assertIsNone(toDate(value))
 
-    def test_naive_string_resolves_to_utc_regardless_of_host_timezone(self):
+    def test_dates_resolve_in_utc_regardless_of_host_timezone(self):
         # Regression: `datetime.fromisoformat(s).timestamp()` resolves a naive datetime in the
         # *host's* zone, so `toDateTime('2026-07-01')` depended on where the process was running and
         # disagreed with the TypeScript and Rust VMs (both UTC-anchored) by the local UTC offset.
@@ -96,6 +96,7 @@ class TestDateLikeGrammar(unittest.TestCase):
                 self.assertEqual(toDateTime("2024-01-01 00:00:00")["dt"], 1704067200)
                 self.assertEqual(date_string_to_seconds("2024-01-01T00:00:00"), 1704067200)
                 self.assertEqual(toDate("2024-01-01"), {"__hogDate__": True, "year": 2024, "month": 1, "day": 1})
+                self.assertEqual(toDate(1704067200), {"__hogDate__": True, "year": 2024, "month": 1, "day": 1})
 
     def test_explicit_zone_applies_only_to_input_carrying_no_zone_of_its_own(self):
         self.assertEqual(toUnixTimestamp("2024-01-01 00:00:00", "America/New_York"), 1704085200)

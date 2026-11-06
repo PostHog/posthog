@@ -272,9 +272,14 @@ def base64Decode(args: list[Any], team: Optional["Team"], stdout: Optional[list[
 
 
 def tryBase64Decode(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+    import base64
+
+    # Lenient like Node's `Buffer.from(s, 'base64')` and the Rust VM: padding is optional and
+    # invalid UTF-8 becomes U+FFFD, so only input that is not base64 at all returns "".
     try:
-        return base64Decode(args, team, stdout, timeout)
-    except ValueError:
+        encoded = args[0].strip()
+        return base64.b64decode(encoded + "=" * (-len(encoded) % 4)).decode(errors="replace")
+    except Exception:
         return ""
 
 
