@@ -322,8 +322,22 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert function.draft_encrypted_inputs["token"]["value"] == "new"
         assert function.encrypted_inputs["token"]["value"] == "live-token"
 
-    @parameterized.expand([("unmarked", {}), ("marked_as_read", {"secret": True})])
-    def test_a_later_draft_edit_adds_an_entry_to_a_staged_dictionary_secret(self, _name: str, marker: dict):
+    @parameterized.expand(
+        [
+            (
+                "unmarked",
+                {"value": {"Authorization": "********", "X-New": "typed"}},
+                {"Authorization": "staged", "X-New": "typed"},
+            ),
+            (
+                "marked_as_read",
+                {"secret": True, "value": {"Authorization": "********", "X-New": "typed"}},
+                {"Authorization": "staged", "X-New": "typed"},
+            ),
+            ("emptied", {"secret": True, "value": {}}, {}),
+        ]
+    )
+    def test_a_later_draft_edit_to_a_staged_dictionary_secret(self, _name: str, sent: dict, expected: dict):
         function_id = self._create(
             inputs_schema=[
                 BASE_FUNCTION["inputs_schema"][0],
@@ -337,18 +351,10 @@ class TestHogFunctionDrafts(DraftTestCase):
         url = {"value": "https://example.com/live"}
         self._stage(function_id, {"inputs": {"url": url, "secret_headers": {"value": {"Authorization": "staged"}}}})
 
-        self._stage(
-            function_id,
-            {
-                "inputs": {
-                    "url": url,
-                    "secret_headers": {**marker, "value": {"Authorization": "********", "X-New": "typed"}},
-                }
-            },
-        )
+        self._stage(function_id, {"inputs": {"url": url, "secret_headers": sent}})
 
         staged = HogFunction.objects.get(id=function_id).draft_encrypted_inputs["secret_headers"]["value"]
-        assert staged == {"Authorization": "staged", "X-New": "typed"}
+        assert staged == expected
 
     def test_publishing_promotes_the_staged_secret(self):
         function_id = self._create()

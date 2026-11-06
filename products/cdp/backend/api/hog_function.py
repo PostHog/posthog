@@ -75,6 +75,7 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
 )
 from products.cdp.backend.secret_origins import (
     SecretOrigins,
+    analyze_secret_origins,
     mapping_inputs,
     parse_stored_origins,
     secret_origins,
@@ -303,10 +304,7 @@ def comparable_content(content: dict) -> dict:
 
 
 def supplied_input_keys(raw_inputs: Any) -> set[str]:
-    """Input keys whose request value holds something the caller typed, rather than only the
-    `{"secret": true}` marker the API hands back for secrets. A marked dictionary counts when an entry
-    is typed over the masked ones. Not the same as `entered_secret_input_keys`: a supplied dictionary
-    can still hold masked entries that keep the stored secret."""
+    """Unlike `entered_secret_input_keys`, a dictionary counts when it still holds some masked entries."""
     if not isinstance(raw_inputs, dict):
         return set()
     return {
@@ -317,8 +315,9 @@ def supplied_input_keys(raw_inputs: Any) -> set[str]:
 
 
 def _only_masked(value: Any) -> bool:
-    entries = value.values() if isinstance(value, dict) else [value]
-    return all(entry == MASKED_SECRET_VALUE for entry in entries)
+    if isinstance(value, dict):
+        return bool(value) and all(entry == MASKED_SECRET_VALUE for entry in value.values())
+    return value == MASKED_SECRET_VALUE
 
 
 def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
@@ -356,9 +355,7 @@ def _analyzed_config(hog: Optional[str], inputs: dict, mappings: Any, secret_key
 def _unchanged_secrets(
     instance: Optional[HogFunction], hog: str, inputs: dict, mappings: Any, stored_inputs: dict, derived: dict
 ) -> set[str]:
-    """Secrets this save sends where the stored config sends them. A secret's own value is compared,
-    because a dictionary secret can hold the address it is sent to. Another secret's value counts only
-    when putting back its stored value changes where this one goes."""
+    """A secret's own value is compared because a dictionary secret can hold the address it is sent to."""
     secret_keys = set(derived)
     if instance is None or _analyzed_config(hog, inputs, mappings, secret_keys) != _analyzed_config(
         instance.hog, stored_inputs, instance.mappings, secret_keys
@@ -384,6 +381,22 @@ class SecretBinding(StrEnum):
     REFUSED = "refused"
 
 
+class SecretBindingMetric(StrEnum):
+    BOUND = "bound"
+    KEPT = "kept"
+    REFUSED = "refused"
+    # Refusals saved anyway because the flag is off, which the rollout reads to size enforcement.
+    WOULD_REFUSE = "would_refuse"
+    # Refusals in a staged draft, which publishing checks again.
+    STAGED = "staged"
+
+
+def _binding_metric(outcome: SecretBinding, let_through: bool, stages_draft: bool) -> SecretBindingMetric:
+    if not let_through:
+        return SecretBindingMetric(outcome.value)
+    return SecretBindingMetric.STAGED if stages_draft else SecretBindingMetric.WOULD_REFUSE
+
+
 def secret_binding(
     derived: SecretOrigins, baseline: Optional[SecretOrigins], entered: bool, unchanged: bool
 ) -> tuple[SecretOrigins, SecretBinding]:
@@ -403,8 +416,8 @@ def _secret_baselines(
     derived: dict[str, SecretOrigins],
     unchanged: set[str],
 ) -> dict[str, Optional[SecretOrigins]]:
-    """The origins each stored secret was bound to before this save, or None for a new secret. A
-    secret saved before its origins were recorded is checked against what its stored config sends."""
+    """None marks a new secret. A secret saved before its origins were recorded is checked against what
+    its stored config sends."""
     if instance is None:
         return dict.fromkeys(secret_keys)
     # A secret saved before inputs were encrypted is still in plaintext `inputs`.
@@ -419,15 +432,19 @@ def _secret_baselines(
         if unrecorded - unchanged
         else {}
     )
-    return {
-        key: (derived[key] if key in unchanged else stored_derived[key]) if key in unrecorded else recorded[key]
-        for key in secret_keys
-    }
+
+    def baseline(key: str) -> Optional[SecretOrigins]:
+        if key not in unrecorded:
+            return recorded[key]
+        if key in unchanged:
+            return derived[key]
+        return stored_derived[key]
+
+    return {key: baseline(key) for key in secret_keys}
 
 
 def staged_secret_context(hog_function: HogFunction) -> dict[str, Any]:
-    """Serializer context to validate a function's staged draft with. A resent secret is recovered from
-    its staged value before the live one, and the origin check still compares with the live secrets."""
+    """A resent secret is recovered from its staged value first, but origins still compare with the live one."""
     live_secrets = hog_function.encrypted_inputs or {}
     return {
         "live_encrypted_inputs": live_secrets,
@@ -1044,7 +1061,17 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         hog = attrs.get("hog", instance.hog if instance else "") or ""
         mappings = attrs.get("mappings", instance.mappings if instance else None)
-        derived = secret_origins(hog, inputs, mapping_inputs(mappings), secret_keys)
+        analysis = analyze_secret_origins(hog, inputs, mapping_inputs(mappings), secret_keys)
+        if analysis.unanalyzable:
+            logger.warning(
+                "secret_origins_unanalyzable",
+                team_id=team.id,
+                hog_function_id=str(instance.id) if instance else None,
+                function_type=self.context["function_type"],
+                template_id=attrs.get("template_id", instance.template_id if instance else None),
+                reason=analysis.unanalyzable,
+            )
+        derived = analysis.origins
         live_secrets = self.context.get("live_encrypted_inputs", stored_secrets)
         stored_inputs = {**((instance.inputs or {}) if instance else {}), **live_secrets}
         unchanged = _unchanged_secrets(instance, hog, inputs, mappings, stored_inputs, derived)
@@ -1066,7 +1093,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 origins = derived[key]
             inputs[key]["allowed_origins"] = stored_origins(origins)
             SECRET_HOST_BINDING_COUNTER.labels(
-                outcome="would_refuse" if let_through else outcome, surface=surface
+                outcome=_binding_metric(outcome, let_through, stages_draft), surface=surface
             ).inc()
         if enforce:
             raise serializers.ValidationError(
