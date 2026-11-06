@@ -33,11 +33,15 @@ from posthog.temporal.common.utils import is_stale_connection_read_only_error
 from products.signals.backend import report_assignments
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.billing import current_billing_period_bounds
+from products.signals.backend.claim_takeover_notification import (
+    send_claim_takeover_notification as send_claim_takeover_notification,
+)
 from products.signals.backend.first_report_notification_tasks import (
     dispatch_first_report_notification as dispatch_first_report_notification,
     sweep_first_report_notifications as sweep_first_report_notifications,
 )
 from products.signals.backend.github_writeback_tasks import post_source_issue_links as post_source_issue_links
+from products.signals.backend.handoff_claim_tasks import reconcile_task_handoff_claims as reconcile_task_handoff_claims
 from products.signals.backend.implementation_dispatch_tasks import (
     dispatch_implementation_replacement as dispatch_implementation_replacement,
     sweep_implementation_dispatches as sweep_implementation_dispatches,
@@ -61,6 +65,10 @@ from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
 from products.signals.backend.pull_requests import update_pull_request_review_decision, update_pull_request_state
+from products.signals.backend.rated_usage_tasks import (
+    enqueue_signals_rated_usage as enqueue_signals_rated_usage,
+    report_signals_rated_usage as report_signals_rated_usage,
+)
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,

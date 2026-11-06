@@ -23,6 +23,7 @@ REPORT_METRICS_FLAG = "signals-report-metrics"
 REPORT_MONITORING_FLAG = "signals-report-monitoring"
 FIRST_REPORT_EMAIL_FLAG = "signals-first-report-email"
 RESEARCH_REVIEWER_SELECTION_FLAG = "signals-research-reviewer-selection"
+INBOX_SORT_CACHE_FLAG = "inbox-sort-cache"
 INBOX_CACHED_FILTERS_FLAG = "signals-inbox-cached-filters"
 INBOX_SLACK_SECTION_BLOCKS_FLAG = "signals-inbox-slack-section-blocks"
 
@@ -108,4 +109,10 @@ def organization_inbox_cached_filters_enabled(organization_id: UUID) -> bool:
 def organization_inbox_slack_section_blocks_enabled(organization_id: UUID) -> bool:
     return _organization_flag_enabled(
         INBOX_SLACK_SECTION_BLOCKS_FLAG, organization_id, enable_in_debug=False, only_evaluate_locally=True
+    )
+
+
+def organization_inbox_sort_cache_enabled(organization_id: UUID) -> bool:
+    return _organization_flag_enabled(
+        INBOX_SORT_CACHE_FLAG, organization_id, enable_in_debug=False, only_evaluate_locally=True
     )
