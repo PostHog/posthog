@@ -75,6 +75,9 @@ const meta: Meta<ControllerStoryProps> = {
                     props={{
                         playerKey: 'storybook',
                         sessionRecordingId: '12345',
+                        // A playing recording moves the seekbar for as long as the capture waits, so each run
+                        // caught it at a different position. Starting paused keeps the controls at the start.
+                        autoPlay: false,
                         mode: mode ?? SessionRecordingPlayerMode.Standard,
                         playNextRecording: showPlayNext ? () => {} : undefined,
                     }}
