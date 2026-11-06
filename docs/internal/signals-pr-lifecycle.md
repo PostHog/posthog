@@ -299,16 +299,40 @@ Without a repository, legacy ownership lookup is skipped. Existing human assignm
 
 ## Reviewer notifications
 
-### Local assignee scoring prototype
+### Repository assignee evidence
 
 `products/signals/scripts/score_assignees.py` gathers path evidence and proposes an assignee for agent confirmation when the evidence supports one.
-It does not change report recipients, GitHub assignments, or the agent image.
-Run it from the repository root:
+It does not change report recipients or GitHub assignments.
+The standard agent image bundles it as `posthog-assignee-evidence`, with the canonical ownership resolver and pure Python YAML parser.
+It runs with system Python in isolated mode, without site packages, repository imports, package installation, or network access.
+The build checks the YAML source archive hash and includes its license.
+For development, run it from the repository root:
 
 ```sh
 uv run python -m products.signals.scripts.score_assignees \
     frontend/src/scenes/session-recordings/utils.ts --roster /tmp/assignee-roster.json
 ```
+
+In an agent sandbox, pass several affected paths in one call:
+
+```sh
+posthog-assignee-evidence --repo /path/to/repository --roster /tmp/assignee-roster.json -- src/player.ts src/filters.ts
+posthog-assignee-evidence --repo /path/to/repository --roster /tmp/assignee-roster.json --paths-file /tmp/affected-paths.json
+```
+
+The paths file contains a JSON list; `--paths-file -` reads stdin. A call accepts at most 20 distinct paths.
+One positional path preserves the ranking object. Multiple paths or a paths file return a batch envelope with
+`schema_version: 1`, `results` (each with ranking schema version 2), and `errors` for individual paths.
+Missing, deleted, or out-of-repository paths do not discard valid results. Global input failures exit with an error.
+Shared history scopes are read once per call. Run separately for each repository.
+
+`signals-research-assignee-evidence` controls the optional research prompt guidance and requires explicit organization enablement, including in DEBUG.
+The prompt also requires `signals-research-reviewer-selection` and an available repository.
+A missing flag or flag evaluation failure keeps the guidance off. An older image without the command keeps the existing evidence flow.
+The helper is an additional source, not a list of eligible reviewers. Members without GitHub accounts remain eligible for reports about entities they own.
+The agent combines the output with current PostHog activity, entity ownership, and scoped human corrections, then verifies project membership and user UUIDs.
+Only verified linked GitHub identities and git email mappings enter the roster. Missing identity or team information stays unresolved.
+The helper reads `owners.yaml` and its configured aliases; for repositories that use only `CODEOWNERS`, the agent must inspect that file separately.
 
 The roster is an explicit, complete snapshot of current membership for the owning team and any direct contributors under investigation.
 Keep real rosters outside the repository.
@@ -333,7 +357,7 @@ For example, an invented roster has this shape:
 Use the snapshot's actual timestamp. `--now` accepts a timestamp with a timezone for repeatable evaluations.
 Snapshots older than seven days or more than five minutes ahead of the evaluation time cannot produce a recommendation.
 
-The prototype uses the existing `owners-yaml` resolver, including product manifest aliases, to identify the current owning team.
+The helper uses the existing `owners-yaml` resolver, including product manifest aliases, to identify the current owning team.
 Members who match declared ownership stay in the primary `candidates` list.
 Recent direct contributors outside the declared team appear in `investigation_candidates`, with their own scores and evidence.
 They provide leads for checking broad inherited ownership; they never receive a script recommendation.

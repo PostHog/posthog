@@ -1,5 +1,23 @@
 # Dockerfile for the base sandbox image.
 
+FROM ubuntu:24.04 AS assignee-evidence-builder
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN curl -fsSL --retry 3 -o /tmp/pyyaml.tar.gz \
+      https://files.pythonhosted.org/packages/05/8e/961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/pyyaml-6.0.3.tar.gz && \
+    echo 'd76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f  /tmp/pyyaml.tar.gz' | sha256sum -c - && \
+    tar -xzf /tmp/pyyaml.tar.gz -C /tmp
+COPY LICENSE ./LICENSE
+COPY packages/owners-yaml/owners_yaml/ ./packages/owners-yaml/owners_yaml/
+COPY products/signals/scripts/score_assignees.py ./products/signals/scripts/score_assignees.py
+COPY products/tasks/backend/sandbox/images/build_assignee_evidence.py ./build_assignee_evidence.py
+RUN python3 build_assignee_evidence.py --repo /src --yaml-source /tmp/pyyaml-6.0.3 \
+      --output /out/posthog-assignee-evidence && \
+    /out/posthog-assignee-evidence --help
+
 FROM golang:1.27.3 AS agent-shadow-builder
 
 WORKDIR /src
@@ -289,6 +307,7 @@ RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
 COPY products/tasks/backend/sandbox/images/memory_watchdog.py /usr/local/bin/posthog-memory-watchdog
 RUN chmod +x /usr/local/bin/posthog-memory-watchdog
 COPY --from=agent-shadow-builder /agent-shadow /usr/local/bin/agent-shadow
+COPY --from=assignee-evidence-builder /out/posthog-assignee-evidence /usr/local/bin/posthog-assignee-evidence
 ENV PATH="/opt/posthog/bin:${PATH}"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user

@@ -1,10 +1,13 @@
+import io
+import sys
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from unittest.mock import patch
 
-from products.signals.scripts.score_assignees import Commit, History, Member, Roster, load_history, rank_assignees
+from products.signals.scripts.score_assignees import Commit, History, Member, Roster, load_history, main, rank_assignees
 
 NOW = datetime(2026, 4, 15, tzinfo=UTC)
 TARGET = "src/player/filter.py"
@@ -151,6 +154,65 @@ def test_path_must_be_inside_the_repository(repository: Path, path: str) -> None
 def test_roster_rejects_ambiguous_email_identity() -> None:
     with pytest.raises(ValueError, match="must be unique"):
         Roster(generated_at=NOW, members=(member("first"), Member(login="second", emails=("FIRST@example.com",))))
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"login": "owner", "active": "false"},
+        {"login": "owner", "emails": "owner@example.com"},
+        {"login": "owner", "teams": [None]},
+        {"login": "owner", "unknown": True},
+        {"login": "@owner"},
+        {},
+    ],
+)
+def test_roster_json_rejects_invalid_identity_fields(entry: dict) -> None:
+    with pytest.raises(ValueError):
+        Roster.from_json(json.dumps({"generated_at": NOW.isoformat(), "members": [entry]}))
+
+
+@pytest.mark.parametrize("input_mode", ["single", "positional", "file", "stdin"])
+def test_cli_preserves_valid_paths_and_reports_individual_errors(
+    repository: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], input_mode: str
+) -> None:
+    roster = repository / "roster.json"
+    roster.write_text(
+        json.dumps(
+            {
+                "generated_at": NOW.isoformat(),
+                "members": [{"login": "owner", "emails": ["owner@example.com"], "teams": ["player-team"]}],
+            }
+        )
+    )
+    paths = [TARGET, "missing.py", "../outside.py", "src/player"]
+    arguments = ["score-assignees", "--repo", str(repository), "--roster", str(roster), "--now", NOW.isoformat()]
+    if input_mode == "single":
+        arguments += [TARGET]
+    elif input_mode == "positional":
+        arguments += paths
+    else:
+        paths_file = repository / "paths.json"
+        paths_file.write_text(json.dumps(paths))
+        arguments += ["--paths-file", "-" if input_mode == "stdin" else str(paths_file)]
+        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(paths)))
+    monkeypatch.setattr(sys, "argv", arguments)
+    with (
+        patch("products.signals.scripts.score_assignees.git", return_value=str(repository)),
+        patch(
+            "products.signals.scripts.score_assignees.load_history",
+            return_value=History(commits=(commit("owner", 1),), complete=True),
+        ),
+    ):
+        main()
+    output = json.loads(capsys.readouterr().out)
+    if input_mode == "single":
+        assert output["recommended_assignee"] == "owner"
+        assert output["schema_version"] == 2
+    else:
+        assert [result["path"] for result in output["results"]] == [TARGET, "src/player"]
+        assert all(result["recommended_assignee"] == "owner" for result in output["results"])
+        assert [error["path"] for error in output["errors"]] == ["missing.py", "../outside.py"]
 
 
 def test_unowned_paths_only_produce_provisional_candidates(repository: Path) -> None:

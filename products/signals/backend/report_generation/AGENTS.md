@@ -21,6 +21,7 @@ It is exercised locally via management commands, and it is also used by the prod
   Orchestrates a multi-turn sandbox session over a report's signals.
   With `code_available=False`, the opening prompt states once that no repository is checked out. Research uses project evidence, omits code-history requirements, and converts its response to the canonical `SignalFinding` before persistence.
   Reviewer selection uses project evidence and human corrections; verification uses the shared evidence-based plan prompt, and PR-stack planning is skipped. Caller activities control production eligibility for repository-free research.
+  With explicit `signals-research-assignee-evidence` enablement, reviewer selection can use the bundled `posthog-assignee-evidence` command for affected paths. It supplements project evidence and human corrections; members without GitHub accounts remain eligible. The prompt requires reviewer selection and a repository, and tolerates older images without the command.
   The agent researches each signal, then produces:
   - per-signal findings
   - actionability assessment

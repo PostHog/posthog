@@ -44,6 +44,7 @@ from products.signals.backend.report_check_research import check_versions
 from products.signals.backend.report_content_gates import (
     team_report_metrics_enabled,
     team_report_monitoring_enabled,
+    team_research_assignee_evidence_enabled,
     team_research_reviewer_selection_enabled,
 )
 from products.signals.backend.report_generation.ownership_reviewers import suggest_repository_owners
@@ -1238,6 +1239,9 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             reviewer_selection_enabled = await database_sync_to_async(
                 team_research_reviewer_selection_enabled, thread_sensitive=False
             )(input.team_id)
+            assignee_evidence_enabled = reviewer_selection_enabled and await database_sync_to_async(
+                team_research_assignee_evidence_enabled, thread_sensitive=False
+            )(input.team_id)
             # An `agent` check needs a scout fleet to dispatch it. A team with none degrades to
             # deterministic checks rather than storing a check that could never run.
             agent_checks_enabled = await database_sync_to_async(_team_runs_scouts, thread_sensitive=False)(
@@ -1345,6 +1349,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 metrics_enabled=metrics_enabled,
                 monitoring_enabled=monitoring_enabled,
                 reviewer_selection_enabled=reviewer_selection_enabled,
+                assignee_evidence_enabled=assignee_evidence_enabled,
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
                 suggestable_products=suggestable_products,

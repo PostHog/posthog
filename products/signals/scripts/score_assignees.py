@@ -8,15 +8,12 @@ import json
 import argparse
 import subprocess
 from collections import defaultdict
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
 from owners_yaml import OwnersResolver, compile_pattern
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-from posthog.dataclasses import frozen
 
 HISTORY_DAYS = 180
 ACTIVE_DAYS = 90
@@ -27,34 +24,59 @@ MAX_ROSTER_AGE = timedelta(days=7)
 MECHANICAL_CHANGE = re.compile(r"^(?:style(?:\([^)]*\))?:|chore(?:\([^)]*\))?:\s*(?:format|lint|sort imports)\b)", re.I)
 
 
-class Member(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    login: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Member:
+    login: str
     emails: tuple[str, ...] = ()
     teams: tuple[str, ...] = ()
     excluded_paths: tuple[str, ...] = ()
     active: bool = True
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.login, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}", self.login):
+            raise ValueError("Roster login must be a GitHub login")
+        if type(self.active) is not bool:
+            raise ValueError("Roster active must be a boolean")
 
-class Roster(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Roster:
     generated_at: datetime
     members: tuple[Member, ...]
 
-    @model_validator(mode="after")
-    def validate_identities(self) -> Roster:
+    def __post_init__(self) -> None:
         if self.generated_at.tzinfo is None:
             raise ValueError("Roster generated_at must include a timezone")
         logins = [member.login.lower() for member in self.members]
         emails = [email.lower() for member in self.members for email in member.emails]
         if len(set(logins)) != len(logins) or len(set(emails)) != len(emails):
             raise ValueError("Roster logins and email mappings must be unique")
-        return self
+
+    @classmethod
+    def from_json(cls, raw: str) -> Roster:
+        data = json.loads(raw)
+        if not isinstance(data, dict) or set(data) != {"generated_at", "members"}:
+            raise ValueError("Roster requires only generated_at and members")
+        if not isinstance(data["generated_at"], str) or not isinstance(data["members"], list):
+            raise ValueError("Roster requires an ISO timestamp and a members list")
+        members = []
+        for entry in data["members"]:
+            if not isinstance(entry, dict) or set(entry) - {"login", "emails", "teams", "excluded_paths", "active"}:
+                raise ValueError("Invalid roster member fields")
+            fields = dict(entry)
+            for name in ("emails", "teams", "excluded_paths"):
+                values = fields.get(name, [])
+                if not isinstance(values, list) or any(not isinstance(value, str) or not value for value in values):
+                    raise ValueError(f"Roster {name} must be a list of nonempty strings")
+                fields[name] = tuple(values)
+            try:
+                members.append(Member(**fields))
+            except TypeError as error:
+                raise ValueError("Roster member requires a login") from error
+        return cls(generated_at=datetime.fromisoformat(data["generated_at"]), members=tuple(members))
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Commit:
     sha: str
     email: str
@@ -63,27 +85,27 @@ class Commit:
     paths: tuple[str, ...]
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class History:
     commits: tuple[Commit, ...]
     complete: bool
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class ScopedCommit:
     scope_index: int
     commit: Commit
     paths: tuple[str, ...]
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class EvidenceIndex:
     by_login: dict[str, list[ScopedCommit]]
     unmatched_author_count: int
     unmatched_direct_author_count: int
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class CommitEvidence:
     sha: str
     authored_at: datetime
@@ -92,7 +114,7 @@ class CommitEvidence:
     scope: str
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Candidate:
     login: str
     score: float
@@ -105,7 +127,7 @@ class Candidate:
     evidence: tuple[CommitEvidence, ...]
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class RejectedCandidate:
     login: str
     reason: str
@@ -127,7 +149,7 @@ DecisionReason = Literal[
 ]
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class AgentDecision:
     case: Literal["confirm_owner", "needs_investigation", "unresolved"]
     reason_codes: tuple[DecisionReason, ...]
@@ -135,7 +157,7 @@ class AgentDecision:
     max_pull_requests: int
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class AssigneeRanking:
     schema_version: int
     path: str
@@ -453,7 +475,8 @@ def rank_assignees(repo: Path, path: str, roster: Roster, history: History, now:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("path", help="File or directory relative to the repository root")
+    parser.add_argument("paths", nargs="*", help="Files or directories relative to the repository root (maximum 20)")
+    parser.add_argument("--paths-file", type=Path, help="JSON list of paths; use - to read stdin")
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument(
         "--roster", type=Path, required=True, help="Current team membership and explicit git email mappings"
@@ -464,18 +487,43 @@ def main() -> None:
     args = parser.parse_args()
     now = args.now or datetime.now(UTC)
     try:
-        repo = Path(git(args.repo, "rev-parse", "--show-toplevel").strip())
-        roster = Roster.model_validate_json(args.roster.read_text())
+        if now.tzinfo is None:
+            raise ValueError("--now must include a timezone")
+        paths = args.paths
+        if args.paths_file:
+            supplied = json.loads(sys.stdin.read() if str(args.paths_file) == "-" else args.paths_file.read_text())
+            if not isinstance(supplied, list) or any(not isinstance(path, str) or not path for path in supplied):
+                raise ValueError("--paths-file must contain a JSON list of nonempty path strings")
+            paths = [*paths, *supplied]
+        paths = list(dict.fromkeys(paths))
+        if not 1 <= len(paths) <= 20:
+            raise ValueError("Supply between 1 and 20 distinct paths")
+        repo = Path(git(args.repo, "rev-parse", "--show-toplevel").strip()).resolve()
+        roster = Roster.from_json(args.roster.read_text())
         resolver = OwnersResolver(repo_root=repo)
-        target = (repo / args.path).resolve()
-        path = target.relative_to(repo).as_posix()
-        owners = set(resolver.resolve(f"{path}/__assignee_scope__" if target.is_dir() else path).owners or [])
-        scopes = traversal_scopes(path, owners, resolver)
-        history = load_history(repo, scopes[-1], now)
-        ranking = rank_assignees(repo, path, roster, history, now)
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         parser.error(str(error))
-    sys.stdout.write(json.dumps(asdict(ranking), indent=2, default=lambda value: value.isoformat()) + "\n")
+    results = []
+    errors = []
+    histories: dict[str, History] = {}
+    batch = len(paths) > 1 or args.paths_file is not None
+    for requested in paths:
+        try:
+            target = (repo / requested).resolve()
+            path = target.relative_to(repo).as_posix()
+            if not target.exists() or path == ".":
+                raise ValueError("Path must exist below the repository root")
+            owners = set(resolver.resolve(f"{path}/__assignee_scope__" if target.is_dir() else path).owners or [])
+            scope = traversal_scopes(path, owners, resolver)[-1]
+            if scope not in histories:
+                histories[scope] = load_history(repo, scope, now)
+            results.append(asdict(rank_assignees(repo, path, roster, histories[scope], now)))
+        except (ValueError, OSError, subprocess.SubprocessError) as error:
+            if not batch:
+                parser.error(str(error))
+            errors.append({"path": requested, "error": str(error)})
+    output = {"schema_version": 1, "results": results, "errors": errors} if batch else results[0]
+    sys.stdout.write(json.dumps(output, indent=2, default=lambda value: value.isoformat()) + "\n")
 
 
 if __name__ == "__main__":
