@@ -85,18 +85,18 @@ export function McpSharedFilters({
                                     <IconX />
                                 </Button>
                             )}
-                            <McpInternalUsersFilter dataAttr={`${dataAttrPrefix}-test-account-filter`} />
-                            <Button
-                                variant="outline"
-                                size="icon"
-                                aria-label="Refresh"
-                                tooltip="Refresh data"
-                                onClick={onRefresh}
-                                loading={refreshing}
-                                data-attr={`${dataAttrPrefix}-refresh`}
-                            >
-                                <IconRefresh />
-                            </Button>
+                            <div className="ml-auto flex items-center gap-2">
+                                <McpInternalUsersFilter dataAttr={`${dataAttrPrefix}-test-account-filter`} />
+                                <Button
+                                    variant="outline"
+                                    onClick={onRefresh}
+                                    loading={refreshing}
+                                    data-attr={`${dataAttrPrefix}-refresh`}
+                                >
+                                    <IconRefresh />
+                                    Refresh
+                                </Button>
+                            </div>
                         </div>
                         {activeFilters.length > 0 && (
                             <div className="flex min-w-0 flex-wrap items-center gap-2">{activeFilters}</div>
