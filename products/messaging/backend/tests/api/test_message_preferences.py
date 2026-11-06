@@ -822,15 +822,6 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         self.assertEqual(data["identifier"], "user@example.com")
         self.assertEqual(data["preferences"][str(self.category.id)], PreferenceStatus.OPTED_OUT.value)
 
-    def test_add_opt_out_nonexistent_category(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/messaging_preferences/add_opt_out/",
-            {"identifier": "user@example.com", "category_key": "does_not_exist"},
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.json()["error"], "Category not found")
-
     def test_add_opt_out_duplicate_identifier_updates_existing(self):
         existing = MessageRecipientPreference.objects.create(
             team=self.team,
@@ -986,11 +977,39 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         self.assertEqual(prefs[str(transactional.id)], PreferenceStatus.OPTED_IN)
         self.assertEqual(prefs[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT)
 
-    def test_remove_opt_out_nonexistent_category(self):
-        response = self._remove_opt_out({"identifier": "user@example.com", "category_key": "does_not_exist"})
+    @parameterized.expand(
+        [
+            (endpoint, category)
+            for endpoint in ("add_opt_out", "remove_opt_out")
+            for category in ("unknown", "deleted_marketing")
+        ]
+    )
+    def test_opt_out_writes_refuse_a_category_that_does_not_exist(self, endpoint, category):
+        if category == "deleted_marketing":
+            category_key = MessageCategory.objects.create(
+                team=self.team,
+                key="old_promotions",
+                name="Old promotions",
+                category_type=MessageCategoryType.MARKETING,
+                deleted=True,
+            ).key
+        else:
+            category_key = "does_not_exist"
+        stored = {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value}
+        recipient = MessageRecipientPreference.objects.create(
+            team=self.team, identifier="user@example.com", preferences=stored
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/{endpoint}/",
+            {"identifier": "user@example.com", "category_key": category_key},
+            content_type="application/json",
+        )
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["error"], "Category not found")
+        recipient.refresh_from_db()
+        self.assertEqual(recipient.preferences, stored)
 
     @parameterized.expand(
         [
