@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
@@ -1255,6 +1255,15 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         "status": "added",
         "additions": 20,
         "deletions": 0,
+        "owners_source": "products/alpha/owners.yaml",
+    }
+    # Runs recorded before `owners_source` existed have no such key.
+    _OLD_FILE = {
+        "path": "products/beta/c.py",
+        "previous_path": None,
+        "status": "modified",
+        "additions": 1,
+        "deletions": 1,
     }
 
     def setUp(self) -> None:
@@ -1282,6 +1291,7 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
                     "outcome": "cut",
                     "reason": "model_cut",
                     "model_reason": "Only renames an import.",
+                    "files": [self._OLD_FILE],
                 },
             ],
         )
@@ -1382,7 +1392,88 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert run["owners_sha"] == "owners-1"
         assert {owner["owner"]: owner["files"] for owner in run["owners"]} == {
             "team-alpha": [self._FILE],
-            "team-beta": [],
+            "team-beta": [{**self._OLD_FILE, "owners_source": None}],
+        }
+
+    @parameterized.expand(
+        [
+            ("no_record", None, None),
+            (
+                "waiting",
+                {"status": "waiting", "mode": "fallback", "trigger": "opened", "waiting_since": -5},
+                {"status": "waiting", "mode": "fallback", "trigger": "opened", "waiting_since": -5},
+            ),
+            (
+                "fresh_claim",
+                {"status": "routing", "mode": "always", "trigger": "opened", "scope": "full", "claimed_at": -5},
+                {"status": "routing", "mode": "always", "trigger": "opened", "scope": "full", "claimed_at": -5},
+            ),
+            (
+                "expired_requested_claim",
+                {
+                    "status": "requested",
+                    "mode": "fallback",
+                    "trigger": "verdict:approved",
+                    "scope": "pinned",
+                    "claimed_at": -180,
+                    "routed_at": -179,
+                    "pinned_routed_head": "head-1",
+                },
+                {
+                    "status": "requested",
+                    "mode": "fallback",
+                    "trigger": "verdict:approved",
+                    "scope": "pinned",
+                    "claim_expired": True,
+                    "claimed_at": -180,
+                    "routed_at": -179,
+                    "pinned_routed_head": "head-1",
+                },
+            ),
+        ]
+    )
+    def test_a_pull_request_shows_its_latest_routing_record(
+        self, _name: str, record: dict[str, Any] | None, expected: dict[str, Any] | None
+    ) -> None:
+        now = timezone.now().replace(microsecond=0)
+        times = ("waiting_since", "claimed_at", "routed_at")
+
+        def at(values: dict[str, Any]) -> dict[str, Any]:
+            return {key: (now + timedelta(minutes=value) if key in times else value) for key, value in values.items()}
+
+        stored = None
+        if record is not None:
+            # The plan, the comment and the claim's previous record must never leave the API.
+            stored = {
+                **{key: (value.isoformat() if key in times else value) for key, value in at(record).items()},
+                "head_sha": "head-1",
+                "claimed_by": "task-1",
+                "candidates": [{"owner": "team-alpha", "model_reason": "author text"}],
+                "pending_comment": "author text",
+                "previous": {"status": "done"},
+            }
+        PullRequest.objects.unscoped().filter(team_id=self.team.id, pr_number=1).update(routing=stored)
+        StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).update(routing_mode=RoutingMode.FALLBACK)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/stamphog/pull_requests/", {"pr_number": 1})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        pull_request = response.json()["results"][0]
+        assert pull_request["routing_mode"] == "fallback"
+        routing = pull_request["routing"]
+        if expected is None:
+            assert routing is None
+            return
+        for key in times:
+            routing[key] = datetime.fromisoformat(routing[key]) if routing[key] else None
+        assert routing == {
+            "head_sha": "head-1",
+            "scope": None,
+            "claim_expired": False,
+            **dict.fromkeys(times),
+            "full_routed_head": "",
+            "pinned_routed_head": "",
+            **at(expected),
         }
 
     def test_another_teams_run_is_not_found(self) -> None:

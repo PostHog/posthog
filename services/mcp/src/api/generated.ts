@@ -75765,6 +75765,94 @@ export namespace Schemas {
       quarantined_count?: number;
     }
 
+    /**
+     * * `off` - Off
+     * * `always` - Always
+     * * `fallback` - When stamphog does not approve
+     */
+    export type RoutingModeEnum = typeof RoutingModeEnum[keyof typeof RoutingModeEnum];
+
+
+    export const RoutingModeEnum = {
+      Off: 'off',
+      Always: 'always',
+      Fallback: 'fallback',
+    } as const;
+
+    /**
+     * * `waiting` - Waiting for stamphog's verdict
+     * * `routing` - Routing
+     * * `requested` - Requested
+     * * `done` - Done
+     */
+    export type RoutingStatusEnum = typeof RoutingStatusEnum[keyof typeof RoutingStatusEnum];
+
+
+    export const RoutingStatusEnum = {
+      Waiting: 'waiting',
+      Routing: 'routing',
+      Requested: 'requested',
+      Done: 'done',
+    } as const;
+
+    /**
+     * * `full` - Every owner
+     * * `pinned` - Pinned owners only
+     */
+    export type RoutingScopeEnum = typeof RoutingScopeEnum[keyof typeof RoutingScopeEnum];
+
+
+    export const RoutingScopeEnum = {
+      Full: 'full',
+      Pinned: 'pinned',
+    } as const;
+
+    export interface StamphogPullRequestRouting {
+      /** The phase of the latest routing record: 'waiting' (fallback mode, the head waits for stamphog's verdict or the safety net), 'routing' (a task holds the claim and requested nobody yet), 'requested' (the review requests went out, the routing comment is not finished) or 'done'.
+       *
+       * * `waiting` - Waiting for stamphog's verdict
+       * * `routing` - Routing
+       * * `requested` - Requested
+       * * `done` - Done */
+      readonly status: RoutingStatusEnum;
+      /** The repository's routing_mode when the record was written. Compare with the pull request's routing_mode.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly mode: RoutingModeEnum;
+      /** 'full', or 'pinned' when a stamphog approval asks only the owners of sensitive and new paths. Null while the record waits.
+       *
+       * * `full` - Every owner
+       * * `pinned` - Pinned owners only */
+      readonly scope: RoutingScopeEnum | null;
+      /** The head commit the record is for. It can be older than the pull request head. */
+      readonly head_sha: string;
+      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      readonly trigger: string;
+      /** True when a 'routing' or 'requested' claim is older than the takeover limit. The task can still be alive, and a later delivery does not always finish an expired 'requested' claim. */
+      readonly claim_expired: boolean;
+      /**
+         * When the head started to wait for stamphog's verdict. Null unless waiting.
+         * @nullable
+         */
+      readonly waiting_since: string | null;
+      /**
+         * When a task claimed the pull request for this record.
+         * @nullable
+         */
+      readonly claimed_at: string | null;
+      /**
+         * When the claim planned its requests. Null until the plan is saved.
+         * @nullable
+         */
+      readonly routed_at: string | null;
+      /** The head that a full routing of this pull request requested owners for, blank if none. Fallback mode routes in full at most once per pull request. */
+      readonly full_routed_head: string;
+      /** The latest approved head whose pinned owners were requested, blank if none. */
+      readonly pinned_routed_head: string;
+    }
+
     export interface StamphogPullRequest {
       readonly id: string;
       /** Full name of the repository this pull request belongs to. */
@@ -75794,6 +75882,14 @@ export namespace Schemas {
       readonly deletions: number;
       /** Files changed, recorded when the pull request merges. */
       readonly changed_files: number;
+      /** The repository's routing_mode now. 'off' means reviewer routing does not run for new events.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly routing_mode: RoutingModeEnum;
+      /** The latest reviewer routing record of the pull request, or null when routing never wrote one: routing is off, the pull request is still a draft, or no routing event arrived yet. Use the routing runs list for the owners each run requested or cut. */
+      readonly routing: StamphogPullRequestRouting | null;
       /** When this pull request was first captured. */
       readonly created_at: string;
       /** When this pull request was last updated. */
@@ -75819,20 +75915,6 @@ export namespace Schemas {
     export const ReviewModeEnum = {
       All: 'all',
       Label: 'label',
-    } as const;
-
-    /**
-     * * `off` - Off
-     * * `always` - Always
-     * * `fallback` - When stamphog does not approve
-     */
-    export type RoutingModeEnum = typeof RoutingModeEnum[keyof typeof RoutingModeEnum];
-
-
-    export const RoutingModeEnum = {
-      Off: 'off',
-      Always: 'always',
-      Fallback: 'fallback',
     } as const;
 
     export interface StamphogRepoConfig {
@@ -75877,18 +75959,6 @@ export namespace Schemas {
       previous?: string | null;
       results: StamphogRepoConfig[];
     }
-
-    /**
-     * * `full` - Every owner
-     * * `pinned` - Pinned owners only
-     */
-    export type RoutingScopeEnum = typeof RoutingScopeEnum[keyof typeof RoutingScopeEnum];
-
-
-    export const RoutingScopeEnum = {
-      Full: 'full',
-      Pinned: 'pinned',
-    } as const;
 
     /**
      * * `requested` - Requested
@@ -109526,6 +109596,11 @@ export namespace Schemas {
       additions?: number;
       /** Deleted lines. */
       deletions?: number;
+      /**
+         * Repo-relative path of the ownership file, read at the run's owners_sha, whose `owners` list names this owner for the file. Null when only an additions declaration made the owner a candidate (see the owner's `new_path` pins), or when the run is older than this field.
+         * @nullable
+         */
+      owners_source?: string | null;
     }
 
     export interface StamphogRoutingRunOwnerDetail {

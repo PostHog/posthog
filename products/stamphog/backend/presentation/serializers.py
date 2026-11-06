@@ -28,6 +28,7 @@ from ..facade.enums import (
     RoutingOwnerOutcome,
     RoutingOwnerReason,
     RoutingScope,
+    RoutingStatus,
 )
 
 
@@ -345,6 +346,77 @@ class StamphogAddRepositorySerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(component_name="StamphogPullRequestRouting")
+class PullRequestRoutingSerializer(DataclassSerializer):
+    status = serializers.ChoiceField(
+        choices=RoutingStatus.choices,
+        read_only=True,
+        help_text=(
+            "The phase of the latest routing record: 'waiting' (fallback mode, the head waits for stamphog's "
+            "verdict or the safety net), 'routing' (a task holds the claim and requested nobody yet), "
+            "'requested' (the review requests went out, the routing comment is not finished) or 'done'."
+        ),
+    )
+    mode = serializers.ChoiceField(
+        choices=RoutingMode.choices,
+        read_only=True,
+        help_text="The repository's routing_mode when the record was written. Compare with the pull request's routing_mode.",
+    )
+    scope = serializers.ChoiceField(
+        choices=RoutingScope.choices,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "'full', or 'pinned' when a stamphog approval asks only the owners of sensitive and new paths. "
+            "Null while the record waits."
+        ),
+    )
+
+    class Meta:
+        dataclass = contracts.PullRequestRoutingDTO
+        # Only the fields NOT declared above (see ReviewRunSerializer).
+        read_only_fields = [
+            "head_sha",
+            "trigger",
+            "claim_expired",
+            "waiting_since",
+            "claimed_at",
+            "routed_at",
+            "full_routed_head",
+            "pinned_routed_head",
+        ]
+        extra_kwargs = {
+            "head_sha": {"help_text": "The head commit the record is for. It can be older than the pull request head."},
+            "trigger": {
+                "help_text": "What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'."
+            },
+            "claim_expired": {
+                "help_text": (
+                    "True when a 'routing' or 'requested' claim is older than the takeover limit. The task can "
+                    "still be alive, and a later delivery does not always finish an expired 'requested' claim."
+                )
+            },
+            "waiting_since": {
+                "allow_null": True,
+                "help_text": "When the head started to wait for stamphog's verdict. Null unless waiting.",
+            },
+            "claimed_at": {"allow_null": True, "help_text": "When a task claimed the pull request for this record."},
+            "routed_at": {
+                "allow_null": True,
+                "help_text": "When the claim planned its requests. Null until the plan is saved.",
+            },
+            "full_routed_head": {
+                "help_text": (
+                    "The head that a full routing of this pull request requested owners for, blank if none. "
+                    "Fallback mode routes in full at most once per pull request."
+                )
+            },
+            "pinned_routed_head": {
+                "help_text": "The latest approved head whose pinned owners were requested, blank if none."
+            },
+        }
+
+
 @extend_schema_serializer(component_name="StamphogPullRequest")
 class PullRequestSerializer(DataclassSerializer):
     repository = serializers.CharField(
@@ -358,6 +430,20 @@ class PullRequestSerializer(DataclassSerializer):
         read_only=True,
         allow_null=True,
         help_text="When the pull request merged, null if it hasn't.",
+    )
+    routing_mode = serializers.ChoiceField(
+        choices=RoutingMode.choices,
+        read_only=True,
+        help_text="The repository's routing_mode now. 'off' means reviewer routing does not run for new events.",
+    )
+    routing = PullRequestRoutingSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The latest reviewer routing record of the pull request, or null when routing never wrote one: "
+            "routing is off, the pull request is still a draft, or no routing event arrived yet. Use the "
+            "routing runs list for the owners each run requested or cut."
+        ),
     )
 
     class Meta:
@@ -378,6 +464,8 @@ class PullRequestSerializer(DataclassSerializer):
             "additions",
             "deletions",
             "changed_files",
+            "routing_mode",
+            "routing",
             "created_at",
             "updated_at",
         ]
@@ -897,6 +985,13 @@ class RoutingFileSerializer(DataclassSerializer):
             "status": {"help_text": "GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'."},
             "additions": {"help_text": "Added lines."},
             "deletions": {"help_text": "Deleted lines."},
+            "owners_source": {
+                "help_text": (
+                    "Repo-relative path of the ownership file, read at the run's owners_sha, whose `owners` list names "
+                    "this owner for the file. Null when only an additions declaration made the owner a candidate (see "
+                    "the owner's `new_path` pins), or when the run is older than this field."
+                )
+            },
         }
 
 
