@@ -9,8 +9,10 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
-from posthog.models import EventDefinition, ObjectMediaPreview
+from posthog.models import ObjectMediaPreview
 from posthog.models.organization import OrganizationMembership
+
+from products.event_definitions.backend.models import EventDefinition
 
 from ee.models.event_definition import EnterpriseEventDefinition
 

@@ -17,7 +17,6 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
-from posthog.models import EventDefinition, PropertyDefinition
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
 from products.actions.backend.facade.api import search_actions
@@ -26,6 +25,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.facade.models import Endpoint
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag

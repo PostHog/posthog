@@ -35,7 +35,7 @@ from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
-from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_log_activity
 from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -44,7 +44,7 @@ from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APISco
 
 from products.access_control.backend.activity_logging import get_access_control_log_entry
 from products.access_control.backend.models.role import Role, RoleMembership
-from products.event_definitions.backend.models import effective_project_id_expr
+from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 
 from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
@@ -103,6 +103,19 @@ def _to_rule(rule: PropertyAccessControl) -> contracts.PropertyAccessControlRule
         created_at=rule.created_at,
         updated_at=rule.updated_at,
     )
+
+
+def get_property_definition_labels(
+    *, team_id: int, property_definition_ids: list[UUID]
+) -> dict[UUID, contracts.PropertyDefinitionLabel]:
+    return {
+        definition.id: contracts.PropertyDefinitionLabel(
+            id=definition.id,
+            name=definition.name,
+            is_person=definition.type == PropertyDefinition.Type.PERSON,
+        )
+        for definition in PropertyDefinition.objects.filter(team_id=team_id, id__in=property_definition_ids)
+    }
 
 
 def _get_property_definition(property_definition_id: str, team_id: int) -> PropertyDefinition:
