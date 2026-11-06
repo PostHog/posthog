@@ -15,7 +15,6 @@ import { initKeaTests } from '~/test/init'
 import {
     IntegrationKind,
     IntegrationType,
-    PreflightStatus,
     Region,
     SLACK_INTEGRATION_SCOPES,
     SLACK_INTEGRATION_SCOPES_IN_REVIEW,
@@ -589,29 +588,57 @@ describe('integrationsLogic', () => {
             })
 
             const approvedScopes = SLACK_INTEGRATION_SCOPES.join(',')
-            const allScopes = [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW].join(',')
+            const allRequestedScopes = [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW]
+            const allScopes = allRequestedScopes.join(',')
             it.each([
-                ['US', 'every requested scope', approvedScopes, null],
+                [Region.US, 'every requested scope', approvedScopes, null, SLACK_INTEGRATION_SCOPES],
                 [
-                    'US',
+                    Region.US,
                     'fewer scopes than requested',
                     SLACK_INTEGRATION_SCOPES.filter((scope) => scope !== 'users:read' && scope !== 'files:write').join(
                         ','
                     ),
                     ['files:write', 'users:read'],
+                    SLACK_INTEGRATION_SCOPES,
                 ],
-                ['US', 'no recorded scopes', undefined, null],
-                ['DEV', 'every requested scope', allScopes, null],
-                ['DEV', 'only the approved scopes', approvedScopes, [...SLACK_INTEGRATION_SCOPES_IN_REVIEW]],
+                [Region.US, 'no recorded scopes', undefined, null, SLACK_INTEGRATION_SCOPES],
+                [
+                    Region.US,
+                    'every requested scope with the debug flag',
+                    approvedScopes,
+                    null,
+                    SLACK_INTEGRATION_SCOPES,
+                    true,
+                ],
+                [Region.DEV, 'every requested scope', allScopes, null, allRequestedScopes],
+                [
+                    Region.DEV,
+                    'only the approved scopes',
+                    approvedScopes,
+                    [...SLACK_INTEGRATION_SCOPES_IN_REVIEW],
+                    allRequestedScopes,
+                ],
+                [
+                    Region.DEV,
+                    'the approved scopes without backend scope metadata',
+                    approvedScopes,
+                    null,
+                    undefined,
+                    true,
+                ],
             ])(
                 'reports a Slack install on %s that granted %s',
-                async (region, _name, grantedScope, expectedMissing) => {
+                async (region, _name, grantedScope, expectedMissing, requestedScopes, is_debug = false) => {
                     preflightLogic.mount()
                     preflightLogic.actions.loadPreflightSuccess({
-                        ...preflightLogic.values.preflight,
-                        is_debug: false,
-                        region: region as Region,
-                    } as PreflightStatus)
+                        ...preflightLogic.values.preflight!,
+                        region,
+                        is_debug,
+                        slack_service: {
+                            available: true,
+                            scopes: requestedScopes,
+                        },
+                    })
                     createdConfig = grantedScope === undefined ? {} : { scope: grantedScope }
                     const successSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast')
                     const warningSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast')

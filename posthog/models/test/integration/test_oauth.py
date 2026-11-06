@@ -66,6 +66,7 @@ def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
     [
         (False, "US", False),
         (False, "EU", False),
+        (False, "E2E", False),
         (False, None, False),
         (False, "DEV", True),
         (True, None, True),
@@ -77,8 +78,10 @@ def test_slack_oauth_requests_in_review_scopes_only_on_dev_and_local(
     with override_settings(DEBUG=debug, CLOUD_DEPLOYMENT=cloud_deployment):
         requested = set(posthog_slack_scope().split(","))
 
-    assert {scope.value for scope in SlackIntegrationScope} <= requested
-    assert ({scope.value for scope in SlackIntegrationScopeInReview} <= requested) is requests_in_review
+    approved = {scope.value for scope in SlackIntegrationScope}
+    pending = {scope.value for scope in SlackIntegrationScopeInReview}
+    assert requested == approved | (pending if requests_in_review else set())
+    assert "chat:write.public" not in requested
 
 
 class TestOauthIntegrationModel(BaseTest):

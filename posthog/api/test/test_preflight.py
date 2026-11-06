@@ -26,8 +26,10 @@ from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import SlackIntegration
+from posthog.models.integration.oauth import posthog_slack_scope
 from posthog.models.organization import Organization
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.views import _preflight_oauth_client_id
 
 
@@ -111,7 +113,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             },
             "can_create_org": False,
             "email_service_available": False,
-            "slack_service": {"available": False, "client_id": None},
+            "slack_service": {"available": False, "client_id": None, "scopes": posthog_slack_scope().split(",")},
             "object_storage": False,
             "public_egress_ip_addresses": [],
             "wizard_cloud_run_available": False,
@@ -169,6 +171,21 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 assert response == self.preflight_authenticated_dict()
                 assert {"Europe/Moscow": 3, "UTC": 0}.items() <= available_timezones.items()
 
+    @parameterized.expand([(False, True, "E2E", False), (False, False, "DEV", True), (True, False, None, True)])
+    def test_preflight_reports_slack_oauth_scopes(
+        self, debug: bool, e2e: bool, region: str | None, includes_pending: bool
+    ) -> None:
+        with override_settings(DEBUG=debug, E2E_TESTING=e2e, CLOUD_DEPLOYMENT=region):
+            response = self.client.get("/_preflight/")
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json().get("is_debug", False) is (debug or e2e)
+            scopes = response.json()["slack_service"]["scopes"]
+            assert scopes == posthog_slack_scope().split(",")
+            approved = {scope.value for scope in SlackIntegrationScope}
+            pending = {scope.value for scope in SlackIntegrationScopeInReview}
+            assert set(scopes) == approved | (pending if includes_pending else set())
+
     @patch("posthog.storage.object_storage._client")
     def test_preflight_request_with_object_storage_available(self, patched_s3_client):
         patched_s3_client.head_bucket.return_value = True
@@ -218,6 +235,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                         "slack_service": {
                             "available": True,
                             "client_id": "slack-client-id",
+                            "scopes": posthog_slack_scope().split(","),
                         },
                         "can_create_org": True,
                         "cloud": True,

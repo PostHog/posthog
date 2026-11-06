@@ -4804,6 +4804,7 @@ export interface PreflightStatus {
     slack_service: {
         available: boolean
         client_id?: string
+        scopes?: string[]
     }
     data_warehouse_integrations: {
         hubspot: {

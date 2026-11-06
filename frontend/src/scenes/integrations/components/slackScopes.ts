@@ -1,15 +1,14 @@
 import { useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { requestsSlackInReviewScopes } from 'lib/integrations/integrationScopes'
+import { requestedScopesForKind } from 'lib/integrations/integrationScopes'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-
-import { slackRequestedScopes } from '~/types'
 
 /**
  * Required Slack OAuth scopes for the current PostHog instance.
  *
- * The DEV instance and local development also require the scopes that wait on Slack review,
- * because they request them at install. See the note by ``SlackIntegrationScopeInReview`` in ``~/types``.
+ * Preflight reports the backend's OAuth scopes so debug UI modes cannot accidentally
+ * add permissions the Slack app does not request.
  *
  * Used by both the settings-side ``SlackIntegration`` connect/manage UI and the OAuth
  * landing page's status hook so the two surfaces always agree on what "fully scoped"
@@ -17,5 +16,5 @@ import { slackRequestedScopes } from '~/types'
  */
 export function useSlackRequiredScopes(): string[] {
     const { preflight } = useValues(preflightLogic)
-    return slackRequestedScopes(requestsSlackInReviewScopes(preflight))
+    return useMemo(() => requestedScopesForKind('slack', preflight), [preflight])
 }
