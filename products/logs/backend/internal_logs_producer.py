@@ -223,6 +223,9 @@ class InternalLogsProducer:
             self._buffered_bytes -= request.byte_count
             self._pump()
 
+    def _has_stopped(self) -> bool:
+        return self._stopped
+
     def _is_idle(self) -> bool:
         return not self._in_flight and not self._waiting
 
@@ -236,7 +239,8 @@ class InternalLogsProducer:
         attempt = 0
         while not self._stopped:
             result = await self._attempt(request.source, request.team_id, body, deadline)
-            if self._stopped:
+            # A call, not the attribute, because mypy keeps the loop's narrowing across the await.
+            if self._has_stopped():
                 return
             if result.outcome != "retry":
                 _count_records(request.source, result.outcome, len(request.records))
@@ -273,6 +277,7 @@ class InternalLogsProducer:
             if not api_token:
                 return _AttemptResult(outcome="unknown_team", detail=str(team_id))
             if self._session is None:
+                # nosemgrep: aiohttp-missing-trust-env -- the in-cluster capture-logs service must bypass the egress proxy
                 self._session = aiohttp.ClientSession()
             async with self._session.post(
                 self._config.url,
