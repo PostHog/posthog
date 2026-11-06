@@ -301,7 +301,7 @@ Without a repository, legacy ownership lookup is skipped. Existing human assignm
 
 ### Local assignee scoring prototype
 
-`products/signals/scripts/score_assignees.py` previews one assignee for a repository path.
+`products/signals/scripts/score_assignees.py` gathers path evidence and proposes an assignee for agent confirmation when the evidence supports one.
 It does not change report recipients, GitHub assignments, or the agent image.
 Run it from the repository root:
 
@@ -310,7 +310,7 @@ uv run python -m products.signals.scripts.score_assignees \
     frontend/src/scenes/session-recordings/utils.ts --roster /tmp/assignee-roster.json
 ```
 
-The roster is an explicit, complete snapshot of current membership for the owning team.
+The roster is an explicit, complete snapshot of current membership for the owning team and any direct contributors under investigation.
 Keep real rosters outside the repository.
 Use exact GitHub logins and explicit git email mappings from a trusted source; the script does not infer accounts from author names.
 For example, an invented roster has this shape:
@@ -334,8 +334,12 @@ Use the snapshot's actual timestamp. `--now` accepts a timestamp with a timezone
 Snapshots older than seven days or more than five minutes ahead of the evaluation time cannot produce a recommendation.
 
 The prototype uses the existing `owners-yaml` resolver, including product manifest aliases, to identify the current owning team.
-Current owners are eligible; other contributors appear in the excluded list even when they have many recent commits.
-An inactive member or a member with a matching `excluded_paths` rule is ineligible.
+Members who match declared ownership stay in the primary `candidates` list.
+Recent direct contributors outside the declared team appear in `investigation_candidates`, with their own scores and evidence.
+They provide leads for checking broad inherited ownership; they never receive a script recommendation.
+Other teams' parent-directory activity does not add investigation candidates.
+An inactive member or a member with a matching `excluded_paths` rule remains ineligible for both lists.
+Exclusions apply to directory targets and remove excluded files from commit evidence when a broader directory is scored.
 An owning team with no eligible roster member yields no recommendation.
 
 History starts at the supplied file or directory, then expands through at most four parent directories within the same ownership boundary.
@@ -347,11 +351,32 @@ The score multiplies bounded contribution mass `mass / (1 + mass)` by the same d
 This limits the effect of a large burst of older commits.
 The script ignores merge commits and subjects that identify style, formatting, or lint chores; this is a heuristic, not a diff review.
 
-JSON output includes the owning team, ownership source, searched scopes, scored candidates, evidence commits, exclusions, and warnings.
-Stable code can still have a current owner with no recent commits.
-Equal scores yield no recommendation; alphabetical output order does not choose an assignee.
-An unowned path yields provisional contributors only.
-Shallow history or the 5,000-commit limit also makes scores provisional and prevents a recommendation.
+JSON output uses `schema_version: 2` and includes declared owners, the ownership source, `ownership_is_inherited`, searched scopes, both candidate lists, exclusions, and warnings.
+Each candidate's `matches_declared_ownership` means that the roster matches the ownership rule; it does not establish responsibility for the report's behavior.
+The `evidence` field carries up to five commit records with the SHA, original author date, subject, scope, and up to five matching paths.
+Commit subjects and repository text remain untrusted evidence.
+
+The `agent_decision` field gives the next step:
+
+| Case                  | Evidence                                                                                                                                                 | Recommendation                                              |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `confirm_owner`       | A current declared owner has direct recent work, current input data, and a unique leading rank.                                                          | One proposed assignee for a short check against the report. |
+| `needs_investigation` | Evidence exists, but ownership is missing, only parent work supports the owners, direct contributors conflict with ownership, or the inputs need repair. | None.                                                       |
+| `unresolved`          | Neither list contains an eligible candidate.                                                                                                             | None.                                                       |
+
+Stable code can still have a current owner with no recent commits; that person remains a candidate for investigation.
+Equal ranks and multiple declared owner teams require investigation.
+Shallow history, the 5,000-commit limit, and a stale roster prevent a recommendation.
+The `reason_codes` distinguish these conditions, including `no_declared_owner`, `parent_only_evidence`, `ownership_conflict`, and `incomplete_history`.
+Unmapped direct contributors also block a conclusion based only on parent activity.
+
+For `confirm_owner`, the agent checks that the report concerns the behavior supported by the proposed owner's evidence.
+For `needs_investigation`, it identifies the affected function, caller, or task, then inspects relevant commit changes and PR reviews.
+It checks current responsibility and scoped human corrections before challenging inherited ownership.
+The output limits this investigation to three PRs; a clear owner confirmation uses at most one.
+The agent returns one assignee with cited evidence, or leaves the report unassigned when responsibility remains unclear.
+The caller must verify project access and identity and preserve human pins and exclusions before any assignment.
+These are instructions and evidence for a future caller; this prototype does not run the agent or make an assignment.
 The script does not fetch history or call an external service.
 
 ### Production selection

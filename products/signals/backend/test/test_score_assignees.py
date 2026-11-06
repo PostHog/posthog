@@ -57,9 +57,9 @@ def commit(login: str, age: int, path: str = TARGET, serial: int = 0, subject: s
         (
             [member("former", "other-team"), member("maintainer")],
             [commit("former", 2), commit("maintainer", 3, "src/player/play.py")],
-            "maintainer",
+            None,
         ),
-        ([member("quiet")], [], "quiet"),
+        ([member("quiet")], [], None),
         ([member("quiet"), member("other")], [], None),
         ([member("departed", excluded_paths=("src/player/",))], [commit("departed", 1)], None),
         ([member("inactive", active=False)], [commit("inactive", 1)], None),
@@ -81,6 +81,7 @@ def test_selects_current_owner_with_nearest_recent_work(
         NOW,
     )
     assert result.recommended_assignee == expected
+    assert (result.agent_decision.case == "confirm_owner") == (expected is not None)
     assert result.owners == ("player-team",)
     assert result.scopes == (TARGET, "src/player")
     assert all(candidate.login != "former" for candidate in result.candidates)
@@ -97,19 +98,28 @@ def test_incomplete_evidence_does_not_recommend_an_assignee(repository: Path, co
     )
     assert result.recommended_assignee is None
     assert result.warnings
+    assert result.agent_decision.case == "needs_investigation"
+    assert ("incomplete_history" in result.agent_decision.reason_codes) == (not complete)
+    assert ("stale_roster" in result.agent_decision.reason_codes) == (roster_age != 0)
 
 
-def test_directory_uses_its_own_ownership_and_ignores_other_teams(repository: Path) -> None:
+@pytest.mark.parametrize("exclude_file", [False, True])
+def test_directory_uses_its_own_ownership_and_ignores_other_teams(repository: Path, exclude_file: bool) -> None:
     result = rank_assignees(
         repository,
         "src/player",
-        Roster(generated_at=NOW, members=(member("owner"), member("unrelated"))),
+        Roster(
+            generated_at=NOW,
+            members=(member("owner", excluded_paths=(TARGET,) if exclude_file else ()), member("unrelated")),
+        ),
         History(commits=(commit("owner", 5), commit("unrelated", 1, "src/other/api.py")), complete=True),
         NOW,
     )
     assert result.owners == ("player-team",)
-    assert result.recommended_assignee == "owner"
+    assert result.recommended_assignee == (None if exclude_file else "owner")
     assert next(candidate for candidate in result.candidates if candidate.login == "unrelated").evidence_shas == ()
+    if exclude_file:
+        assert all(candidate.evidence == () for candidate in result.candidates)
 
 
 def test_commit_is_not_counted_twice_and_unknown_authors_are_not_guessed(repository: Path) -> None:
@@ -150,10 +160,110 @@ def test_unowned_paths_only_produce_provisional_candidates(repository: Path) -> 
     result = rank_assignees(
         repository,
         "unowned/file.py",
-        Roster(generated_at=NOW, members=(member("contributor"),)),
-        History(commits=(commit("contributor", 1, "unowned/file.py"),), complete=True),
+        Roster(generated_at=NOW, members=(member("contributor"), member("other", "other-team"))),
+        History(
+            commits=(commit("contributor", 1, "unowned/file.py"), commit("other", 2, "unowned/file.py")), complete=True
+        ),
         NOW,
     )
-    assert [candidate.login for candidate in result.candidates] == ["contributor"]
+    assert [candidate.login for candidate in result.candidates] == ["contributor", "other"]
     assert result.recommended_assignee is None
     assert result.scopes == ("unowned/file.py",)
+    assert result.agent_decision.case == "needs_investigation"
+    assert "no_declared_owner" in result.agent_decision.reason_codes
+    assert result.agent_decision.max_pull_requests == 3
+    assert all(not candidate.matches_declared_ownership for candidate in result.candidates)
+
+
+@pytest.mark.parametrize("exclusion", ["none", "manual", "inactive"])
+def test_inherited_owner_with_parent_activity_preserves_direct_investigation_leads(
+    repository: Path, exclusion: str
+) -> None:
+    harness = repository / "src/player/harness"
+    harness.mkdir()
+    (harness / "runner.py").write_text("pass\n")
+    roster = Roster(
+        generated_at=NOW,
+        members=(
+            member("owner"),
+            member(
+                "contributor",
+                "other-team",
+                excluded_paths=("src/player/harness/",) if exclusion == "manual" else (),
+                active=exclusion != "inactive",
+            ),
+        ),
+    )
+    result = rank_assignees(
+        repository,
+        "src/player/harness",
+        roster,
+        History(
+            commits=(
+                commit("owner", 1, "src/player/play.py"),
+                commit("contributor", 2, "src/player/harness/runner.py"),
+            ),
+            complete=True,
+        ),
+        NOW,
+    )
+    assert result.ownership_is_inherited
+    assert result.ownership_source == "src/player/owners.yaml"
+    assert result.recommended_assignee is None
+    assert result.agent_decision.case == "needs_investigation"
+    assert "parent_only_evidence" in result.agent_decision.reason_codes
+    assert [candidate.login for candidate in result.candidates] == ["owner"]
+    assert ("ownership_conflict" in result.agent_decision.reason_codes) == (exclusion == "none")
+    if exclusion == "none":
+        assert [candidate.login for candidate in result.investigation_candidates] == ["contributor"]
+        evidence = result.investigation_candidates[0].evidence[0]
+        assert evidence.sha == "contributor-2-0"
+        assert evidence.authored_at == NOW - timedelta(days=2)
+        assert evidence.paths == ("src/player/harness/runner.py",)
+        assert evidence.scope == "src/player/harness"
+    else:
+        assert result.investigation_candidates == ()
+        assert [candidate.login for candidate in result.excluded] == ["contributor"]
+
+
+def test_no_eligible_candidate_returns_unresolved(repository: Path) -> None:
+    result = rank_assignees(
+        repository, TARGET, Roster(generated_at=NOW, members=()), History(commits=(), complete=True), NOW
+    )
+    assert result.agent_decision.case == "unresolved"
+    assert "no_candidates" in result.agent_decision.reason_codes
+    assert result.recommended_assignee is None
+
+
+def test_unknown_direct_identity_blocks_parent_only_recommendation(repository: Path) -> None:
+    result = rank_assignees(
+        repository,
+        TARGET,
+        Roster(generated_at=NOW, members=(member("owner"),)),
+        History(commits=(commit("owner", 1, "src/player/play.py"), commit("unknown", 1)), complete=True),
+        NOW,
+    )
+    assert result.agent_decision.case == "needs_investigation"
+    assert "unmapped_direct_authors" in result.agent_decision.reason_codes
+    assert result.recommended_assignee is None
+
+
+@pytest.mark.parametrize("mode", ["tie", "multiple_teams"])
+def test_ambiguous_direct_owners_require_investigation(repository: Path, mode: str) -> None:
+    if mode == "multiple_teams":
+        (repository / "src/player/owners.yaml").write_text("version: 1\nowners: [player-team, other-team]\n")
+    result = rank_assignees(
+        repository,
+        TARGET,
+        Roster(
+            generated_at=NOW,
+            members=(member("first"), member("second", "other-team" if mode == "multiple_teams" else "player-team")),
+        ),
+        History(commits=(commit("first", 1), commit("second", 2 if mode == "multiple_teams" else 1)), complete=True),
+        NOW,
+    )
+    assert result.agent_decision.case == "needs_investigation"
+    assert (
+        "multiple_owner_teams" if mode == "multiple_teams" else "tied_candidates"
+    ) in result.agent_decision.reason_codes
+    assert result.recommended_assignee is None
