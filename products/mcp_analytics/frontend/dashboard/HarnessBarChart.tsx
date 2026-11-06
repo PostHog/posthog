@@ -3,14 +3,13 @@ import { useMemo, useState } from 'react'
 import { type ChartTheme, type TooltipContext } from '@posthog/quill-charts'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { type HarnessRow } from '../mcpDashboardOverviewLogic'
-import { CardState } from './Card'
+import { Card, CardState } from './Card'
 import { ChartTooltip } from './ChartTooltip'
 import { formatNumber } from './formatters'
 import { HarnessLogo } from './harness'
@@ -66,13 +65,11 @@ export function HarnessBarChart({
     )
 
     return (
-        <LemonCard
-            className="flex min-w-0 flex-1 flex-col overflow-hidden bg-surface-secondary p-0"
-            hoverEffect={false}
-        >
-            <div className="flex min-h-[43px] flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
-                <h3 className="mb-0 text-sm font-bold">Share of calls by harness</h3>
-                {rows.length > 0 && (
+        <Card
+            className="min-w-0 flex-1"
+            title="Share of calls by harness"
+            action={
+                rows.length > 0 && (
                     <LemonButton
                         type="secondary"
                         size="xsmall"
@@ -81,59 +78,55 @@ export function HarnessBarChart({
                     >
                         Show all harnesses
                     </LemonButton>
-                )}
-            </div>
-            <div className="flex min-h-0 flex-1 flex-col p-3">
-                <CardState
-                    loading={loading}
-                    isEmpty={rows.length === 0}
-                    skeleton={
-                        <div className="h-80 space-y-6 py-3">
-                            {Array.from({ length: 6 }).map((_, index) => (
-                                <LemonSkeleton key={index} className="h-4 w-full" />
-                            ))}
-                        </div>
-                    }
-                    empty={
-                        <div className="flex h-80 items-center justify-center text-xs text-secondary">
-                            No harness data yet.
-                        </div>
-                    }
-                >
-                    <div
-                        className="flex flex-wrap justify-between gap-2 text-xs text-secondary tabular-nums"
-                        translate="no"
-                    >
-                        <span>
-                            {formatNumber(totalCalls)} {totalCalls === 1 ? 'call' : 'calls'}
-                        </span>
-                        {sortedRows.some((row) => row.category === 'Other') && (
-                            <Tooltip title="Other harnesses includes clients outside the top six and clients that could not be classified. These calls are included in every share percentage.">
-                                <span
-                                    tabIndex={0}
-                                    className="cursor-help decoration-dotted underline underline-offset-2"
-                                >
-                                    {formatPercentage(totalCalls > 0 ? (otherCalls / totalCalls) * 100 : 0, {
-                                        compact: true,
-                                    })}{' '}
-                                    other harnesses
-                                </span>
-                            </Tooltip>
-                        )}
+                )
+            }
+        >
+            <CardState
+                loading={loading}
+                isEmpty={rows.length === 0}
+                skeleton={
+                    <div className="h-80 space-y-6 py-3">
+                        {Array.from({ length: 6 }).map((_, index) => (
+                            <LemonSkeleton key={index} className="h-4 w-full" />
+                        ))}
                     </div>
-                    <ShareBarChart
-                        rows={chartRows}
-                        totalCalls={totalCalls}
-                        theme={theme}
-                        tooltip={renderTooltip}
-                        fillHeight={fillHeight}
-                        label="Calls by harness"
-                    />
-                </CardState>
-            </div>
+                }
+                empty={
+                    <div className="flex h-80 items-center justify-center text-xs text-secondary">
+                        No harness data yet.
+                    </div>
+                }
+            >
+                <div
+                    className="flex flex-wrap justify-between gap-2 text-xs text-secondary tabular-nums"
+                    translate="no"
+                >
+                    <span>
+                        {formatNumber(totalCalls)} {totalCalls === 1 ? 'call' : 'calls'}
+                    </span>
+                    {sortedRows.some((row) => row.category === 'Other') && (
+                        <Tooltip title="Other harnesses includes clients outside the top six and clients that could not be classified. These calls are included in every share percentage.">
+                            <span tabIndex={0} className="cursor-help decoration-dotted underline underline-offset-2">
+                                {formatPercentage(totalCalls > 0 ? (otherCalls / totalCalls) * 100 : 0, {
+                                    compact: true,
+                                })}{' '}
+                                other harnesses
+                            </span>
+                        </Tooltip>
+                    )}
+                </div>
+                <ShareBarChart
+                    rows={chartRows}
+                    totalCalls={totalCalls}
+                    theme={theme}
+                    tooltip={renderTooltip}
+                    fillHeight={fillHeight}
+                    label="Calls by harness"
+                />
+            </CardState>
             <LemonModal title="All harnesses" isOpen={expanded} onClose={() => setExpanded(false)} width={640}>
                 <HarnessBreakdownTable rows={allRows} totalCalls={totalCalls} />
             </LemonModal>
-        </LemonCard>
+        </Card>
     )
 }

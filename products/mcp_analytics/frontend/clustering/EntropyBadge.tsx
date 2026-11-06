@@ -7,7 +7,7 @@ import { Badge } from '@posthog/quill-primitives'
 export function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
     if (entropy < 0.3) {
         return (
-            <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — one tool dominates this cluster's calls.`}>
+            <Tooltip title={`Routing entropy ${entropy.toFixed(2)}. One tool dominates this cluster's calls.`}>
                 <span>
                     <Badge variant="success">Concentrated · {entropy.toFixed(2)}</Badge>
                 </span>
@@ -16,7 +16,7 @@ export function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
     }
     if (entropy < 0.6) {
         return (
-            <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — calls split between a few tools.`}>
+            <Tooltip title={`Routing entropy ${entropy.toFixed(2)}. Calls split between a few tools.`}>
                 <span>
                     <Badge variant="warning">Mixed · {entropy.toFixed(2)}</Badge>
                 </span>
@@ -25,7 +25,7 @@ export function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
     }
     return (
         <Tooltip
-            title={`Routing entropy ${entropy.toFixed(2)} — calls spread across many tools. Either a real multi-step workflow or the agent is improvising; the aggregate alone can't tell.`}
+            title={`Routing entropy ${entropy.toFixed(2)}. Calls spread across many tools. Either a real multi-step workflow or the agent is improvising; the aggregate alone can't tell.`}
         >
             <span>
                 <Badge variant="destructive">Spread · {entropy.toFixed(2)}</Badge>

@@ -22,13 +22,12 @@ import { formatPercentage } from 'lib/utils/numbers'
 
 import { type NotableSession } from '../mcpDashboardOverviewLogic'
 import { mcpSessionUrl, mcpSessionsUrl } from '../sessionUrls'
-import { formatDuration, truncateSessionId } from './formatters'
+import { DESTRUCTIVE_ERROR_RATE_PCT, formatDuration, truncateSessionId } from './formatters'
 
-const DESTRUCTIVE_ERROR_PCT = 5
 const WARNING_ERROR_PCT = 1
 
 function statusVariant(errorRatePct: number): 'destructive' | 'warning' | 'success' {
-    if (errorRatePct > DESTRUCTIVE_ERROR_PCT) {
+    if (errorRatePct >= DESTRUCTIVE_ERROR_RATE_PCT) {
         return 'destructive'
     }
     if (errorRatePct >= WARNING_ERROR_PCT) {
@@ -86,8 +85,12 @@ function SessionRows({
                             {truncateSessionId(entry.session.session_id)}
                         </Link>
                     </TableCell>
-                    <TableCell align="right">{entry.session.tool_calls}</TableCell>
-                    <TableCell align="right">{formatDuration(entry.session.duration_seconds)}</TableCell>
+                    <TableCell align="right" className="tabular-nums">
+                        {entry.session.tool_calls}
+                    </TableCell>
+                    <TableCell align="right" className="tabular-nums">
+                        {formatDuration(entry.session.duration_seconds)}
+                    </TableCell>
                     <TableCell>
                         <StatusPill errorRatePct={entry.session.error_rate_pct} />
                     </TableCell>
@@ -126,8 +129,8 @@ export function NotableSessionsTable({
                 <SessionRows sessions={sessions} loading={loading} searchParams={searchParams} />
             </Table>
             <CardFooter className="justify-end">
-                <Link to={mcpSessionsUrl(searchParams)} className="text-[10px]">
-                    Open in Sessions tab ↗
+                <Link to={mcpSessionsUrl(searchParams)} className="text-xs">
+                    Open in Sessions tab
                 </Link>
             </CardFooter>
         </Card>
