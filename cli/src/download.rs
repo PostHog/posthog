@@ -1,6 +1,5 @@
 use std::io::Cursor;
 use std::{
-    ffi::OsStr,
     fs,
     path::{Component, Path, PathBuf},
 };
@@ -209,15 +208,15 @@ fn derive_base_name(ref_str: &str) -> String {
         .or_else(|| name.strip_suffix(".dSYM"))
         .unwrap_or(name);
 
-    if is_plain_component(OsStr::new(name)) {
+    if is_plain_component(name) {
         name.to_string()
     } else {
         "symbol_set".to_string()
     }
 }
 
-fn is_plain_component(name: &OsStr) -> bool {
-    let mut components = Path::new(name).components();
+fn is_plain_component(name: impl AsRef<Path>) -> bool {
+    let mut components = name.as_ref().components();
     matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
 }
 
@@ -238,6 +237,9 @@ mod tests {
         zip.start_file("dwarf", zip::write::SimpleFileOptions::default())
             .unwrap();
         zip.write_all(b"debug info").unwrap();
+        zip.start_file("../../source.c", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"source").unwrap();
         let zip_data = zip.finish().unwrap().into_inner();
 
         let root = tempfile::tempdir().unwrap();
@@ -256,7 +258,9 @@ mod tests {
         .unwrap();
 
         assert!(!root.path().join("dwarf").exists());
+        assert!(!root.path().join("source.c").exists());
         assert!(output.join("symbol_set").join("dwarf").is_file());
+        assert!(output.join("symbol_set").join("source.c").is_file());
     }
 
     #[test]
