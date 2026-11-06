@@ -120,7 +120,7 @@ def create_hog_flow_manual_invocation(
     The caller checks that the user may edit the workflow. Raises RuntimeError when the signing
     key is not set. CdpApi.postHogFlowManualInvocation verifies the token."""
     logger.info(f"Creating manual hog flow invocation for hog flow {hog_flow_id} on workers")
-    token = WORKFLOWS_MANUAL_RUN_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id})
+    token = WORKFLOWS_MANUAL_RUN_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id, "user_id": user_id})
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/manual_invocations",
         json={"user_id": user_id, "variables": variables},
