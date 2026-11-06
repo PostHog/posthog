@@ -3,7 +3,9 @@ import base64
 from collections.abc import Callable
 from typing import Any
 
-from unittest.mock import patch
+import time_machine
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -382,3 +384,39 @@ class TestSummarizeDlqMessage(SimpleTestCase):
             "r***@example.com",
             True,
         )
+
+
+class TestSesEventsDlqConsoleTool(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+    @time_machine.travel("2026-11-03T12:00:00Z", tick=False)
+    @override_settings(
+        SES_EVENTS_DLQ_URLS=[QUEUE.url, "https://sqs.eu-central-1.amazonaws.com/000000000000/ses-events-other-dlq"]
+    )
+    @patch("products.workflows.backend.facade.ses_events_dlq.sqs_client")
+    def test_shows_each_queue_and_masks_recipients(self, sqs_client: MagicMock) -> None:
+        readable = MagicMock()
+        readable.get_queue_attributes.return_value = {
+            "Attributes": {"ApproximateNumberOfMessages": "3", "ApproximateNumberOfMessagesNotVisible": "1"}
+        }
+        readable.receive_message.return_value = {"Messages": [sns_message("a", "Bounce", team_id=42)]}
+        unreadable = MagicMock()
+        unreadable.get_queue_attributes.side_effect = ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "not allowed"}}, "GetQueueAttributes"
+        )
+        sqs_client.side_effect = lambda queue: readable if queue == QUEUE else unreadable
+
+        response = self.client.get("/admin/console/tools/ses-events-dlq/")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert QUEUE.name in content
+        assert "Could not read the queue: An error occurred (AccessDenied)" in content
+        assert 'href="/admin/console/teams/42/"' in content
+        assert "r***@example.com" in content
+        assert "recipient@example.com" not in content
+        assert "2 h 0 min" in content

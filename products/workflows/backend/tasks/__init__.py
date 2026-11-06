@@ -6,7 +6,6 @@ from . import (
     people_import,
     push_token_import,
     ses_account_reputation,
-    ses_events_dlq,
 )
 
 __all__ = [
@@ -17,5 +16,4 @@ __all__ = [
     "people_import",
     "push_token_import",
     "ses_account_reputation",
-    "ses_events_dlq",
 ]
