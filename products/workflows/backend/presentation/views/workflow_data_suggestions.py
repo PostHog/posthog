@@ -16,6 +16,7 @@ from posthog.event_usage import EventSource, get_event_source, report_user_actio
 from posthog.models import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
+from products.workflows.backend.facade.api import sandbox_email_sender_for_reads
 from products.workflows.backend.facade.contracts import (
     BuiltSuggestion,
     DataSuggestionNotFound,
@@ -107,13 +108,23 @@ class DataSuggestionsResponseSerializer(serializers.Serializer):
         many=True, help_text="Up to 3 suggested workflows, ranked by lifecycle stage and then by weekly volume."
     )
     email_sender_ready = serializers.SerializerMethodField(
-        help_text="Whether the project has a verified email sender. Without one, an email workflow can be saved as a "
-        "draft but cannot send until a sending domain is added and verified."
+        help_text="Whether the project has a verified email sender, or the sandbox sender (see sandbox_sender_only). "
+        "Without either, an email workflow can be saved as a draft but cannot send until a sending domain is added "
+        "and verified."
+    )
+    sandbox_sender_only = serializers.SerializerMethodField(
+        help_text="Whether the only sender is the sandbox sender: a PostHog-managed address that sends only to "
+        "verified members of the organization, from workflow email steps. Suggested drafts leave its sender blank, "
+        "so set it from integrations-list (kind=email, config.provider='sandbox')."
     )
 
     @extend_schema_field(serializers.BooleanField())
     def get_email_sender_ready(self, _result: object) -> bool:
         return bool(self.context.get("email_sender_ready"))
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_sandbox_sender_only(self, _result: object) -> bool:
+        return bool(self.context.get("sandbox_sender_only"))
 
 
 class DataSuggestionGenerateRequestSerializer(serializers.Serializer):
@@ -281,8 +292,13 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _suggestions_response(self, result: DataSuggestionsResult) -> Response:
         # Read on every call rather than cached with the cards, so it changes as soon as a domain verifies.
-        ready = email_sender_ready(team=self.team)
-        return Response(DataSuggestionsResponseSerializer(result, context={"email_sender_ready": ready}).data)
+        own_sender_ready = email_sender_ready(team=self.team)
+        sandbox_sender_only = not own_sender_ready and sandbox_email_sender_for_reads(self.team) is not None
+        context = {
+            "email_sender_ready": own_sender_ready or sandbox_sender_only,
+            "sandbox_sender_only": sandbox_sender_only,
+        }
+        return Response(DataSuggestionsResponseSerializer(result, context=context).data)
 
     @extend_schema(
         operation_id="workflow_data_suggestions_build",

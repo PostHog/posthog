@@ -9,6 +9,7 @@ from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import OperationalError
+from django.test import override_settings
 from django.utils import timezone
 
 from clickhouse_driver.errors import NetworkError
@@ -67,6 +68,7 @@ from products.workflows.backend.services.data_suggestions.team_context import (
 from products.workflows.backend.services.email_sending_controls import ensure_workflows_config
 from products.workflows.backend.tasks.data_suggestions import build_data_suggestion
 from products.workflows.backend.tests.api.test_hog_flow_action_email import _email_function_template, webhook_template
+from products.workflows.backend.tests.api.test_sandbox_sender import SANDBOX_SETTINGS
 
 SERVICE = "products.workflows.backend.services.data_suggestions.service"
 EVENT_VOLUME = "products.workflows.backend.services.data_suggestions.event_volume"
@@ -182,11 +184,14 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert body["status"] == "ready"
         assert [(s["trigger_event"], s["weekly_count"]) for s in body["suggestions"]] == [("trial_started", 3)]
         assert body["email_sender_ready"] is False
+        with override_settings(**SANDBOX_SETTINGS), patch("posthoganalytics.feature_enabled", return_value=True):
+            sandbox_only = self._list()
+        assert (sandbox_only["email_sender_ready"], sandbox_only["sandbox_sender_only"]) == (True, True)
         Integration.objects.create(team=self.team, kind="email", config={"email": "hi@example.com", "verified": True})
         cached = self._list()
         assert cached["suggestions"] == body["suggestions"]
         # The flag is read on every call, so a sender verified after the cards were cached shows up right away.
-        assert cached["email_sender_ready"] is True
+        assert (cached["email_sender_ready"], cached["sandbox_sender_only"]) == (True, False)
         assert suggest_ideas.call_count == 1
 
     @patch(f"{SERVICE}.classify_event_stages")
@@ -260,8 +265,18 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         classify.return_value = {}
         suggest_ideas.return_value = ideas
 
-        assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
-        assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
+        assert self._list() == {
+            "status": "unavailable",
+            "suggestions": [],
+            "email_sender_ready": False,
+            "sandbox_sender_only": False,
+        }
+        assert self._list() == {
+            "status": "unavailable",
+            "suggestions": [],
+            "email_sender_ready": False,
+            "sandbox_sender_only": False,
+        }
         assert classify.call_count == 1
 
     @patch(f"{SERVICE}.suggest_ideas")
@@ -269,7 +284,12 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         suggest_ideas.return_value = [_idea("made_up_event")]
 
         with time_machine.travel(timezone.now(), tick=False) as clock:
-            assert self._list() == {"status": "ready", "suggestions": [], "email_sender_ready": False}
+            assert self._list() == {
+                "status": "ready",
+                "suggestions": [],
+                "email_sender_ready": False,
+                "sandbox_sender_only": False,
+            }
             clock.shift(FAILURE_CACHE_TTL_SECONDS + 60)
             self._list()
 
@@ -359,8 +379,18 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         execute.side_effect = error
 
-        assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
-        assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
+        assert self._list() == {
+            "status": "unavailable",
+            "suggestions": [],
+            "email_sender_ready": False,
+            "sandbox_sender_only": False,
+        }
+        assert self._list() == {
+            "status": "unavailable",
+            "suggestions": [],
+            "email_sender_ready": False,
+            "sandbox_sender_only": False,
+        }
         assert execute.call_count == 1
 
     @parameterized.expand(
@@ -447,7 +477,12 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         self.jev_configured.return_value = jev_configured
         self.privacy_mode.return_value = privacy_mode
 
-        assert self._list() == {"status": status, "suggestions": [], "email_sender_ready": False}
+        assert self._list() == {
+            "status": status,
+            "suggestions": [],
+            "email_sender_ready": False,
+            "sandbox_sender_only": False,
+        }
         suggest_ideas.assert_not_called()
 
     @patch(f"{SERVICE}.classify_event_stages")
@@ -460,8 +495,18 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         suggestions = self._list()["suggestions"]
         classify.side_effect = StageClassificationFailed()
 
-        assert self._list(refresh=True) == {"status": "ready", "suggestions": suggestions, "email_sender_ready": False}
-        assert self._list() == {"status": "ready", "suggestions": suggestions, "email_sender_ready": False}
+        assert self._list(refresh=True) == {
+            "status": "ready",
+            "suggestions": suggestions,
+            "email_sender_ready": False,
+            "sandbox_sender_only": False,
+        }
+        assert self._list() == {
+            "status": "ready",
+            "suggestions": suggestions,
+            "email_sender_ready": False,
+            "sandbox_sender_only": False,
+        }
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
@@ -706,7 +751,12 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert self._list()["status"] == "ready"
         cache.add(_generation_lock_key(self.team), "another-run", 60)
 
-        assert self._list(refresh=True) == {"status": "generating", "suggestions": [], "email_sender_ready": False}
+        assert self._list(refresh=True) == {
+            "status": "generating",
+            "suggestions": [],
+            "email_sender_ready": False,
+            "sandbox_sender_only": False,
+        }
         assert suggest_ideas.call_count == 1
 
         cache.delete(_generation_lock_key(self.team))

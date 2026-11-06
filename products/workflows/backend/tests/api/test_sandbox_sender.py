@@ -88,6 +88,37 @@ class TestSandboxSenderAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("every kind", "", True, True),
+            ("email senders", "?kind=email", True, True),
+            ("another kind", "?kind=slack", True, False),
+            ("flag off", "", False, False),
+        ]
+    )
+    def test_listing_integrations_provisions_the_sandbox_sender_once(
+        self, _name: str, query: str, flag_enabled: bool, provisions: bool
+    ) -> None:
+        self.flag_enabled.return_value = flag_enabled
+
+        responses = [self.client.get(f"/api/projects/{self.team.id}/integrations/{query}") for _ in range(2)]
+
+        assert [response.status_code for response in responses] == [status.HTTP_200_OK] * 2
+        assert self._sandbox_rows().exists() is provisions
+        assert [event.kwargs["properties"]["source"] for event in self._provisioned_events()] == (
+            ["integrations_list"] if provisions else []
+        )
+        if provisions:
+            listed = [row["id"] for row in responses[0].json()["results"] if row["kind"] == "email"]
+            assert listed == [self._sandbox_rows().get().id]
+
+    def test_listing_integrations_still_answers_when_provisioning_fails(self) -> None:
+        with patch("posthog.integrations.accessors.AuthAccessor.upsert", side_effect=RuntimeError("database down")):
+            response = self.client.get(f"/api/projects/{self.team.id}/integrations/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert not self._sandbox_rows().exists()
+
+    @parameterized.expand(
+        [
             ("symbols and markup dropped", "Acme <script> Inc!", "Acme script Inc via PostHog"),
             ("allowed punctuation kept", "O'Brien & Sons, Ltd.-Co", "O'Brien & Sons, Ltd.-Co via PostHog"),
             ("cut to forty characters", "A" * 50, f"{'A' * 40} via PostHog"),

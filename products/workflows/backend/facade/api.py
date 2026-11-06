@@ -49,7 +49,10 @@ from products.workflows.backend.services.existing_email_tools import (
 )
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 from products.workflows.backend.services.owned_workflow_health import list_owned_workflow_health
-from products.workflows.backend.services.sandbox_sender import ensure_sandbox_email_sender
+from products.workflows.backend.services.sandbox_sender import (
+    ensure_sandbox_email_sender,
+    sandbox_email_sender_for_reads,
+)
 from products.workflows.backend.services.template_input_usage import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
@@ -71,6 +74,7 @@ __all__ = [
     "compute_next_occurrences",
     "create_batch_job",
     "ensure_sandbox_email_sender",
+    "sandbox_email_sender_for_reads",
     "ensure_workflows_config",
     "filter_hog_flow_references_by_access_level",
     "get_email_sending_state",

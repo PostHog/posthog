@@ -643,7 +643,8 @@ tools:
             workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet.
             For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen
             in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it
-            is. Automations that only post to Slack or call webhooks need none of these steps. Offer
+            is. When sandbox_sender_only is true, email sends only through the sandbox sender, to verified members of
+            the organization: say so, and point to the channel and domain steps for sending to anyone else. Automations that only post to Slack or call webhooks need none of these steps. Offer
             workflows-data-suggestions-list once setup is done.
         ui_app: workflow-setup-status
         feature_flag: workflows-mcp-onboarding

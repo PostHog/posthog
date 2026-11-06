@@ -10,6 +10,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.dataclasses import frozen
 from posthog.utils import absolute_uri
 
+from products.workflows.backend.facade.api import sandbox_email_sender_for_reads
 from products.workflows.backend.facade.contracts import SetupStep
 from products.workflows.backend.facade.enums import SetupStepKey
 from products.workflows.backend.facade.setup_status import email_sending_paused, get_setup_steps
@@ -75,9 +76,17 @@ class WorkflowSetupStepSerializer(serializers.Serializer):
 class WorkflowSetupStatusSerializer(serializers.Serializer):
     steps = WorkflowSetupStepSerializer(many=True, help_text="Every messaging setup step, in order.")
     ready_to_send_email = serializers.BooleanField(
-        help_text="Whether an email workflow can send. Needs a connected email channel on a verified domain, and "
-        "email sending must not be paused for the project. SMS and push use their own channels, and automations "
-        "that only post to tools like Slack or call webhooks need none of these steps."
+        help_text="Whether an email workflow can send. Needs a connected email channel on a verified domain, or the "
+        "sandbox sender (see sandbox_sender_only), and email sending must not be paused for the project. SMS and "
+        "push use their own channels, and automations that only post to tools like Slack or call webhooks need none "
+        "of these steps."
+    )
+    sandbox_sender_only = serializers.BooleanField(
+        help_text="Whether email can send only through the sandbox sender, because the project has no verified "
+        "sender of its own. The sandbox sender is a PostHog-managed address that sends only to verified members of "
+        "the organization, from workflow email steps, with a fixed From and no Reply-To. Find it with "
+        "integrations-list (kind=email, config.provider='sandbox'). To email anyone else, the person still connects "
+        "and verifies their own domain."
     )
     email_sending_paused = serializers.BooleanField(
         help_text="Whether email sending is paused for the project, so no email sends even with a verified "
@@ -104,11 +113,14 @@ class WorkflowSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         steps = get_setup_steps(self.team)
         done = {step.key: step.done for step in steps}
         paused = email_sending_paused(self.team)
+        own_sender_ready = all(done[key] for key in _REQUIRED_TO_SEND)
+        sandbox_sender_only = not own_sender_ready and sandbox_email_sender_for_reads(self.team) is not None
         return Response(
             WorkflowSetupStatusSerializer(
                 {
                     "steps": [self._step(step) for step in steps],
-                    "ready_to_send_email": all(done[key] for key in _REQUIRED_TO_SEND) and not paused,
+                    "ready_to_send_email": (own_sender_ready or sandbox_sender_only) and not paused,
+                    "sandbox_sender_only": sandbox_sender_only,
                     "email_sending_paused": paused,
                     "next_open_step": next((step.key for step in steps if not step.done), None),
                 }

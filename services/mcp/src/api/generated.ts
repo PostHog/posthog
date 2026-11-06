@@ -33170,8 +33170,10 @@ export namespace Schemas {
       status: DataSuggestionsStatusEnum;
       /** Up to 3 suggested workflows, ranked by lifecycle stage and then by weekly volume. */
       suggestions: DataSuggestion[];
-      /** Whether the project has a verified email sender. Without one, an email workflow can be saved as a draft but cannot send until a sending domain is added and verified. */
+      /** Whether the project has a verified email sender, or the sandbox sender (see sandbox_sender_only). Without either, an email workflow can be saved as a draft but cannot send until a sending domain is added and verified. */
       readonly email_sender_ready: boolean;
+      /** Whether the only sender is the sandbox sender: a PostHog-managed address that sends only to verified members of the organization, from workflow email steps. Suggested drafts leave its sender blank, so set it from integrations-list (kind=email, config.provider='sandbox'). */
+      readonly sandbox_sender_only: boolean;
     }
 
     export interface DataWarehouseExpression {
@@ -118012,8 +118014,10 @@ export namespace Schemas {
     export interface WorkflowSetupStatus {
       /** Every messaging setup step, in order. */
       steps: WorkflowSetupStep[];
-      /** Whether an email workflow can send. Needs a connected email channel on a verified domain, and email sending must not be paused for the project. SMS and push use their own channels, and automations that only post to tools like Slack or call webhooks need none of these steps. */
+      /** Whether an email workflow can send. Needs a connected email channel on a verified domain, or the sandbox sender (see sandbox_sender_only), and email sending must not be paused for the project. SMS and push use their own channels, and automations that only post to tools like Slack or call webhooks need none of these steps. */
       ready_to_send_email: boolean;
+      /** Whether email can send only through the sandbox sender, because the project has no verified sender of its own. The sandbox sender is a PostHog-managed address that sends only to verified members of the organization, from workflow email steps, with a fixed From and no Reply-To. Find it with integrations-list (kind=email, config.provider='sandbox'). To email anyone else, the person still connects and verifies their own domain. */
+      sandbox_sender_only: boolean;
       /** Whether email sending is paused for the project, so no email sends even with a verified domain. The person contacts PostHog support to resume it. */
       email_sending_paused: boolean;
       /** The first step that is not done, or null when every step is done.

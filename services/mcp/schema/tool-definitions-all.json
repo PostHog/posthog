@@ -8904,7 +8904,7 @@
         }
     },
     "integrations-list": {
-        "description": "List all third-party integrations configured in the current project. Returns each integration's type (kind), display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack, github, hubspot, salesforce, and various ad platforms. Sensitive credentials (access tokens, secrets) are never serialized. For native email senders, filter kind=email and inspect config.verified: true means verified, false means unverified, and a missing flag means unknown. An empty result means no visible sender; check all pages before concluding none is configured. Other raw configuration is excluded.",
+        "description": "List all third-party integrations configured in the current project. Returns each integration's type (kind), display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack, github, hubspot, salesforce, and various ad platforms. Sensitive credentials (access tokens, secrets) are never serialized. For native email senders, filter kind=email and inspect config.verified: true means verified, false means unverified, and a missing flag means unknown. An empty result means no visible sender; check all pages before concluding none is configured. An email row with config.provider 'sandbox' is the PostHog-managed sandbox sender: it sends only to verified members of the organization, only from workflow email steps, and takes no custom From or Reply-To. Other raw configuration is excluded.",
         "category": "Integrations",
         "feature": "integrations",
         "summary": "List integrations",
@@ -18299,7 +18299,7 @@
         "feature_flag": "workflows-mcp-onboarding"
     },
     "workflows-setup-status": {
-        "description": "Which messaging setup steps the project has done: email channel, verified sending domain, opt-out categories, frequency cap, email template and first workflow. Call it first when a user asks to set up workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet. For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it is. Automations that only post to Slack or call webhooks need none of these steps. Offer workflows-data-suggestions-list once setup is done.",
+        "description": "Which messaging setup steps the project has done: email channel, verified sending domain, opt-out categories, frequency cap, email template and first workflow. Call it first when a user asks to set up workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet. For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it is. When sandbox_sender_only is true, email sends only through the sandbox sender, to verified members of the organization: say so, and point to the channel and domain steps for sending to anyone else. Automations that only post to Slack or call webhooks need none of these steps. Offer workflows-data-suggestions-list once setup is done.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Check messaging setup",

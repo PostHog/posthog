@@ -29,6 +29,8 @@ Transactional email is never delayed by the send-time caps, but it is still char
 
 The `workflows-sandbox-sender` flag enables a PostHog-managed email integration per project through `POST /api/projects/:project_id/integrations/email_sandbox_sender/`.
 The endpoint requires `integration:write` and project membership. Repeated requests keep the same integration and refresh its display name from the organization name.
+With the flag on, listing the project's integrations (every kind, or `kind=email`) also creates the sender and refreshes its display name, at most once an hour per project, so the app and MCP clients find it without calling the endpoint. That list needs only `integration:read`.
+`workflows-setup-status` and the workflow data suggestions count the sender as ready to send email, with `sandbox_sender_only` true until the project has a verified sender of its own.
 Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value leaves the endpoint unavailable.
 Teams can't register an integration on `WORKFLOWS_SANDBOX_SENDER_DOMAIN` or its subdomains while that setting has a value, even when the other two are empty.
 The worker sends from the same `SES_SANDBOX_FROM_ADDRESS`, so set it once for Django and the worker. The address the UI shows is then the address the worker sends from.

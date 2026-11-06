@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -10,6 +12,7 @@ from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMA
 from products.messaging.backend.facade.testing import create_message_category_for_test, create_message_template_for_test
 from products.workflows.backend.models import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.tests.api.test_sandbox_sender import SANDBOX_SETTINGS
 
 
 class TestWorkflowSetupStatusAPI(APIBaseTest):
@@ -57,6 +60,28 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
         assert body["next_open_step"] == "channel"
         assert body["steps"][0]["app_url"].endswith(
             f"/project/{self.team.id}/workflows/onboarding?path=messaging&step=channel"
+        )
+
+    @parameterized.expand(
+        [
+            ("flag on, no own sender", True, False, True, True),
+            ("flag on, own verified sender", True, True, True, False),
+            ("flag off", False, False, False, False),
+        ]
+    )
+    def test_a_flagged_project_can_send_through_the_sandbox_sender(
+        self, _name: str, flag_on: bool, own_sender: bool, expected_ready: bool, expected_sandbox_only: bool
+    ) -> None:
+        if own_sender:
+            self._add_email_channel(verified=True)
+
+        with override_settings(**SANDBOX_SETTINGS), patch("posthoganalytics.feature_enabled", return_value=flag_on):
+            body = self._status()
+
+        assert (body["ready_to_send_email"], body["sandbox_sender_only"]) == (expected_ready, expected_sandbox_only)
+        assert self._done(body)["channel"] is own_sender
+        assert Integration.objects.filter(team=self.team, integration_id=SANDBOX_EMAIL_INTEGRATION_ID).exists() is (
+            expected_sandbox_only
         )
 
     def test_an_unverified_domain_cannot_send(self) -> None:

@@ -234,6 +234,7 @@ const integrationsList = (): ToolBase<
                     'created_at',
                     'created_by',
                     'config.verified',
+                    'config.provider',
                 ])
             ),
         } as typeof result

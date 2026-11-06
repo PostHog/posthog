@@ -157,7 +157,9 @@ tools:
             github, hubspot, salesforce, and various ad platforms. Sensitive credentials (access tokens, secrets) are
             never serialized. For native email senders, filter kind=email and inspect config.verified: true means
             verified, false means unverified, and a missing flag means unknown. An empty result means no visible sender;
-            check all pages before concluding none is configured. Other raw configuration is excluded.
+            check all pages before concluding none is configured. An email row with config.provider 'sandbox' is the
+            PostHog-managed sandbox sender: it sends only to verified members of the organization, only from workflow
+            email steps, and takes no custom From or Reply-To. Other raw configuration is excluded.
         response:
             include:
                 - id
@@ -167,6 +169,7 @@ tools:
                 - created_at
                 - created_by
                 - config.verified
+                - config.provider
     integrations-push-tokens-create:
         operation: integrations_push_tokens_create
         enabled: true
