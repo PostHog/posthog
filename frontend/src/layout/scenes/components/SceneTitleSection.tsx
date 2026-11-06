@@ -298,10 +298,12 @@ function LemonSceneTitleSection({
                                             {hasDescription && !descriptionAlwaysVisible ? (
                                                 <ButtonPrimitive
                                                     className={cn(
-                                                        'size-[var(--button-height-sm)] shrink-0',
+                                                        // Plain opacity with a transition, not keyframes: a keyframe's resting state lives
+                                                        // only in its forwards fill, which the test runner sometimes paints at 0%.
+                                                        'size-[var(--button-height-sm)] shrink-0 transition-opacity duration-200 motion-reduce:transition-none',
                                                         isScrolled
-                                                            ? 'animate-fade-out-subtle pointer-events-none'
-                                                            : 'animate-fade-in-subtle group-hover/scene-title-section:opacity-100 opacity-30 transition-opacity duration-200 motion-reduce:transition-none'
+                                                            ? 'opacity-0 pointer-events-none'
+                                                            : 'opacity-30 group-hover/scene-title-section:opacity-100'
                                                     )}
                                                     onClick={toggleShowDescription}
                                                     tooltip={showDescription ? 'Hide description' : 'Show description'}
