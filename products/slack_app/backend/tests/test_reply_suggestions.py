@@ -120,19 +120,16 @@ class TestReplySuggestionClick(TestCase):
                 "type": "message",
                 "channel_id": self.channel,
                 "message_ts": self.message_ts,
-                "thread_ts": self.thread_ts,
+                **({} if report_implementation else {"thread_ts": self.thread_ts}),
             },
             "message": {
                 "ts": self.message_ts,
-                "thread_ts": self.thread_ts,
+                **({} if report_implementation else {"thread_ts": self.thread_ts}),
                 "text": "Should I open a pull request?",
                 "blocks": [ANSWER_BLOCK, block, FOOTER_BLOCK],
             },
             "actions": [{"action_id": action["action_id"], "block_id": block["block_id"], "value": action["value"]}],
         }
-        if report_implementation:
-            del payload["container"]["thread_ts"]
-            del payload["message"]["thread_ts"]
         body_str = f"payload={json.dumps(payload)}"
         signed = sign_slack_request(body_str.encode(), self.signing_secret)
         return self.client.post(
