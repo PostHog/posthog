@@ -4,13 +4,13 @@ import { useRef } from 'react'
 import { IconTelescope } from '@posthog/icons'
 import {
     Button,
-    CardGroup,
     Dialog,
     DialogBody,
     DialogContent,
     DialogDescription,
     DialogHeader,
     DialogTitle,
+    Text,
 } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
@@ -52,13 +52,17 @@ export function TodayNewsDialog(): JSX.Element | null {
             >
                 <DialogHeader>
                     <DialogTitle className="text-2xl tracking-tight">Today</DialogTitle>
-                    <DialogDescription className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                        <span>{currentTeam?.name ?? 'Your project'}</span>
-                        <span aria-hidden>·</span>
-                        <span translate="no">{today}</span>
-                        <span aria-hidden>·</span>
+                    <DialogDescription>
+                        {currentTeam?.name ?? 'Your project'} · <span translate="no">{today}</span>
+                    </DialogDescription>
+                    <Text
+                        size="xs"
+                        variant="muted"
+                        render={<p />}
+                        className="m-0 flex flex-wrap items-center gap-x-1.5"
+                    >
                         <IconTelescope className="size-3.5 shrink-0" />
-                        <span>Edited by a scout.</span>
+                        <span>Created by the Today scout from the last 24 hours of project activity.</span>
                         <Button
                             variant="link"
                             size="inline"
@@ -67,17 +71,17 @@ export function TodayNewsDialog(): JSX.Element | null {
                             onClick={closeNews}
                             data-attr="today-news-create-scout"
                         >
-                            Hire your own
+                            Create your own custom scout
                         </Button>
-                    </DialogDescription>
+                    </Text>
                 </DialogHeader>
                 <DialogBody>
-                    <div className="@container flex flex-col gap-4">
-                        <div className="grid gap-4 @3xl:grid-cols-5">
+                    <div className="@container flex flex-col gap-6">
+                        <div className="grid gap-6 @3xl:grid-cols-5 @3xl:gap-8">
                             <div className="@3xl:col-span-3">
                                 <TodayNewsLead story={edition.lead} onDiveIn={() => diveIn(edition.lead, 0)} />
                             </div>
-                            <CardGroup className="flex flex-col self-start @3xl:col-span-2">
+                            <ul className="m-0 flex list-none flex-col p-0 @3xl:col-span-2">
                                 {edition.stories.map((story, index) => (
                                     <TodayNewsStoryRow
                                         key={story.id}
@@ -85,7 +89,7 @@ export function TodayNewsDialog(): JSX.Element | null {
                                         onDiveIn={() => diveIn(story, index + 1)}
                                     />
                                 ))}
-                            </CardGroup>
+                            </ul>
                         </div>
                         {edition.briefs.length > 0 ? <TodayNewsBriefs briefs={edition.briefs} /> : null}
                     </div>
