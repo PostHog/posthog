@@ -133,6 +133,10 @@ const ANY_TIME: Greeting[] = [
     plain('Hi, welcome to Chili’s.'),
     plain('I basically run on iced data and panic.'),
     plain('Sir, this is a homepage.'),
+    plain('Welcome back to the simulation.'),
+    plain('Look at you, perceiving things.'),
+    plain('Are we doing things today, or just looking at them?'),
+    plain('You’re doing great. (Probably.)'),
 ]
 
 function greetingPool(day: number, hour: number): Greeting[] {
