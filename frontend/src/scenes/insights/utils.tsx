@@ -37,6 +37,7 @@ import {
     ExperimentDataWarehouseNode,
     BreakdownFilter,
     DashboardFilter,
+    DataVisualizationNode,
     FileSystemIconType,
     GroupNode,
     HogQLQuery,
@@ -673,6 +674,13 @@ export function opensOutsideInsightScene(query: Node | null | undefined): boolea
         isHogQLQuery(query) ||
         ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source))
     )
+}
+
+/** The query to open in the SQL editor for an unsaved SQL insight, which has no other route to its SQL */
+export function unsavedSqlInsightQuery(query: Node | null, isSaved: boolean): DataVisualizationNode | null {
+    return !isSaved && isDataVisualizationNode(query) && !isBIVisualizationNode(query) && isHogQLQuery(query.source)
+        ? query
+        : null
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {

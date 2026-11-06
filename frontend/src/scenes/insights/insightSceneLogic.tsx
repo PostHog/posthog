@@ -90,6 +90,19 @@ function normalizeItemId(itemId: string | undefined): number | null {
     return Number(itemId) || null
 }
 
+// Hand-built links skip `urls.insightNew()`, and this scene cannot edit a new SQL query
+function newInsightUrlOutsideScene(q: unknown, dashboard: unknown, tileGroup: unknown): string | null {
+    const query = typeof q === 'string' ? parseDraftQueryFromURL(q) : (q as Node | undefined)
+    if (!opensOutsideInsightScene(query)) {
+        return null
+    }
+    return urls.insightNew({
+        query: query as Node,
+        dashboardId: dashboard ? Number(dashboard) : undefined,
+        tileGroupKey: typeof tileGroup === 'string' ? tileGroup : undefined,
+    })
+}
+
 // Tag a new insight's query with the product_analytics productKey (on the executed source query) so
 // ClickHouse doesn't reject it as untagged. Leaves an existing productKey untouched.
 function withDefaultProductAnalyticsTags(query: Node): Node {
@@ -863,19 +876,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if (shortId === 'quick-start') {
                 return
             }
-            // Hand-built links skip `urls.insightNew()`, and this scene cannot edit a new SQL query
-            if (shortId === 'new' && q) {
-                const parsedQuery = typeof q === 'string' ? parseDraftQueryFromURL(q) : q
-                if (opensOutsideInsightScene(parsedQuery)) {
-                    router.actions.replace(
-                        urls.insightNew({
-                            query: parsedQuery,
-                            dashboardId: dashboard ? Number(dashboard) : undefined,
-                            tileGroupKey: searchParams.tile_group,
-                        })
-                    )
-                    return
-                }
+            const outsideSceneUrl =
+                shortId === 'new' ? newInsightUrlOutsideScene(q, dashboard, searchParams.tile_group) : null
+            if (outsideSceneUrl) {
+                router.actions.replace(outsideSceneUrl)
+                return
             }
             const insightMode =
                 mode === 'subscriptions'
