@@ -343,6 +343,13 @@ export class RecordingDeletedError extends Error {
     }
 }
 
+export class NotAReplayBlockError extends Error {
+    constructor() {
+        super('Block fetch returned something other than a block')
+        this.name = 'NotAReplayBlockError'
+    }
+}
+
 function asRecordingDeletedError(e: unknown): unknown {
     if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
         return new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
@@ -4460,7 +4467,7 @@ const api = {
                         }
                         // Without a route to recording-api the app shell answers with HTML, which is not a block.
                         if (!response.headers.get('Content-Type')?.startsWith('application/octet-stream')) {
-                            throw new Error('Block fetch returned something other than a block')
+                            throw new NotAReplayBlockError()
                         }
                         return new Uint8Array(await response.arrayBuffer())
                     } catch (e) {
@@ -5440,9 +5447,6 @@ const api = {
         },
         async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).get()
-        },
-        async create(data: Partial<DataWarehouseTable>): Promise<DataWarehouseTable> {
-            return await new ApiRequest().dataWarehouseTables().create({ data })
         },
         async delete(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).delete()

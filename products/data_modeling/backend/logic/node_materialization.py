@@ -1,10 +1,13 @@
+import math
 import asyncio
+from collections.abc import Set as AbstractSet
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 from temporalio.client import Client, WorkflowExecutionStatus
@@ -32,14 +35,23 @@ from products.data_modeling.backend.facade.contracts import (
     ManagedWarehouseUnavailableError,
     MaterializationAlreadyRunningError,
     MaterializationForbiddenError,
+    MaterializationRanRecentlyError,
     MaterializationRunDirection,
 )
 from products.data_modeling.backend.graph import Graph
+from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, humanize_cadence
 from products.data_modeling.backend.logic.incremental import TRINO_INCREMENTAL_SCOPE, clear_incremental_state
 from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
 from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
-from products.data_modeling.backend.models import DataModelingJobEngine, Node
+from products.data_modeling.backend.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
+    Node,
+    NodeType,
+)
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
 
 logger = structlog.get_logger(__name__)
@@ -47,6 +59,18 @@ logger = structlog.get_logger(__name__)
 
 RELATED_RUN_EDIT_ACCESS_REFUSAL = "You need edit access to every view in this run."
 MANAGED_WAREHOUSE_UNAVAILABLE_REFUSAL = "This organization has no managed warehouse set up."
+# A manual run gets the same floor as a schedule, so a script calling run in a loop cannot rebuild a view
+# more often than the shortest schedule a person may pick.
+MANUAL_RUN_MIN_INTERVAL = min(SCHEDULABLE_BUCKETS)
+RAN_RECENTLY_REFUSAL = (
+    f"This view ran less than {humanize_cadence(MANUAL_RUN_MIN_INTERVAL)} ago, so it can't run again yet."
+)
+RELATED_RUN_RAN_RECENTLY_REFUSAL = (
+    f"Every view in this run ran less than {humanize_cadence(MANUAL_RUN_MIN_INTERVAL)} ago, so it can't run again yet. "
+    "To retry a failed view now, run that view on its own."
+)
+# A DAG run treats plain views as ephemeral and records no job for them, so they cannot show a recent run.
+DAG_BUILT_NODE_TYPES = SAVED_QUERY_NODE_TYPES - {NodeType.VIEW}
 # Long enough for the state changes that follow the start to commit before the workflow first reads them.
 MANUAL_TRINO_RUN_START_DELAY = timedelta(seconds=5)
 MAX_NAMED_BUILDING_MODELS = 5
@@ -87,6 +111,67 @@ def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_
             retry_policy=RetryPolicy(maximum_attempts=1),  # retries handled within the workflow
         )
     )
+
+
+def _latest_runs_inside_limit(
+    team_id: int,
+    saved_query_ids: AbstractSet[UUID | str],
+    *,
+    now: datetime,
+    ignored_statuses: frozenset[str] = frozenset(),
+) -> list[tuple[str, datetime]]:
+    """The status and start of the latest ClickHouse run of each view inside MANUAL_RUN_MIN_INTERVAL.
+
+    A query edit after that run started removes the view, because that run did not build the new query.
+    """
+    latest_runs = (
+        DataModelingJob.objects.filter(
+            team_id=team_id,
+            saved_query_id__in=saved_query_ids,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            created_at__gt=now - MANUAL_RUN_MIN_INTERVAL,
+        )
+        .exclude(status__in=ignored_statuses)
+        .order_by("saved_query_id", "-created_at")
+        .distinct("saved_query_id")
+        .values_list("status", "created_at", "saved_query__query_updated_at")
+    )
+    return [
+        (status, started_at)
+        for status, started_at, query_updated_at in latest_runs
+        if query_updated_at is None or query_updated_at <= started_at
+    ]
+
+
+def _seconds_until_limit_ends(started_at: datetime, now: datetime) -> int:
+    return math.ceil((started_at + MANUAL_RUN_MIN_INTERVAL - now).total_seconds())
+
+
+def raise_if_ran_recently(team_id: int, saved_query_id: UUID | str) -> None:
+    """Refuse a manual run of one view inside the limit. A failed or cancelled latest run can retry at once."""
+    now = timezone.now()
+    for status, started_at in _latest_runs_inside_limit(
+        team_id, {saved_query_id}, now=now, ignored_statuses=frozenset({DataModelingJobStatus.SKIPPED})
+    ):
+        if status in (DataModelingJobStatus.RUNNING, DataModelingJobStatus.COMPLETED):
+            raise MaterializationRanRecentlyError(
+                RAN_RECENTLY_REFUSAL, retry_after_seconds=_seconds_until_limit_ends(started_at, now)
+            )
+
+
+def _raise_if_every_view_ran_recently(team_id: int, saved_query_ids: AbstractSet[UUID | str]) -> None:
+    """Refuse a manual run when every view it would build had a run inside the limit, whatever that run's status.
+
+    A failed or skipped view counts here, or one broken view would lift the limit for every view it runs with.
+    The wait is for the view that leaves the limit first, because a retry can succeed from that moment.
+    """
+    now = timezone.now()
+    latest_runs = _latest_runs_inside_limit(team_id, saved_query_ids, now=now)
+    if latest_runs and len(latest_runs) == len(saved_query_ids):
+        raise MaterializationRanRecentlyError(
+            RELATED_RUN_RAN_RECENTLY_REFUSAL,
+            retry_after_seconds=min(_seconds_until_limit_ends(started_at, now) for _, started_at in latest_runs),
+        )
 
 
 def _get_node(team_id: int, node_id: UUID | str) -> Node:
@@ -149,6 +234,12 @@ def run_related_node_materializations(
 ) -> list[str]:
     node = _get_node(team_id, node_id)
     node_ids = _related_node_ids(node, direction=direction, user=user, hidden_types=hidden_types)
+    built_saved_query_ids = set(
+        Node.objects.filter(team_id=team_id, id__in=node_ids, type__in=DAG_BUILT_NODE_TYPES)
+        .exclude(saved_query__deleted=True)
+        .values_list("saved_query_id", flat=True)
+    )
+    _raise_if_every_view_ran_recently(team_id, built_saved_query_ids)
 
     # The workflow skips suspended nodes, so an explicit run must resume every selected node first.
     unsuspend_nodes(Node.objects.filter(team_id=node.team_id, id__in=node_ids), by="manual_run")

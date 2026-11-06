@@ -104,7 +104,7 @@ class ScalrSource(ResumableSource[ScalrSourceConfig, ScalrResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Scalr",
             caption="Create a service account token in Scalr under account scope > IAM > Service accounts. "
-            "Give the account read access to environments, workspaces, and runs.",
+            "Give the account read access to the environments, workspaces, runs, users, and state versions you want to sync.",
             iconPath="/static/services/scalr.png",
             releaseStatus=ReleaseStatus.BETA,
             fields=cast(
