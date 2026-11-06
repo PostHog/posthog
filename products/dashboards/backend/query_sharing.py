@@ -1,3 +1,4 @@
+import dataclasses
 from concurrent.futures import CancelledError, Future
 from dataclasses import field, replace
 from threading import Event, Lock
@@ -24,6 +25,17 @@ SHARING_EXECUTIONS = Counter(
     ["outcome"],
 )
 MATCH_WINDOW_SECONDS = 0.05
+
+
+@dataclasses.dataclass(frozen=False, kw_only=True)
+class _CancellableExecutor(HogQLQueryExecutor):
+    cancelled: Event | None = None
+
+    def _execute_clickhouse_query(self) -> None:
+        # Compiling takes long enough that a disconnect can arrive before ClickHouse knows the query ID to kill.
+        if self.cancelled is not None and self.cancelled.is_set():
+            raise CancelledError()
+        super()._execute_clickhouse_query()
 
 
 @frozen
@@ -83,13 +95,13 @@ class DashboardQuerySharing:
                 return candidate
         return query
 
-    @staticmethod
-    def _execute_group(executor: HogQLQueryExecutor, group: ExecutionGroup) -> dict[str, HogQLQueryResponse]:
+    def _execute_group(self, executor: HogQLQueryExecutor, group: ExecutionGroup) -> dict[str, HogQLQueryResponse]:
         settings = executor.clickhouse_settings.model_copy() if executor.clickhouse_settings else None
         if settings is not None:
             settings.read_overflow_mode = "throw"
             settings.timeout_overflow_mode = "throw"
-        shared = HogQLQueryExecutor(
+        shared = _CancellableExecutor(
+            cancelled=self.cancelled,
             query=clone_expr(group.query),
             team=executor.team,
             user=executor.user,
@@ -109,13 +121,13 @@ class DashboardQuerySharing:
                 rows=tuple(tuple(row) for row in shared.results),
             )
         )
+        # The shared response's SQL and metadata hold every member's predicates, and each result is cached per query.
         return {
-            query_id: shared.model_copy(
-                update={
-                    "results": list(result.rows),
-                    "columns": list(result.columns),
-                    "types": list(zip(result.columns, result.types)),
-                }
+            query_id: HogQLQueryResponse(
+                results=list(result.rows),
+                columns=list(result.columns),
+                types=list(zip(result.columns, result.types)),
+                hasMore=False,
             )
             for query_id, result in split.items()
         }

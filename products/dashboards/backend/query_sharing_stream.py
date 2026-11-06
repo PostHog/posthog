@@ -3,7 +3,7 @@ from collections.abc import AsyncGenerator, Callable, Generator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from queue import Queue
-from threading import Lock
+from threading import BoundedSemaphore, Event, Lock, Thread
 from typing import Literal, NotRequired, TypedDict
 
 from django.db import connections
@@ -21,6 +21,10 @@ from products.dashboards.backend.query_sharing import DashboardQuerySharing
 from products.dashboards.backend.query_sharing_debug import DashboardQuerySharingDebug, SharingWorkDebug, sharing_debug
 
 logger = structlog.get_logger(__name__)
+
+WORKERS_PER_STREAM = 4
+MAX_CONCURRENT_STREAMS = 8
+_stream_slots = BoundedSemaphore(MAX_CONCURRENT_STREAMS)
 
 
 class DashboardQuerySharingTileEvent(TypedDict):
@@ -58,9 +62,22 @@ class DashboardQuerySharingStream:
         self._context = copy_context()
         self._sharing = DashboardQuerySharing()
         self._queue: Queue[DashboardQuerySharingStreamEvent] = Queue()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._async_queue: asyncio.Queue[DashboardQuerySharingStreamEvent] | None = None
         self._pool: ThreadPoolExecutor | None = None
         self._active: set[str] = set()
         self._lock = Lock()
+        self._admitted = False
+        self.closed = Event()
+
+    def _emit(self, event: DashboardQuerySharingStreamEvent) -> None:
+        if self._loop is None or self._async_queue is None:
+            self._queue.put(event)
+            return
+        try:
+            self._loop.call_soon_threadsafe(self._async_queue.put_nowait, event)
+        except RuntimeError:
+            pass
 
     def _run(self, job: Callable[[], DashboardQuerySharingStreamEvent], query_id: str, tile_id: int | None) -> None:
         token = hogql_execution_override.set(self._sharing.execute)
@@ -87,9 +104,9 @@ class DashboardQuerySharingStream:
                     "rows_read": stats.rows_read,
                     "duration_ms": stats.duration_ms,
                 }
-            self._queue.put(event)
+            self._emit(event)
         except Exception:
-            self._queue.put({"type": "error"})
+            self._emit({"type": "error"})
         finally:
             with self._lock:
                 self._active.discard(query_id)
@@ -97,8 +114,11 @@ class DashboardQuerySharingStream:
             sharing_debug.reset(debug_token)
             connections.close_all()
 
-    def _start(self) -> None:
-        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dashboard-sharing")
+    def _start(self) -> bool:
+        self._admitted = _stream_slots.acquire(blocking=False)
+        if not self._admitted:
+            return False
+        self._pool = ThreadPoolExecutor(max_workers=WORKERS_PER_STREAM, thread_name_prefix="dashboard-sharing")
         for index, job in enumerate(self._jobs):
             self._pool.submit(
                 self._context.copy().run,
@@ -107,20 +127,27 @@ class DashboardQuerySharingStream:
                 f"{self._query_id}-tile-{index}-",
                 self._debug_tile_ids[index] if self._debug_tile_ids else None,
             )
+        return True
 
     def _close(self, complete: bool) -> None:
-        with self._lock:
-            self._sharing.cancel()
-            active = tuple(self._active)
-        self._queue.put({"type": "error"})
-        if self._pool:
-            self._pool.shutdown(wait=False, cancel_futures=True)
-        if not complete:
-            for query_id in active:
-                try:
-                    cancel_query_on_cluster(team_id=self._team_id, client_query_id=query_id)
-                except Exception:
-                    logger.exception("Failed to cancel dashboard query sharing execution")
+        try:
+            with self._lock:
+                self._sharing.cancel()
+                active = tuple(self._active)
+            self._emit({"type": "error"})
+            if self._pool:
+                self._pool.shutdown(wait=False, cancel_futures=True)
+            if self._admitted:
+                self._admitted = False
+                _stream_slots.release()
+            if not complete:
+                for query_id in active:
+                    try:
+                        cancel_query_on_cluster(team_id=self._team_id, client_query_id=query_id)
+                    except Exception:
+                        logger.exception("Failed to cancel dashboard query sharing execution")
+        finally:
+            self.closed.set()
 
     @staticmethod
     def _encode(event: DashboardQuerySharingStreamEvent) -> bytes:
@@ -128,7 +155,9 @@ class DashboardQuerySharingStream:
 
     def stream(self) -> Generator[bytes]:
         complete = False
-        self._start()
+        if not self._start():
+            yield self._encode({"type": "error"})
+            return
         try:
             for _ in self._jobs:
                 yield self._encode(self._queue.get())
@@ -139,11 +168,16 @@ class DashboardQuerySharingStream:
 
     async def astream(self) -> AsyncGenerator[bytes]:
         complete = False
-        self._start()
+        self._loop = asyncio.get_running_loop()
+        self._async_queue = asyncio.Queue()
+        if not self._start():
+            yield self._encode({"type": "error"})
+            return
         try:
             for _ in self._jobs:
-                yield self._encode(await asyncio.to_thread(self._queue.get))
+                yield self._encode(await self._async_queue.get())
             complete = True
             yield self._encode({"type": "complete"})
         finally:
-            await asyncio.to_thread(self._close, complete)
+            # A dedicated thread, because slow tile queries can occupy every thread of the loop's default executor.
+            Thread(target=self._close, args=(complete,), daemon=True, name="dashboard-sharing-close").start()

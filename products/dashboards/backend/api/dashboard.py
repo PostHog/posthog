@@ -3530,7 +3530,8 @@ class DashboardsViewSet(
         responses={(200, "text/event-stream"): DashboardQuerySharingEventSerializer},
         description="Experimentally refresh insight tiles. Each SSE data frame contains one event of the response schema.",
     )
-    @action(methods=["GET"], detail=True, required_scopes=["query:read"])
+    # Tile events carry full insight payloads, so the metadata scopes apply on top of running queries.
+    @action(methods=["GET"], detail=True, required_scopes=["dashboard:read", "insight:read", "query:read"])
     def stream_query_results(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         if request.user.is_anonymous or not is_query_sharing_enabled(self.team):
             raise exceptions.PermissionDenied("Dashboard query sharing is not enabled.")

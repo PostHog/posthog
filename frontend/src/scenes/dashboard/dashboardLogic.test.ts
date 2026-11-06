@@ -4836,6 +4836,9 @@ describe('dashboardLogic', () => {
                                 : tile
                         )
                     }
+                    if (outcome === 'rate_limited') {
+                        await waitFor(() => expect(individual).toHaveBeenCalledTimes(tiles.length - 1))
+                    }
                     options.onMessage({ id: '', event: '', data: JSON.stringify({ type: 'complete' }) })
                 })
                 try {

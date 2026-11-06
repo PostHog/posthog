@@ -1,7 +1,7 @@
 import json
 import asyncio
 from concurrent.futures import CancelledError, ThreadPoolExecutor
-from threading import Barrier, Event
+from threading import Barrier, BoundedSemaphore, Event
 
 from unittest.mock import Mock, patch
 
@@ -66,10 +66,16 @@ class TestDashboardQuerySharing(SimpleTestCase):
 
         shared = Mock()
         shared.execute.side_effect = ValueError("bad shared query") if fail else None
-        shared.execute.return_value = HogQLQueryResponse(results=[(7,)], columns=["n"], types=[("n", "UInt64")])
+        shared.execute.return_value = HogQLQueryResponse(
+            results=[(7,)],
+            columns=["n"],
+            types=[("n", "UInt64")],
+            clickhouse="SELECT countIf(partner_predicate)",
+            metadata={"query": "partner_predicate", "errors": [], "warnings": [], "notices": []},
+        )
         if fail:
             executors[0].execute.side_effect = ValueError("one bad tile")
-        with patch("products.dashboards.backend.query_sharing.HogQLQueryExecutor", return_value=shared):
+        with patch("products.dashboards.backend.query_sharing._CancellableExecutor", return_value=shared):
             with ThreadPoolExecutor(max_workers=2) as pool:
                 futures = [pool.submit(run, index) for index in range(2)]
                 if fail:
@@ -77,6 +83,7 @@ class TestDashboardQuerySharing(SimpleTestCase):
                         futures[0].result(timeout=10)
                 else:
                     self.assertEqual(futures[0].result(timeout=10).results, [(7,)])
+                    self.assertNotIn("partner_predicate", futures[0].result(timeout=10).model_dump_json())
                 self.assertEqual(futures[1].result(timeout=10).results, [(7,)])
         self.assertEqual(shared.execute.call_count, 1)
         self.assertEqual([executor.execute.call_count for executor in executors], [int(fail), int(fail)])
@@ -134,6 +141,20 @@ class TestDashboardQuerySharing(SimpleTestCase):
             next(iterator)
 
     @parameterized.expand([("sync", False), ("async", True)])
+    def test_stream_over_capacity_reports_error_without_running_tiles(self, _name: str, asynchronous: bool) -> None:
+        job = Mock(return_value={"type": "tile", "tile": {"id": 1}})
+        stream = DashboardQuerySharingStream(jobs=[job], team_id=1, query_id="test")
+
+        async def collect() -> list[bytes]:
+            return [chunk async for chunk in stream.astream()]
+
+        with patch("products.dashboards.backend.query_sharing_stream._stream_slots", BoundedSemaphore(1)) as slots:
+            slots.acquire()
+            chunks = asyncio.run(collect()) if asynchronous else list(stream.stream())
+        self.assertEqual([json.loads(chunk.removeprefix(b"data: ")) for chunk in chunks], [{"type": "error"}])
+        job.assert_not_called()
+
+    @parameterized.expand([("sync", False), ("async", True)])
     def test_disconnect_cancels_queries_and_prevents_late_execution(self, _name: str, asynchronous: bool) -> None:
         release = Event()
         finished = Event()
@@ -168,6 +189,7 @@ class TestDashboardQuerySharing(SimpleTestCase):
                     iterator = stream.stream()
                     self.assertIn(b'"id":2', next(iterator))
                     iterator.close()
+                self.assertTrue(stream.closed.wait(timeout=10))
                 cancel.assert_any_call(team_id=1, client_query_id="test-tile-0-")
         finally:
             release.set()

@@ -5822,7 +5822,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     sortedTilesToRefresh.length <= 32
                 ) {
                     const sharingController = cache.abortController
-                    const signal = sharingController.signal
+                    const refreshSignal = sharingController.signal
+                    const { signal, finish: finishBatch } = tileLoads(cache).start(
+                        sortedTilesToRefresh.map((tile) => tile.id),
+                        refreshSignal,
+                        { forceRefresh: !!forceRefresh, settings: settingsToRefresh }
+                    )
+                    const capacityRetries: Promise<void>[] = []
                     const batchQueryId = uuid()
                     const startedAt = performance.now()
                     actions.setQuerySharingDebug({
@@ -5836,7 +5842,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     })
                     cache.disposables.add(
                         () => () => {
-                            if (!signal.aborted) {
+                            if (!refreshSignal.aborted) {
                                 sharingController.abort()
                             }
                         },
@@ -5869,9 +5875,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     failed:
                                         'error' in result ||
                                         !result.insight ||
-                                        !!getInsightQueryError(
-                                            getQueryBasedInsightModel(result.insight as unknown as InsightModel)
-                                        ),
+                                        !!getInsightQueryError(result.insight as unknown as InsightModel),
                                     debug,
                                 })
                                 if ('error' in result || !result.insight) {
@@ -5886,6 +5890,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     refreshedInsight.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
                                     refreshedInsight.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE
                                 ) {
+                                    streamedTiles.add(tile.id)
+                                    capacityRetries.push(
+                                        refreshInsightTile(tile, tileRefresh).then((outcome) =>
+                                            settleTile(tile, outcome)
+                                        )
+                                    )
                                     return
                                 }
                                 streamedTiles.add(tile.id)
@@ -5906,7 +5916,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     urlFilters,
                                     urlVariables,
                                     Math.floor(performance.now() - startedAt),
-                                    false
+                                    false,
+                                    undefined
                                 )
                                 settleTile(tile, refreshedInsight.is_cached ? 'cached' : 'refreshed')
                             }
@@ -5915,15 +5926,36 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (!signal.aborted) {
                             posthog.capture('dashboard query sharing transport failed', { dashboard_id: dashboardId })
                         }
+                    } finally {
+                        finishBatch()
                     }
-                    if (signal.aborted) {
+                    if (refreshSignal.aborted) {
                         loadingHere.clear()
                         actions.finishQuerySharingDebug(batchQueryId, 'aborted')
                         return
                     }
+                    if (signal.aborted) {
+                        // tileLoads stopped the batch, so the tiles it had not delivered wait for their tab to show again.
+                        for (const tile of sortedTilesToRefresh) {
+                            if (!streamedTiles.has(tile.id)) {
+                                streamedTiles.add(tile.id)
+                                actions.abortQuery({
+                                    queryId: batchQueryId,
+                                    queryStartTime: startedAt,
+                                    shortId: tile.insight.short_id,
+                                })
+                                settleTile(tile, 'deferred')
+                            }
+                        }
+                    }
+                    await Promise.all(capacityRetries)
                     actions.finishQuerySharingDebug(
                         batchQueryId,
-                        streamedTiles.size === sortedTilesToRefresh.length ? 'complete' : 'partial'
+                        signal.aborted
+                            ? 'aborted'
+                            : streamedTiles.size === sortedTilesToRefresh.length && capacityRetries.length === 0
+                              ? 'complete'
+                              : 'partial'
                     )
                     breakpoint()
                     if (cache.disposables.isDisposed) {

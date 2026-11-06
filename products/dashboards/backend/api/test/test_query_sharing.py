@@ -18,6 +18,9 @@ from parameterized import parameterized
 
 from posthog.hogql.query import sync_execute
 
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
@@ -36,6 +39,16 @@ class TestDashboardQuerySharingAccess(APIBaseTest):
             other = Dashboard.objects.create(team=self.team, name="Other dashboard")
             foreign_tile = DashboardTile.objects.create(dashboard=other, insight=Insight.objects.create(team=self.team))
             self.assertEqual(self.client.get(url, {**params, "tile_ids": str(foreign_tile.pk)}).status_code, 400)
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="query only",
+                user=self.user,
+                secure_value=hash_key_value(token),
+                scopes=["query:read"],
+                scoped_teams=[],
+                scoped_organizations=[],
+            )
+            self.assertEqual(self.client.get(url, params, HTTP_AUTHORIZATION=f"Bearer {token}").status_code, 403)
             self.client.logout()
             self.assertIn(self.client.get(url, params).status_code, (401, 403))
 
