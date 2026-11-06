@@ -368,7 +368,17 @@ class AzureCostManagementClient:
                 self.mint_token()
                 continue
 
-            if response.status_code == 429 or response.status_code >= 500:
+            if response.ok:
+                try:
+                    return response.json()
+                except requests.exceptions.JSONDecodeError:
+                    # A large result page cut off mid-stream arrives as a 200 with malformed JSON,
+                    # and the same request normally succeeds when sent again.
+                    retryable = True
+            else:
+                retryable = response.status_code == 429 or response.status_code >= 500
+
+            if retryable:
                 attempt += 1
                 if attempt >= MAX_RETRY_ATTEMPTS:
                     raise AzureCostManagementRetryableError(
@@ -376,21 +386,18 @@ class AzureCostManagementClient:
                     )
                 delay = _backoff_seconds(response, attempt)
                 self._logger.debug(
-                    f"Azure Cost Management throttled: status={response.status_code}, sleeping {delay}s (attempt {attempt})"
+                    f"Azure Cost Management transient response: status={response.status_code}, sleeping {delay}s (attempt {attempt})"
                 )
                 self._sleep(delay)
                 continue
 
-            if not response.ok:
-                self._logger.error(
-                    f"Azure Cost Management error: status={response.status_code}, body={response.text}, url={url}"
-                )
-                raise requests.HTTPError(
-                    f"{response.status_code} Client Error: {response.reason} for url: {MANAGEMENT_HOST}{_error_description(response)}",
-                    response=response,
-                )
-
-            return response.json()
+            self._logger.error(
+                f"Azure Cost Management error: status={response.status_code}, body={response.text}, url={url}"
+            )
+            raise requests.HTTPError(
+                f"{response.status_code} Client Error: {response.reason} for url: {MANAGEMENT_HOST}{_error_description(response)}",
+                response=response,
+            )
 
 
 def _scope_probe_failure_message(error: Exception) -> str:

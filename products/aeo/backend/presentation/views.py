@@ -18,6 +18,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 from products.aeo.backend.facade.api import (
     MAX_CONSENSUS_DOMAINS,
     MAX_OVERVIEW_DOMAINS,
+    MAX_PROMPT_LENGTH,
     MAX_STATS_WORDS,
     archive_prompt,
     get_prompt,
@@ -143,6 +144,14 @@ class AEOPromptListQuerySerializer(serializers.Serializer):
         default=False,
         help_text="Also list archived prompts. Archived prompts are left out by default.",
     )
+    needs_improvement = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Only list prompts that the engines answered in the last 30 days without citing a target domain. "
+            "Prompts with no answered check in that window are left out."
+        ),
+    )
 
 
 class AEOPromptTopicSerializer(DataclassSerializer):
@@ -178,7 +187,7 @@ class AEOPromptCheckSerializer(DataclassSerializer):
             "top_cited_domains": {"help_text": "Distinct hosts across the cited URLs."},
             "search_queries": {"help_text": "Web searches the engine ran to answer the prompt."},
             "answer_text": {
-                "help_text": "The engine's answer as plain text, sanitized and truncated. Null when the check failed. "
+                "help_text": "The engine's answer as plain text, sanitized and truncated. Null when the check failed, and on every check when the request set include_answer_text=false. "
                 + THIRD_PARTY_TEXT_HELP
             },
             "prompt_version": {
@@ -203,6 +212,14 @@ class AEOPromptChecksQuerySerializer(serializers.Serializer):
         required=False,
         min_value=1,
         help_text="Only list checks that ran this version of the prompt.",
+    )
+    since = serializers.DateTimeField(
+        required=False,
+        help_text="Only list checks that ran at or after this time, in ISO 8601 (for example 2026-10-01T00:00:00Z).",
+    )
+    include_answer_text = serializers.BooleanField(
+        default=True,
+        help_text="Set to false to return answer_text as null on every check. Use it to page through history without the engines' answers.",
     )
 
 
@@ -449,7 +466,8 @@ class AEOPromptUpdateRequestSerializer(serializers.Serializer):
     prompt = serializers.CharField(
         required=False,
         default=None,
-        max_length=MAX_IMPORTED_PROMPT_CHARS,
+        # The engines' limit, so the generated client limit matches what update_prompt accepts.
+        max_length=MAX_PROMPT_LENGTH,
         help_text=(
             "New text for the prompt. A change adds the next version and makes it current; the prompt keeps its id "
             "and its check history, and each check records the version that ran. A change of case or whitespace "
@@ -585,7 +603,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=AEOPromptListQuerySerializer,
         operation_id="aeo_prompts_list",
         summary="List AEO prompts",
-        description="Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic or by on/off state. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.",
+        description="Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, or to the prompts that need improvement. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.",
         responses={200: AEOPromptSerializer(many=True)},
         tags=["web_analytics"],
     )
@@ -598,6 +616,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             topic=request.validated_query_data.get("topic"),
             active=request.validated_query_data.get("active"),
             include_archived=request.validated_query_data["include_archived"],
+            needs_improvement=request.validated_query_data["needs_improvement"],
         )
         paginator.set_count(count)
         page = self.paginate_queryset(prompts)
@@ -679,7 +698,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=AEOPromptChecksQuerySerializer,
         operation_id="aeo_prompts_checks",
         summary="List an AEO prompt's checks",
-        description="Lists every check of one prompt, newest first, one page at a time. Filter by engine or by prompt version. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran.",
+        description="Lists every check of one prompt, newest first, one page at a time. Filter by engine, by prompt version, or with since to see only checks from a point in time on. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran. Set include_answer_text=false to leave the answers out and page through history with smaller responses.",
         responses={200: AEOPromptCheckSerializer(many=True)},
         tags=["web_analytics"],
     )
@@ -694,6 +713,8 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 offset=paginator.get_offset(request),
                 engine=request.validated_query_data.get("engine"),
                 version=request.validated_query_data.get("version"),
+                since=request.validated_query_data.get("since"),
+                include_answer_text=request.validated_query_data["include_answer_text"],
             )
         except PromptNotFoundError:
             raise NotFound()

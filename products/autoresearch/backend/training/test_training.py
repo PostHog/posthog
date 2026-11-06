@@ -97,6 +97,9 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
         # Step 3 is the sandbox fit/eval loop.
         assert "fit and evaluate" in prompt
         assert "roc_auc_score" in prompt
+        # A first champion that breaks either fit limit rolls back.
+        assert "60 s interactive query limit" in prompt
+        assert "must stay under 10 MiB" in prompt
 
     @parameterized.expand(
         [
@@ -403,7 +406,9 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
             {"team_configs": {str(self.team.id): {"max_iterations_per_run": team_ceiling}}} if team_ceiling else None
         )
         limits = (
-            TeamLimits(max_training_runs_per_day=3, max_iterations_per_run=caller_ceiling) if caller_ceiling else None
+            TeamLimits(max_training_runs_per_day=3, max_iterations_per_run=caller_ceiling, max_live_pipelines=3)
+            if caller_ceiling
+            else None
         )
 
         with patch(

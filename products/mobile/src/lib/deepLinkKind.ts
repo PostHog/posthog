@@ -138,7 +138,7 @@ export function webLinkTarget(path: string): string | null {
     }
     if (section === 'error_tracking' || section === 'error-tracking') {
         if (id === undefined) {
-            return '/errors'
+            return '/(stack)/errors'
         }
         return ERROR_TRACKING_PAGES.has(id) ? null : `/errors/${id}?from=link`
     }
@@ -148,7 +148,7 @@ export function webLinkTarget(path: string): string | null {
             if (sessionId !== null && SAFE_ID.test(sessionId)) {
                 return sessionPath(sessionId, query)
             }
-            return '/replay'
+            return '/(stack)/replay'
         }
         return REPLAY_PAGES.has(id) ? null : sessionPath(id, query)
     }
