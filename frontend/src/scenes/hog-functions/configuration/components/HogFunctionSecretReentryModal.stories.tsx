@@ -1,9 +1,10 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 import { hogFunctionSecretReentryLogic } from '../hogFunctionSecretReentryLogic'
 import { HogFunctionSecretReentryModal } from './HogFunctionSecretReentryModal'
 
@@ -56,10 +57,13 @@ export default meta
 function Template({ inputKey }: { inputKey: string }): JSX.Element {
     const logicProps = { id: MOCK_HOG_FUNCTION_ID }
     const { requireSecretReentry } = useActions(hogFunctionSecretReentryLogic(logicProps))
+    const { hogFunction } = useValues(hogFunctionConfigurationLogic(logicProps))
 
     useEffect(() => {
-        requireSecretReentry(inputKey, 'save')
-    }, [requireSecretReentry, inputKey])
+        if (hogFunction) {
+            requireSecretReentry(inputKey, 'save', 'This change would send the secret to a new address.')
+        }
+    }, [requireSecretReentry, inputKey, hogFunction])
 
     return <HogFunctionSecretReentryModal logicProps={logicProps} />
 }
