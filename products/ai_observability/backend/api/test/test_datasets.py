@@ -20,6 +20,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.ai_observability.backend.api.dataset_exports import DATASET_EXPORT_STUCK_MESSAGE
+from products.ai_observability.backend.dataset_retention import DatasetRetentionPolicy
 from products.ai_observability.backend.dataset_service import create_dataset
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.exports.backend.facade.api import DATASET_EXPORT_KIND, JSONL_EXPORT_FORMAT, ExportedAsset
@@ -172,7 +173,7 @@ class TestDatasetsApi(APIBaseTest):
         dataset_revisions = DatasetRevision.objects.for_team(self.team.id, canonical=True)
         dataset_revisions.filter(dataset_id=used["id"], revision=1).update(last_used_at=old - timedelta(days=29))
         if revision_also_expiring:
-            dataset_revisions.filter(dataset_id=active["id"], revision=1).update(last_used_at=old - timedelta(days=29))
+            dataset_revisions.filter(dataset_id=active["id"], revision=1).update(last_used_at=old - timedelta(days=28))
         other_team = Team.objects.create(organization=self.organization)
         Dataset.objects.for_team(other_team.id, canonical=True).create(
             team=other_team, name="Other project", last_used_at=old - timedelta(days=100)
@@ -186,10 +187,24 @@ class TestDatasetsApi(APIBaseTest):
         second_page = self.client.get(f"{self.datasets_url}retention/", {"limit": 1, "offset": 1})
         self.assertEqual([entry["dataset_id"] for entry in second_page.data["results"]], [active["id"]])
         revisions = self.client.get(f"{self.datasets_url}retention/", {"kind": "revisions"})
-        self.assertCountEqual(
+        self.assertEqual(
             [(entry["dataset_id"], entry["revision"]) for entry in revisions.data["results"]],
             [(used["id"], 1), (active["id"], 1)],
         )
+        for offset in range(2):
+            page = self.client.get(
+                f"{self.datasets_url}retention/", {"kind": "revisions", "limit": 1, "offset": offset}
+            )
+            self.assertEqual(page.status_code, status.HTTP_200_OK)
+            self.assertEqual(page.data["count"], 2)
+            self.assertEqual(page.data["results"], revisions.data["results"][offset : offset + 1])
+        for entry in revisions.data["results"]:
+            revision = dataset_revisions.select_related("dataset").get(
+                dataset_id=entry["dataset_id"], revision=entry["revision"]
+            )
+            expires_at = DatasetRetentionPolicy.revision_expires_at(revision)
+            assert expires_at is not None
+            self.assertEqual(entry["expires_at"], expires_at.isoformat().replace("+00:00", "Z"))
         active_revision = next(entry for entry in revisions.data["results"] if entry["dataset_id"] == active["id"])
         if not revision_also_expiring:
             self.assertEqual(active_revision["expires_at"], second_page.data["results"][0]["expires_at"])
@@ -987,8 +1002,22 @@ class TestDatasetsApi(APIBaseTest):
         item = self._create_item(dataset["id"], input="v1")
         Dataset.objects.for_team(self.team.id).filter(id=dataset["id"]).update(current_revision=None)
         DatasetItem.objects.for_team(self.team.id).filter(id=item["id"]).update(current_version=None)
+        DatasetRevision.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).update(
+            last_used_at=now() - timedelta(days=27)
+        )
+
+        revisions_response = self.client.get(f"{self.datasets_url}{dataset['id']}/revisions/")
+        self.assertEqual(revisions_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(revisions_response.data["results"][0]["expiring_soon"])
+        retention_response = self.client.get(f"{self.datasets_url}retention/", {"kind": "revisions"})
+        self.assertEqual(retention_response.data["revisions_count"], 0)
+        extended_response = self.client.post(
+            f"{self.datasets_url}{dataset['id']}/extend_retention/", {"revision": 1}, format="json"
+        )
+        self.assertEqual(extended_response.status_code, status.HTTP_200_OK)
 
         dataset_response = self.client.get(f"{self.datasets_url}{dataset['id']}/")
+        self.assertEqual(extended_response.json()["expires_at"], dataset_response.json()["expires_at"])
         item_response = self.client.get(f"{self.items_url}{item['id']}/")
         update_response = self.client.patch(
             f"{self.items_url}{item['id']}/",

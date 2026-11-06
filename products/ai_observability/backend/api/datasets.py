@@ -803,6 +803,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         parameters=[DatasetRetentionQuerySerializer],
         responses=DatasetRetentionReadSerializer,
         description="Find accessible datasets and older revisions within seven days of expiry without refreshing their retention.",
+        tags=["AI observability"],
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def retention(self, request: Request, *args: object, **kwargs: object) -> Response:
@@ -832,6 +833,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         request=DatasetExtendRetentionSerializer,
         responses=DatasetRetentionEntrySerializer,
         description="Refresh retention for a dataset and optionally one revision, with the same access required to read them.",
+        tags=["AI observability"],
     )
     @action(detail=True, methods=["post"])
     def extend_retention(self, request: Request, *args: object, **kwargs: object) -> Response:

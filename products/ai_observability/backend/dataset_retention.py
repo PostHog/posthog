@@ -47,7 +47,16 @@ class DatasetRetentionPolicy:
     @staticmethod
     def revision_expires_at(revision: DatasetRevision) -> datetime | None:
         dataset = revision.dataset
-        if dataset.current_revision_id == revision.id:
+        current_revision_id = dataset.current_revision_id or getattr(dataset, "resolved_current_revision_id", None)
+        if current_revision_id is None:
+            current_revision_id = (
+                DatasetRevision.objects.for_team(dataset.team_id, canonical=True)
+                .filter(dataset_id=dataset.id)
+                .order_by("-revision")
+                .values_list("id", flat=True)
+                .first()
+            )
+        if current_revision_id == revision.id:
             return DatasetRetentionPolicy.dataset_expires_at(dataset)
         if revision.last_used_at is None:
             return None

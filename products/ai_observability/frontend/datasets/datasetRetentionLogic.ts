@@ -1,7 +1,9 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
+import { createElement } from 'react'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import type {
@@ -179,7 +181,7 @@ export const datasetRetentionLogic = kea<datasetRetentionLogicType>([
             await breakpoint(100)
             actions.loadRetention()
         },
-        [aiObservabilityDatasetsLogic.actionTypes.loadDatasetsSuccess]: () => actions.refreshRetention(),
+        [aiObservabilityDatasetsLogic.actionTypes.datasetRetentionChanged]: () => actions.refreshRetention(),
         setKind: () => actions.loadRetention(),
         setPage: () => actions.loadRetention(),
         setExpanded: ({ expanded }) => {
@@ -204,11 +206,32 @@ export const datasetRetentionLogic = kea<datasetRetentionLogicType>([
             }
         },
         extendRetentionSuccess: ({ extendedEntry }) => {
-            const days = extendedEntry.revision !== null || extendedEntry.dataset_archived ? 30 : 90
             lemonToast.success(
-                extendedEntry.revision !== null
-                    ? `Revision ${extendedEntry.revision} kept for another ${days} days. Its dataset was refreshed too.`
-                    : `Dataset kept for another ${days} days. Older revisions keep their own deadlines.`
+                createElement(
+                    'span',
+                    null,
+                    createElement(
+                        'span',
+                        null,
+                        extendedEntry.revision !== null
+                            ? `Revision ${extendedEntry.revision} retention extended`
+                            : 'Dataset retention extended'
+                    ),
+                    extendedEntry.expires_at &&
+                        createElement(
+                            'span',
+                            null,
+                            ' until ',
+                            createElement(TZLabel, { time: extendedEntry.expires_at, timestampStyle: 'absolute' })
+                        ),
+                    createElement(
+                        'span',
+                        null,
+                        extendedEntry.revision !== null
+                            ? '. Its dataset was refreshed too.'
+                            : '. Older revisions keep their own deadlines.'
+                    )
+                )
             )
             actions.loadRetention()
             aiObservabilityDatasetsLogic.findMounted()?.actions.loadDatasets(false)

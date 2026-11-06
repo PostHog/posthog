@@ -88,6 +88,7 @@ export interface aiObservabilityDatasetsLogicActions {
     archiveDataset: (datasetId: string) => {
         datasetId: string
     }
+    datasetRetentionChanged: () => { value: true }
     loadDatasets: (debounce?: boolean) => {
         debounce: boolean
     }
@@ -157,6 +158,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
         loadDatasets: (debounce: boolean = true) => ({ debounce }),
         archiveDataset: (datasetId: string) => ({ datasetId }),
         restoreDataset: (datasetId: string) => ({ datasetId }),
+        datasetRetentionChanged: true,
         setArchivingDatasetId: (datasetId: string | null) => ({ datasetId }),
     }),
 
@@ -286,6 +288,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
             try {
                 const datasetName = values.datasets.results.find((dataset) => dataset.id === datasetId)?.name
                 await datasetsApi.archiveDataset(datasetId)
+                actions.datasetRetentionChanged()
                 lemonToast.info(`${datasetName || 'Dataset'} has been archived.`, {
                     button: {
                         label: 'Undo',
@@ -293,6 +296,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
                         action: async () => {
                             try {
                                 await datasetsApi.restoreDataset(datasetId)
+                                actions.datasetRetentionChanged()
                                 await asyncActions.loadDatasets(false)
                                 lemonToast.success(`${datasetName || 'Dataset'} has been restored.`)
                             } catch {
@@ -313,6 +317,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
             try {
                 const datasetName = values.datasets.results.find((dataset) => dataset.id === datasetId)?.name
                 await datasetsApi.restoreDataset(datasetId)
+                actions.datasetRetentionChanged()
                 await asyncActions.loadDatasets(false)
                 lemonToast.success(`${datasetName || 'Dataset'} has been unarchived.`)
             } catch {

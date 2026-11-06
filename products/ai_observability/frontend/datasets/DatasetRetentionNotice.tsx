@@ -21,13 +21,6 @@ export function DatasetRetentionNotice(): JSX.Element | null {
         useActions(datasetRetentionLogic)
     const { searchParams } = useValues(router)
 
-    if (retentionError) {
-        return (
-            <LemonBanner type="error" action={{ children: 'Retry', onClick: loadRetention }}>
-                Couldn't check dataset retention. Try again.
-            </LemonBanner>
-        )
-    }
     if (!retention || !warning) {
         return null
     }
@@ -61,6 +54,11 @@ export function DatasetRetentionNotice(): JSX.Element | null {
             </LemonBanner>
             {expanded && (
                 <div id="dataset-retention-entries" className="space-y-2">
+                    {retentionError && (
+                        <LemonBanner type="warning" action={{ children: 'Retry', onClick: loadRetention }}>
+                            Couldn't refresh dataset retention. Showing the last known deadlines. Try again.
+                        </LemonBanner>
+                    )}
                     <div className="flex flex-wrap items-center gap-2">
                         <LemonSegmentedButton
                             size="small"
@@ -79,15 +77,19 @@ export function DatasetRetentionNotice(): JSX.Element | null {
                         loading={retentionLoading}
                         dataSource={[...retention.results]}
                         rowKey={(entry) => `${entry.dataset_id}:${entry.revision ?? 'latest'}`}
-                        pagination={{
-                            controlled: true,
-                            useUrl: false,
-                            currentPage: page,
-                            entryCount: retention.count,
-                            pageSize: RETENTION_PAGE_SIZE,
-                            onForward: () => setPage(page + 1),
-                            onBackward: () => setPage(page - 1),
-                        }}
+                        pagination={
+                            retentionError
+                                ? undefined
+                                : {
+                                      controlled: true,
+                                      useUrl: false,
+                                      currentPage: page,
+                                      entryCount: retention.count,
+                                      pageSize: RETENTION_PAGE_SIZE,
+                                      onForward: () => setPage(page + 1),
+                                      onBackward: () => setPage(page - 1),
+                                  }
+                        }
                         columns={[
                             {
                                 title: 'Dataset',
@@ -147,8 +149,8 @@ export function DatasetRetentionNotice(): JSX.Element | null {
                                         }
                                         tooltip={
                                             entry.revision !== null
-                                                ? 'Keep this revision for another 30 days and refresh its dataset'
-                                                : `Keep this dataset for another ${entry.dataset_archived ? 30 : 90} days. Older revisions keep their own deadlines.`
+                                                ? 'Refresh this revision’s retention and its dataset’s retention'
+                                                : 'Refresh this dataset’s retention. Older revisions keep their own deadlines.'
                                         }
                                         data-attr="dataset-retention-extend"
                                     >

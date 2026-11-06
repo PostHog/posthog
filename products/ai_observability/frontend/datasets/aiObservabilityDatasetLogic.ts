@@ -866,6 +866,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                             description: formValues.description,
                             metadata: parseJsonObject(formValues.metadata),
                         })
+                        aiObservabilityDatasetsLogic.findMounted()?.actions.datasetRetentionChanged()
                         lemonToast.success('Dataset created successfully')
                         router.actions.replace(getDatasetDetailUrl(savedDataset.id, router.values.searchParams))
 

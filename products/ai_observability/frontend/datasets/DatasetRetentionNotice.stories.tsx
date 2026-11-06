@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, within } from '@testing-library/dom'
+import { fireEvent, waitFor, within } from '@testing-library/dom'
 import { router } from 'kea-router'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -7,6 +7,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { expect } from 'storybook/test'
 
 import type { DatasetRetentionEntryApi, DatasetRetentionReadApi } from '../generated/api.schemas'
+import { datasetRetentionLogic } from './datasetRetentionLogic'
 import { DatasetRetentionNotice } from './DatasetRetentionNotice'
 
 const entries: DatasetRetentionEntryApi[] = [
@@ -40,6 +41,7 @@ const meta: Meta<typeof DatasetRetentionNotice> = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team/datasets/': { count: 0, results: [] },
                 '/api/projects/:team/datasets/retention/': ({ request }): DatasetRetentionReadApi => {
                     const params = new URL(request.url).searchParams
                     const revisions = params.get('kind') === 'revisions'
@@ -102,6 +104,40 @@ export const Failed: Story = {
         mswDecorator({ get: { '/api/projects/:team/datasets/retention/': [500, { detail: 'Unavailable' }] } }),
     ],
     play: async ({ canvasElement }) => {
-        await within(canvasElement).findByText("Couldn't check dataset retention. Try again.")
+        await waitFor(() => expect(datasetRetentionLogic.values.retentionError).toBe(true))
+        await expect(within(canvasElement).queryAllByText('Retry')).toHaveLength(0)
+    },
+}
+
+export const RefreshFailed: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team/datasets/retention/': ({ request }) =>
+                    Number(new URL(request.url).searchParams.get('offset')) > 0
+                        ? [500, { detail: 'Unavailable' }]
+                        : {
+                              datasets_count: 6,
+                              revisions_count: 0,
+                              count: 6,
+                              results: Array.from({ length: 5 }, (_, i) => ({
+                                  ...entries[0],
+                                  dataset_id: `example-dataset-${i}`,
+                                  dataset_name: `Example dataset ${i + 1}`,
+                              })),
+                          },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        fireEvent.click(await canvas.findByText('Review'))
+        await canvas.findByText('Example dataset 1')
+        fireEvent.click(canvas.getByRole('button', { name: 'Next page' }))
+        await canvas.findByText("Couldn't refresh dataset retention. Showing the last known deadlines. Try again.")
+        await expect(canvas.getByText('Example dataset 1')).toBeVisible()
+        fireEvent.click(canvas.getByText('Hide'))
+        await waitFor(() => expect(canvas.queryAllByText('Retry')).toHaveLength(0))
+        await expect(canvas.getByText('6 datasets expiring within 7 days')).toBeVisible()
     },
 }

@@ -513,6 +513,9 @@ Listing this retention information does not refresh usage.
 Explicit extensions bypass read coalescing, and have the same read access requirements as opening the resource.
 Unrelated older revisions keep their own deadlines.
 Dataset and revision links open in a new tab; reading their contents refreshes retention as usual, and returning to the list refreshes the warning.
+Changing the main list's filters or page does not refresh the retention warning.
+If a background check fails, the last known warning remains; an expanded warning offers a retry and labels its deadlines as the last known values.
+Successful extensions show the expiry date returned by the server.
 The deadline is the earliest cleanup eligibility time, not a promise of immediate deletion.
 Entries past that deadline but not yet expired are labeled **Eligible for deletion** and can still be extended; already expired data cannot be restored this way.
 Cleanup emits a `dataset retention run` event with expiry and deletion counts, duration, completion status, and whether the time budget was exhausted.
