@@ -294,6 +294,8 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveS
             continue
         if is_caller_token_run(str(run.id), run.state):
             continue
+        if (run.state or {}).get("github_token_scope"):
+            continue
         if _loop_owner_credentials_revoked(run.task, run.state):
             continue
         # This loop carries the owner's token; skip a sandbox a per-message transition rebound to
@@ -441,8 +443,10 @@ class GitHubSandboxCredential:
             raise ReauthorizationRequired("Slack run requires an acting user before refreshing GitHub credentials.")
 
         integration = None
-        if get_pr_authorship_mode(task, ctx.state) == PrAuthorshipMode.USER and not is_caller_token_run(
-            ctx.run_id, ctx.state
+        if (
+            ctx.github_token_scope is None
+            and get_pr_authorship_mode(task, ctx.state) == PrAuthorshipMode.USER
+            and not is_caller_token_run(ctx.run_id, ctx.state)
         ):
             integration = resolve_user_github_integration_for_task(
                 task,
@@ -555,7 +559,7 @@ class GitHubSandboxCredential:
                 cause=cause,
             )
         try:
-            return get_github_token(task.github_integration_id, repositories=ctx.repositories)
+            return get_github_token(task.github_integration_id, repositories=ctx.github_access_repositories)
         except Integration.DoesNotExist as e:
             raise CredentialUnavailableError(
                 "GitHub integration for this run no longer exists",

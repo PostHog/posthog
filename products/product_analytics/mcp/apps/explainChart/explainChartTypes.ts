@@ -3,13 +3,19 @@ export type StoryConfidence = 'high' | 'medium' | 'low'
 export interface StoryEvidenceChartData {
     type: 'line' | 'bar'
     labels: string[]
-    series: { name: string; values: number[] }[]
+    /** The axis label of each point, which leaves out a date that repeats. */
+    ticks?: string[]
+    /** Null where a breakdown value has no row for that point. */
+    series: { name: string; values: (number | null)[] }[]
+    yAxisLabel: string | null
 }
 
 export interface StoryEvidence {
     text: string
     url: string | null
     query?: Record<string, unknown> | null
+    insightShortId?: string | null
+    queryTool?: string | null
     chart?: StoryEvidenceChartData | null
 }
 
@@ -28,7 +34,7 @@ export interface StorySeriesResult {
     label?: string
     data?: number[]
     days?: string[]
-    action?: { name?: string }
+    compare_label?: 'current' | 'previous' | null
 }
 
 export interface StoryTrendsQuery {
@@ -39,7 +45,11 @@ export interface StoryTrendsQuery {
     [key: string]: unknown
 }
 
+// What the explanation walks through, whichever insight drew it: a funnel over time is a time series too.
+export type ExplainChartShape = 'time_series'
+
 export interface ExplainChartData {
+    shape: ExplainChartShape
     query: StoryTrendsQuery
     results: StorySeriesResult[]
     seriesIndex: number

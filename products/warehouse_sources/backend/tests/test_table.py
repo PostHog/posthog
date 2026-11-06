@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_SEQ_COLUMN,
     CDC_TIMESTAMP_COLUMN,
     DELETED_AT_COLUMN,
+    HISTORY_NAMING,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
@@ -274,6 +275,16 @@ class TestWarehouseReadErrorClassification:
                     code=636,
                 ),
                 "doesn't exist in the container",
+            ),
+            (
+                ServerException(
+                    "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
+                    "HTTP response code: 404: while reading 'exports/my_table/' in bucket 'my-bucket' on disk "
+                    "'StorageS3': The table structure cannot be extracted from a CSV format file. You can "
+                    "specify the structure manually.",
+                    code=499,
+                ),
+                "doesn't exist in the bucket",
             ),
             (
                 ServerException("DB::Exception: A failure shape nobody has classified yet.", code=999),
@@ -756,7 +767,13 @@ class TestSchemaInferenceMode(BaseTest):
 
 class TestHistoryHiddenColumns(SimpleTestCase):
     def test_names_match_the_columns_capture_writes(self) -> None:
-        assert HISTORY_HIDDEN_COLUMNS == {CDC_OP_COLUMN, CDC_SEQ_COLUMN, CDC_TIMESTAMP_COLUMN, DELETED_AT_COLUMN}
+        assert HISTORY_HIDDEN_COLUMNS == {
+            CDC_OP_COLUMN,
+            CDC_SEQ_COLUMN,
+            CDC_TIMESTAMP_COLUMN,
+            DELETED_AT_COLUMN,
+            HISTORY_NAMING.partition_column,
+        }
 
 
 class TestGetHogqlFieldForColumn(SimpleTestCase):

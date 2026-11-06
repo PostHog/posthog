@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -6,19 +6,15 @@ from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
 from django.contrib.auth.hashers import check_password
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.admin.admins.oauth_admin import OAuthApplicationAdmin
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, ProvisioningSigning
-
-LONG_AGO = datetime(2000, 1, 1, tzinfo=UTC)
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 
 
-# Every app a test creates is past its grace period, whatever the real date, unless the test says otherwise.
-@override_settings(PROVISIONING_SIGNING_REQUIRED_SINCE=LONG_AGO, PROVISIONING_UNSIGNED_GRACE_UNTIL=LONG_AGO)
 class TestOAuthApplicationAdmin(BaseTest):
     def setUp(self):
         super().setUp()
@@ -148,15 +144,6 @@ class TestOAuthApplicationAdmin(BaseTest):
                 "pays_for_customers",
                 False,
             ),
-            (
-                "public_partner_with_a_later_unsigned_deadline",
-                OAuthApplication.CLIENT_PUBLIC,
-                None,
-                True,
-                {"unsigned_allowed_until": "2100-01-01T00:00:00+00:00"},
-                "pays_for_customers",
-                False,
-            ),
         ]
     )
     def test_partner_that_must_sign_needs_a_private_key(
@@ -186,101 +173,11 @@ class TestOAuthApplicationAdmin(BaseTest):
             fields["is_provisioning_partner"] = "on"
         if jwks_uri:
             fields["jwks_uri"] = jwks_uri
-        if deadline := stored_config.get("unsigned_allowed_until"):
-            fields["provisioning_unsigned_allowed_until"] = deadline
 
         form = self._provisioning_form(app, **fields)
 
         assert form.is_valid() is not expects_error, form.errors
         assert (f"provisioning_{ticked_capability}" in form.errors) is expects_error
-
-    def test_saving_the_form_keeps_the_signing_dates(self):
-        app = self._rate_limit_app()
-        partner_since = datetime(2026, 10, 16, tzinfo=UTC)
-        app.update_provisioning(unsigned_allowed_until=datetime(2100, 1, 1, tzinfo=UTC), partner_since=partner_since)
-
-        form = self._provisioning_form(app, provisioning_unsigned_allowed_until="2100-01-01 00:00:00")
-        assert form.is_valid(), form.errors
-        form.save()
-
-        app.refresh_from_db()
-        assert app.provisioning.unsigned_allowed_until == datetime(2100, 1, 1, tzinfo=UTC)
-        assert app.provisioning.partner_since == partner_since
-
-    def _signing_partner(self, client_id: str, **overrides) -> OAuthApplication:
-        return OAuthApplication.objects.create(
-            name=f"Signing Partner {client_id}",
-            client_id=client_id,
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            algorithm="RS256",
-            **{"is_provisioning_partner": True, "_provisioning_config": {"can_create_accounts": True}, **overrides},
-        )
-
-    @parameterized.expand([("already_a_partner", True, False), ("promoted_by_this_edit", False, True)])
-    def test_old_app_promoted_to_partner_must_sign_from_the_promotion(
-        self, _name: str, already_a_partner: bool, expects_error: bool
-    ) -> None:
-        app = self._signing_partner("promoted_old_app", is_provisioning_partner=already_a_partner)
-        OAuthApplication.objects.filter(pk=app.pk).update(created=datetime(2001, 1, 1, tzinfo=UTC))
-        app.refresh_from_db()
-
-        with override_settings(
-            PROVISIONING_SIGNING_REQUIRED_SINCE=datetime(2002, 1, 1, tzinfo=UTC),
-            PROVISIONING_UNSIGNED_GRACE_UNTIL=datetime(2100, 1, 1, tzinfo=UTC),
-        ):
-            form = self._provisioning_form(
-                app, is_provisioning_partner="on", provisioning_active="on", provisioning_can_create_accounts="on"
-            )
-            assert form.is_valid() is not expects_error, form.errors
-
-        assert ("provisioning_can_create_accounts" in form.errors) is expects_error
-
-    def test_allow_unsigned_action_extends_the_selected_partners_grace(self):
-        selected = self._signing_partner("allow_unsigned_selected")
-        not_selected = self._signing_partner("allow_unsigned_not_selected")
-        not_a_partner = self._signing_partner("allow_unsigned_not_a_partner", is_provisioning_partner=False)
-        until = datetime(2100, 1, 8, 12, 0, tzinfo=UTC)
-
-        request = RequestFactory().post(
-            "/", {"apply": "yes", "unsigned_allowed_until": until.strftime("%Y-%m-%d %H:%M:%S")}
-        )
-        with patch.object(self.admin, "message_user"):
-            response = self.admin.allow_unsigned_provisioning_until(
-                request=request, queryset=OAuthApplication.objects.filter(id__in=[selected.id, not_a_partner.id])
-            )
-
-        assert response is None
-        for app in (selected, not_selected, not_a_partner):
-            app.refresh_from_db()
-        assert selected.provisioning.unsigned_allowed_until == until.replace(microsecond=0)
-        assert selected.provisioning_signing is ProvisioningSigning.GRACE
-        assert not_selected.provisioning_signing is ProvisioningSigning.REQUIRED
-        assert not_a_partner.provisioning.unsigned_allowed_until is None
-
-    @parameterized.expand(
-        [
-            ("no_date_yet", None),
-            # A past date would end the partner's grace at once.
-            ("date_in_the_past", "2001-01-01 00:00:00"),
-        ]
-    )
-    def test_allow_unsigned_action_asks_for_a_future_date(self, _name: str, until: str | None) -> None:
-        partner = self._signing_partner("allow_unsigned_needs_a_date")
-
-        self.user.is_staff = True
-        request = RequestFactory().post("/", {"apply": "yes", "unsigned_allowed_until": until} if until else {})
-        request.user = self.user
-        response = self.admin.allow_unsigned_provisioning_until(
-            request=request, queryset=OAuthApplication.objects.filter(id=partner.id)
-        )
-
-        assert response.status_code == 200
-        assert "allow_unsigned_provisioning_until.html" in response.template_name
-        assert response.context_data["form"].is_bound is bool(until)
-        partner.refresh_from_db()
-        assert partner.provisioning.unsigned_allowed_until is None
 
     @parameterized.expand(
         [

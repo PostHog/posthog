@@ -19,7 +19,6 @@ from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.facade.testing import REQUIRED_SLACK_SCOPES
 from products.subscriptions.backend.logic import SLACK_USER_CONFIG_ERRORS
 from products.subscriptions.backend.logic.slack_subscriptions import (
-    MAX_SLACK_UPLOAD_BYTES,
     SlackGallery,
     _blocks_for_asset,
     _prepare_slack_gallery,
@@ -1053,7 +1052,7 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
             team=self.team,
             insight_id=self.insight.id,
             export_format="image/png",
-            content=b"x" * (MAX_SLACK_UPLOAD_BYTES + 1),
+            content=b"x" * 16,
         )
         successful = ExportedAsset.objects.create(
             team=self.team,
@@ -1062,7 +1061,8 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
             content=b"PNG",
         )
         assets = list(ExportedAsset.objects.filter(id__in=[oversized.id, successful.id]).select_related("insight"))
-        gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
+        with patch("products.subscriptions.backend.logic.slack_subscriptions.MAX_SLACK_UPLOAD_BYTES", 8):
+            gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
         assert len(gallery.file_uploads) == 1
         assert gallery.file_uploads[0]["content"] == b"PNG"
         attachment_errors = [
@@ -1071,6 +1071,7 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
             if block["type"] == "section" and block["text"].get("text") == "Could not attach My Test subscription"
         ]
         assert len(attachment_errors) == 1
+        assert gallery.undelivered_asset_count == 1
         assert "Could not generate" in gallery.initial_comment
         assert "My Test subscription" in gallery.initial_comment
 

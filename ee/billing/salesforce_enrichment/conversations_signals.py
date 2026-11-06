@@ -3,6 +3,7 @@
 import datetime as dt
 from dataclasses import dataclass
 from itertools import batched
+from typing import Any
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -133,6 +134,11 @@ def fetch_slack_channel_user_count(team_id: int, slack_channel_id: str, slack_te
     return None
 
 
+def _row_dicts(queryset: QuerySet[Any, Any]) -> list[dict[str, object]]:
+    # `.values()` rows are plain dicts at runtime, but the stubs type them as TypedDicts.
+    return list(queryset)
+
+
 def _activity_at() -> Coalesce:
     """Most recent activity timestamp for a ticket, preferring the newest available signal."""
     return Coalesce("last_message_at", "updated_at", "created_at", output_field=DateTimeField())
@@ -175,7 +181,7 @@ def _fetch_slack_channel_aggregate_rows(org_ids: list[str]) -> list[dict[str, ob
     if not org_ids:
         return []
 
-    return list(
+    return _row_dicts(
         _tickets_with_verified_org()
         .filter(
             channel_source=Channel.SLACK,
@@ -222,7 +228,7 @@ def _fetch_trusted_slack_channel_activity_rows(
     if not channel_filters:
         return []
 
-    return list(
+    return _row_dicts(
         Ticket.objects.filter(channel_filters, channel_source=Channel.SLACK, identity_verified=True)
         .annotate(activity_at=_activity_at())
         # Group by team as well as (workspace, channel): a team's Slack connection
@@ -254,7 +260,7 @@ def _fetch_latest_support_ticket_rows(org_ids: list[str]) -> list[dict[str, obje
     if not org_ids:
         return []
 
-    return list(
+    return _row_dicts(
         _tickets_with_verified_org()
         .filter(organization_id__in=org_ids)
         .annotate(activity_at=_activity_at())

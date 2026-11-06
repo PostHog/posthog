@@ -138,6 +138,25 @@ def events_read_table(use_new_events_schema: bool) -> str:
     return DISTRIBUTED_EVENTS_JSON_TABLE if use_new_events_schema else "events"
 
 
+# The native table stores a dotted key `a.b` under the path `a%2Eb` (EVENTS_JSON_INSERT_SETTINGS), and ClickHouse
+# prints the dot again only for a query that sets the first setting. The second keeps a `/` inside an object or
+# array value unescaped, as the legacy text column returns it. The ClickHouse printer sets both on every HogQL
+# query that reads the native table, so raw SQL that embeds or re-runs a printed query must send them itself.
+EVENTS_JSON_READ_SETTINGS: dict[str, int] = {
+    "json_type_escape_dots_in_keys": 1,
+    "output_format_json_escape_forward_slashes": 0,
+}
+
+
+def events_read_settings(use_new_events_schema: bool) -> dict[str, int]:
+    """The ClickHouse settings raw (non-HogQL) SQL must send when it reads the native events table.
+
+    Resolve the gate once per query, as `events_read_table` asks, so the settings match the table the SQL was
+    printed against.
+    """
+    return dict(EVENTS_JSON_READ_SETTINGS) if use_new_events_schema else {}
+
+
 def _allowlisted_team_ids() -> set[int]:
     raw = str(get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS") or "")
     return {int(part) for part in raw.split(",") if part.strip()}

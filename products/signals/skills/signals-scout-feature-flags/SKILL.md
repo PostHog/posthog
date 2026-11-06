@@ -321,9 +321,9 @@ Direct calls (read-only):
 - `feature-flags-activity-retrieve` — one flag's edit history with diffs; how you date edits against traffic shifts.
 - `feature-flags-dependent-flags-retrieve` — flags whose conditions reference this one; the per-flag cleanup-safety check.
 - `advanced-activity-logs-list` (`scopes: ["FeatureFlag"]`) — project-wide flag change timeline, including deletions that `feature-flags-activity-retrieve` can't reach anymore.
-- `execute-sql` against `events` — the traffic side. Properties on `$feature_flag_called`: `$feature_flag` (key), `$feature_flag_response` (`true`/`false`/variant key).
+- `execute-sql` against `events` — the traffic side. Properties on `$feature_flag_called`: `$feature_flag` (key), `$feature_flag_response` (`true`/`false`/variant key). Keep `event = '$feature_flag_called'` as the only event filter of each scan, as the queries above do. PostHog then reads `posthog.flag_evaluations` for an organization that keeps its flag calls only there. A scan that also matches other events can find none of those calls.
 - `execute-sql` against `system.feature_flags` — the bulk roster side (`id`, `key`, `name`, `filters`, `rollout_percentage`, `deleted`; no `active` column). Powers the ghost anti-join and any roster-wide aggregation without pagination.
-- `read-data-schema` — confirm `$feature_flag_called` exists and check property shape before aggregating.
+- `read-data-schema` — check property shape before aggregating. It can list no `$feature_flag_called` definitions for an organization that keeps flag calls only in `posthog.flag_evaluations`, so confirm the stream with the count query in [Quick close-out](#quick-close-out-are-flags-even-in-use), not here.
 
 Stale-flag health issues (the deterministic classifier you read, never re-run):
 

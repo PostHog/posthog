@@ -11,8 +11,10 @@ from products.workflows.backend.presentation.views import (
     hog_flow,
     hog_flow_template,
     people_imports,
+    push_token_imports,
     workflow_classifications,
     workflow_data_suggestions,
+    workflow_imports,
     workflow_message_opt_outs,
     workflow_scout_runs,
     workflow_sending_rules,
@@ -77,9 +79,21 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(
+        r"workflow_imports",
+        workflow_imports.WorkflowImportViewSet,
+        "project_workflow_imports",
+        ["team_id"],
+    )
+    routers.projects.register(
         r"workflow_people_imports",
         people_imports.WorkflowPeopleImportViewSet,
         "project_workflow_people_imports",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"push_token_imports",
+        push_token_imports.PushTokenImportViewSet,
+        "project_push_token_imports",
         ["team_id"],
     )
     routers.projects.register(

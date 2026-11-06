@@ -36,10 +36,10 @@ from products.signals.backend.report_checks import AgentCheckConfig, parse_check
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
 from products.signals.backend.report_monitoring_results import (
-    MONITORING_RESULT_ELIGIBLE_STATUSES,
     InvalidMonitoringResult,
     MonitoringEvaluation,
     MonitoringResultConflict,
+    monitoring_result_check_eligible,
     save_monitoring_result,
 )
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, TRIGGERED_BY_MONITORING
@@ -147,7 +147,7 @@ def ready_monitoring_scout_check(binding: MonitoringScoutCheck, *, allow_submitt
         or attempt.check_versions.get(str(check.id)) != binding.definition_version
         or check_definition_version(check) != binding.definition_version
         or check.kind != SignalReportCheck.Kind.AGENT
-        or check.status not in MONITORING_RESULT_ELIGIBLE_STATUSES
+        or not monitoring_result_check_eligible(check, binding.attempt_id)
         or check.soak_minutes is None
         or binding.window_end != binding.window_start + timedelta(minutes=check.soak_minutes)
         or binding.window_end > timezone.now()

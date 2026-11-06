@@ -1,6 +1,7 @@
 import json
 import hashlib
 import dataclasses
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -15,6 +16,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -28,13 +30,17 @@ from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
+from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.mcp_analytics.backend import intent_generation, mcp_harness
 from products.mcp_analytics.backend.constants import (
     MAX_SNAPSHOT_CLUSTERS,
     MCP_MISSING_CAPABILITY_EVENT,
     MCP_TOOL_CALL_EVENT,
 )
+from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.facade import contracts, enums
+from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 from products.mcp_analytics.backend.hogql_queries.base import shared_filter_exprs
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
@@ -53,7 +59,11 @@ SELECT
     toString(properties.$mcp_intent) AS intent,
     toString(properties.$mcp_is_error) AS is_error_raw,
     toString(properties.$mcp_error_message) AS error_message,
-    toString(properties.$mcp_duration_ms) AS duration_ms_raw
+    toString(properties.$mcp_duration_ms) AS duration_ms_raw,
+    JSONExtractRaw(properties, '$mcp_parameters') AS parameters,
+    JSONExtractRaw(properties, '$mcp_response') AS response,
+    toString(properties.$mcp_error_type) AS error_type,
+    toString(properties.$mcp_error_status) AS error_status
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
@@ -114,6 +124,15 @@ SESSION_OVERLAP_BUFFER = timedelta(days=7)
 # aggregation instead of each re-running it — long enough to absorb a burst,
 # short enough that "Reload" still feels live.
 SESSIONS_CACHE_TTL_SECONDS = 30
+
+# The activity view polls every 60 s. Restricted members each get their own entry, so it
+# expires before their next poll. Unrestricted members share one entry, so it can live longer;
+# empty overviews skip the cache, so a new team still sees its first call on the next poll.
+ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS = 20
+UNRESTRICTED_ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS = 5 * 60
+# Setup mode polls with a refresh, and anyone signed in can send one, so a cached entry recomputes
+# at most once in this window. A concurrent refresh gets the cached entry instead of a second run.
+ACTIVITY_OVERVIEW_REFRESH_COOLDOWN_SECONDS = 5
 
 # One row per $session_id, aggregated straight from events. The column shape
 # (min/max/count/groupUniqArray/argMax) maps 1:1 onto a future AggregatingMergeTree
@@ -522,7 +541,9 @@ ACTIVITY_TOP_TOOLS_LIMIT = 5
 ACTIVITY_CLIENTS_LIMIT = 6
 ACTIVITY_RECENT_CALLS_LIMIT = 20
 
-_ACTIVITY_STATS_SQL = f"""
+
+def _activity_stats_sql(custom_rules: Sequence[CustomHarnessRule]) -> str:
+    return f"""
 SELECT
     count() AS total_calls,
     uniq(tool) AS distinct_tools,
@@ -532,7 +553,7 @@ SELECT
     -- mean Codex), which the Clients card folds into one row, so counting tokens would
     -- put "2 clients" next to a one-row card. The raw `$mcp_client_name` is absent from
     -- every non-initialize call and cannot be counted here at all.
-    uniqIf({mcp_harness.harness_label_or_token_sql("h")}, h != '') AS distinct_clients,
+    uniqIf({mcp_harness.harness_label_or_token_sql("h", custom_rules=custom_rules)}, h != '') AS distinct_clients,
     countIf(has_intent) AS calls_with_intent,
     countIf(is_error) AS error_calls
 FROM (
@@ -548,6 +569,7 @@ FROM (
         AND {{shared_filters}}
 )
 """
+
 
 _ACTIVITY_MISSING_CAPABILITY_SQL = """
 SELECT count()
@@ -569,6 +591,7 @@ ORDER BY calls DESC
 LIMIT {limit}
 """
 
+
 # Resolved through the canonical classifier rather than the raw `$mcp_client_name`,
 # which is absent on any call that isn't the session's `initialize` — reading it alone
 # left the large majority of calls unattributed and lumped whole clients under one
@@ -577,9 +600,10 @@ LIMIT {limit}
 # (differing case, or a name carrying mcp-remote's proxy signature) into a single row.
 # Unrecognized clients are named verbatim: this is a ranked top-N list, so a
 # self-reported name is more use than collapsing it into "Other".
-_ACTIVITY_CLIENTS_SQL = f"""
+def _activity_clients_sql(custom_rules: Sequence[CustomHarnessRule]) -> str:
+    return f"""
 SELECT
-    {mcp_harness.harness_label_or_token_sql("h")} AS client,
+    {mcp_harness.harness_label_or_token_sql("h", custom_rules=custom_rules)} AS client,
     count() AS calls
 FROM (
     SELECT
@@ -594,7 +618,9 @@ ORDER BY calls DESC
 LIMIT {{limit}}
 """
 
-_ACTIVITY_RECENT_CALLS_SQL = f"""
+
+def _activity_recent_calls_sql(custom_rules: Sequence[CustomHarnessRule]) -> str:
+    return f"""
 SELECT
     timestamp,
     tool,
@@ -603,7 +629,7 @@ SELECT
     error_raw,
     duration_ms,
     -- Resolved, not raw: the live feed showed a blank caller on most rows otherwise.
-    {mcp_harness.harness_label_or_token_sql("h")} AS client_name
+    {mcp_harness.harness_label_or_token_sql("h", custom_rules=custom_rules)} AS client_name
 FROM (
     SELECT
         timestamp,
@@ -683,16 +709,78 @@ def _shared_activity_database(team: Team, user: User | None) -> Database | None:
     )
 
 
+_MEMBER_INDEPENDENT_FILTER_TYPES = frozenset({"event", "person"})
+
+
+def _filters_read_the_same_for_every_member(
+    team: Team, properties: list[AnyPropertyFilterDiscriminated] | None, filter_test_accounts: bool
+) -> bool:
+    # Other filter types (session, HogQL, cohort, warehouse) and $virt_* keys can read tables or fields
+    # that the query database adds per member, so property restrictions alone don't decide
+    # what the member sees.
+    filters = [prop.model_dump(mode="json") for prop in (properties or [])]
+    if filter_test_accounts:
+        filters += team.test_account_filters or []
+    return all(
+        isinstance(f, dict)
+        and f.get("type") in _MEMBER_INDEPENDENT_FILTER_TYPES
+        and not str(f.get("key", "")).startswith("$virt")
+        for f in filters
+    )
+
+
+def _activity_overview_cache_key(
+    team: Team,
+    properties: list[AnyPropertyFilterDiscriminated] | None,
+    filter_test_accounts: bool,
+    restrictions: set[RestrictedProperty],
+    user: User | None,
+) -> str:
+    filters = _filters_cache_fragment(team, properties, filter_test_accounts)
+    shared = _filters_read_the_same_for_every_member(team, properties, filter_test_accounts)
+    member = None if shared or user is None else user.pk
+    return generate_cache_key(
+        team.pk, f"mcp_activity_overview_{filters}_{restriction_fingerprint(restrictions)}_{member}"
+    )
+
+
 def get_activity_overview(
     team: Team,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
     user: User | None = None,
+    refresh: bool = False,
+) -> contracts.ActivityOverview:
+    """Return everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
+
+    Members without property restrictions share one cache entry, so it lives for minutes.
+    Restricted members each have their own entry, which lives for less than one poll interval.
+    """
+    restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+    cache_key = _activity_overview_cache_key(team, properties, filter_test_accounts, restrictions, user)
+    refresh_cooldown_key = f"{cache_key}_refresh_cooldown"
+    cached = cache.get(cache_key)
+    if cached is not None and not (
+        refresh and cache.add(refresh_cooldown_key, True, ACTIVITY_OVERVIEW_REFRESH_COOLDOWN_SECONDS)
+    ):
+        return cached
+
+    overview = _query_activity_overview(team, properties, filter_test_accounts, user)
+    # Don't cache an empty overview: a newly set-up team waits on this view for its first call.
+    if overview.stats.total_calls:
+        ttl = ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS if restrictions else UNRESTRICTED_ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS
+        cache.set(cache_key, overview, ttl)
+        cache.set(refresh_cooldown_key, True, ACTIVITY_OVERVIEW_REFRESH_COOLDOWN_SECONDS)
+    return overview
+
+
+def _query_activity_overview(
+    team: Team,
+    properties: list[AnyPropertyFilterDiscriminated] | None,
+    filter_test_accounts: bool,
+    user: User | None,
 ) -> contracts.ActivityOverview:
     """Compute everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
-
-    Always computed fresh: the view's whole point is watching data arrive, so callers
-    poll this endpoint rather than a stale cache.
 
     The four queries are independent, so they run concurrently. Served serially their
     latency summed, which left the summary sentence landing long after the live feed
@@ -723,6 +811,7 @@ def get_activity_overview(
     # Building the database costs more Python time than most of these queries spend in
     # ClickHouse, and the threads share the GIL, so build it once for all five.
     database = _shared_activity_database(team, user)
+    rules = custom_harness_rules(team)
 
     def run_query(spec: tuple[str, str, object]) -> list[Any]:
         assert isinstance(spec[2], dict)
@@ -734,7 +823,7 @@ def get_activity_overview(
         run_query,
         [
             (
-                _ACTIVITY_STATS_SQL,
+                _activity_stats_sql(rules),
                 "mcp_analytics_activity_stats",
                 {
                     "tool_call_event": tool_call_event,
@@ -760,7 +849,7 @@ def get_activity_overview(
                 },
             ),
             (
-                _ACTIVITY_CLIENTS_SQL,
+                _activity_clients_sql(rules),
                 "mcp_analytics_activity_clients",
                 {
                     "tool_call_event": tool_call_event,
@@ -769,7 +858,7 @@ def get_activity_overview(
                 },
             ),
             (
-                _ACTIVITY_RECENT_CALLS_SQL,
+                _activity_recent_calls_sql(rules),
                 "mcp_analytics_activity_recent_calls",
                 {
                     "tool_call_event": tool_call_event,
@@ -912,6 +1001,10 @@ def list_mcp_tool_calls(
             is_error=str(row[4]).lower() in ("true", "1"),
             error_message=row[5] or "",
             duration_ms=_parse_int(row[6]),
+            parameters=row[7] or "",
+            response=row[8] or "",
+            error_type=row[9] or "",
+            error_status=row[10] or "",
         )
         for row in rows[:limit]
     ]

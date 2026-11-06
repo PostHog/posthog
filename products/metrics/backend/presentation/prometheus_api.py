@@ -1,12 +1,12 @@
 import re
 from typing import Any
 
-from django.http import HttpResponseBase
-
 from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.api.snuffle_proxy import SnuffleProxyViewSet
 
+from products.metrics.backend.facade.api import record_promql_query
 from products.metrics.backend.prometheus_usage import report_prometheus_api_usage
 
 _LABEL_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
@@ -35,7 +35,15 @@ class PrometheusQueryViewSet(SnuffleProxyViewSet):
         re.compile(r"status/buildinfo"),
     )
 
-    def finalize_response(self, request: Request, response: HttpResponseBase, *args: Any, **kwargs: Any) -> Any:
+    def before_forward(self, request: Request, path: str) -> None:
+        if path not in ("query", "query_range"):
+            return
+        # The Prometheus API takes the query from the form body of a POST or from the query string.
+        expr = request.data.get("query") or request.query_params.get("query")
+        if expr:
+            record_promql_query(team=self.team, expr=expr)
+
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Any:
         if self.action == "proxy" and response.status_code < 400:
             report_prometheus_api_usage(request, self.team)
         return super().finalize_response(request, response, *args, **kwargs)

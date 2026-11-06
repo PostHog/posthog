@@ -145,6 +145,12 @@ INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK = get_from_env(
 # Activity summary tick (products/signals/backend/activity_summary/tick.py). The `activity-summary`
 # flag payload gates the work and holds the caps, so the schedule ticks in every environment.
 ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES = get_from_env("ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES", 60, type_cast=int)
+# Personal inbox ranking tick (products/signals/backend/personal_ranking/tick.py). The `tick` object of the
+# `personal-inbox-ranking` flag payload gates the work. It ticks more often than the list's target interval,
+# so a list comes due soon after the interval passes.
+PERSONAL_INBOX_RANKING_TICK_INTERVAL_MINUTES = get_from_env(
+    "PERSONAL_INBOX_RANKING_TICK_INTERVAL_MINUTES", 15, type_cast=int
+)
 
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs

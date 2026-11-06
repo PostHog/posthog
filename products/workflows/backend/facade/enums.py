@@ -39,7 +39,10 @@ class HogFlowBatchJobState(LabeledStrEnum):
     QUEUED = "queued"
     ACTIVE = "active"
     COMPLETED = "completed"
+    # Set after a completed run settles with some of its sends errored, and the rest sent.
+    PARTIALLY_FAILED = "partially_failed", "Partially failed"
     CANCELLED = "cancelled"
+    # The run could not fan out to its audience, or it settled with every send errored.
     FAILED = "failed"
 
 
@@ -67,6 +70,27 @@ class WorkflowIdeaSource(LabeledStrEnum):
     SCOUT = "scout", "Scout"
 
 
+class WorkflowImportSource(LabeledStrEnum):
+    CUSTOMERIO = "customerio", "Customer.io"
+
+
+class WorkflowImportNoteLevel(LabeledStrEnum):
+    # The step behaves differently in PostHog, and the note says how.
+    APPROXIMATED = "approximated", "Approximated"
+    # The setting has no PostHog equivalent and was left out.
+    UNSUPPORTED = "unsupported", "Unsupported"
+    # The step is imported but needs a setting only the team can give, like an email sender.
+    NEEDS_INPUT = "needs_input", "Needs input"
+
+
+class WorkflowImportStatus(LabeledStrEnum):
+    PREVIEW = "preview", "Preview"
+    CREATED = "created", "Created"
+    UPDATED = "updated", "Updated"
+    SKIPPED = "skipped", "Skipped"
+    FAILED = "failed", "Failed"
+
+
 class HogFlowState(LabeledStrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
@@ -79,6 +103,7 @@ class HogFlowOriginProduct(LabeledStrEnum):
     LOOPS = "loops", "Loops"
     BROADCASTS = "broadcasts", "Broadcasts"
     TRANSACTIONAL_EMAILS = "transactional_emails", "Transactional emails"
+    TRANSACTIONAL_EMAIL_KEYS = "transactional_email_keys", "Transactional email keys"
 
 
 class HogFlowEmailSendingPausedBy(LabeledStrEnum):
@@ -181,3 +206,18 @@ class EmailDomainSetupStepState(LabeledStrEnum):
     DONE = "done", "Done"
     PENDING = "pending", "Pending"
     FAILED = "failed", "Failed"
+
+
+class PushTokenImportStatus(LabeledStrEnum):
+    RUNNING = "running", "Import running"
+    COMPLETED = "completed", "Import completed"
+    CANCELLED = "cancelled", "Import cancelled"
+    FAILED = "failed", "Import failed"
+
+
+class PushTokenImportRowFailureReason(LabeledStrEnum):
+    INVALID_ROW = "invalid_row", "The line is missing a value or a value is too long"
+    UNKNOWN_PERSON = "unknown_person", "No person has this distinct ID"
+    TOKEN_MISMATCH = "token_mismatch", "The token does not fit this channel"
+    NOT_STORED = "not_stored", "The device was not stored"
+    PERSON_PROCESSING_DISABLED = "person_processing_disabled", "Person processing is off for this person"

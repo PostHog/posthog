@@ -137,8 +137,8 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "before": before_date,
             "interval": params.get("interval", "day"),
             "breakdown_by": params.get("breakdown_by"),
-            "name": params["name"].split(",") if params.get("name") else None,
-            "kind": params["kind"].split(",") if params.get("kind") else None,
+            "name": params.get("name") or None,
+            "kind": params.get("kind") or None,
         }
 
     @extend_schema(responses={200: AppMetricResponseSerializer})

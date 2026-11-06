@@ -1,7 +1,12 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { UserType } from '~/types'
 
 import { twoFactorLogic } from './twoFactorLogic'
 
@@ -98,4 +103,30 @@ describe('twoFactorLogic', () => {
         logic.actions.toggleBackupCodesModal(false)
         expect(logic.values.generatingCodes).toBeNull()
     })
+
+    it.each([
+        ['a user who has 2FA', true, false],
+        ['a user who has no 2FA', false, true],
+    ])(
+        'waits for the full stage 2FA fields before it forces setup on %s',
+        async (_, is2faEnabled, expectedModalOpen) => {
+            initKeaTests()
+            const bootUser: UserType = {
+                ...MOCK_DEFAULT_USER,
+                organization: { ...MOCK_DEFAULT_USER.organization!, enforce_2fa: true },
+            }
+            delete bootUser.is_2fa_enabled
+            delete bootUser.has_sso_enforcement
+            userLogic.mount()
+            userLogic.actions.loadUserSuccess(bootUser)
+            const logic = twoFactorLogic()
+            logic.mount()
+            expect(logic.values.isTwoFactorSetupModalOpen).toBe(false)
+
+            userLogic.actions.addFullStageUserFields({ is_2fa_enabled: is2faEnabled, has_sso_enforcement: false })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isTwoFactorSetupModalOpen).toBe(expectedModalOpen)
+        }
+    )
 })

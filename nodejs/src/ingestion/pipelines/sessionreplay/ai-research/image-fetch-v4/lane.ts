@@ -40,15 +40,3 @@ export interface HostLimits {
     burst: number
     maxConcurrent: number
 }
-
-/** The v4 per registrable domain limits: a share of the configured limits, at least one request at a time. */
-export function v4HostLimits(limits: HostLimits, share: number): HostLimits {
-    if (!(share > 0 && share <= 1)) {
-        throw new Error(`AI_RESEARCH_V4_IMAGE_FETCH_HOST_BUDGET_SHARE must be in (0, 1], got ${share}`)
-    }
-    return {
-        requestsPerSecond: limits.requestsPerSecond * share,
-        burst: Math.max(1, Math.floor(limits.burst * share)),
-        maxConcurrent: Math.max(1, Math.floor(limits.maxConcurrent * share)),
-    }
-}
