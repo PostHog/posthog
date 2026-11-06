@@ -1037,7 +1037,6 @@ describe('EmailService', () => {
                         .mockImplementationOnce(async (buckets) => {
                             const grant = await claim(buckets)
                             await setTenantStatus('DISABLED')
-                            clock.mockReturnValue(now + pastPauseCacheMs)
                             return grant
                         })
                     try {
@@ -1048,7 +1047,7 @@ describe('EmailService', () => {
                         expect(blocked.logs).toContainEqual(expect.objectContaining({ message: pausedMessage }))
 
                         await setTenantStatus('ENABLED')
-                        clock.mockReturnValue(now + 2 * pastPauseCacheMs)
+                        clock.mockReturnValue(now + pastPauseCacheMs)
                         invocation.state.vmState = { stack: [] } as any
                         const resumed = await service.executeSendEmail(invocation)
                         expect(resumed.error).toBeUndefined()
