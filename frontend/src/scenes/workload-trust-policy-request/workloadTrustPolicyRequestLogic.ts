@@ -105,7 +105,7 @@ export interface workloadTrustPolicyRequestLogicActions {
 export interface workloadTrustPolicyRequestLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        issuerHostConfirmed: (policyRequest: WorkloadTrustPolicyRequestApi | null, confirmIssuerHost: any) => boolean
+        issuerHostConfirmed: (policyRequest: WorkloadTrustPolicyRequestApi | null, confirmIssuerHost: string) => boolean
         breadcrumbs: (policyRequest: WorkloadTrustPolicyRequestApi | null) => Breadcrumb[]
     }
 }
