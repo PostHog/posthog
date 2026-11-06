@@ -157,14 +157,65 @@ describe('accountNotebooksLogic', () => {
         mockUpdate.mockResolvedValue({ ...note, tags: ['risk'] })
 
         logic.actions.updateNotebook('note-1', { tags: ['risk'] })
-        expect(logic.values.updatingShortId).toBe('note-1')
+        expect(logic.values.notebooks?.[0].tags).toEqual(['risk'])
+        expect(logic.values.pendingNotebookTags['note-1']).toEqual(['risk'])
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockUpdate).toHaveBeenCalledWith(TEAM, 'acc-1', 'note-1', { tags: ['risk'] })
         expect(logic.values.notebooks).toEqual([{ ...note, tags: ['risk'] }])
-        expect(logic.values.updatingShortId).toBeNull()
+        expect(logic.values.pendingNotebookTags).toEqual({})
         expect(mockList).toHaveBeenCalledTimes(listCalls)
     })
+
+    it.each([false, true])(
+        'keeps the latest optimistic tags while an older save finishes with failure=%s',
+        async (fails) => {
+            const note = { short_id: 'note-1', tags: [] } as unknown as AccountNotebookApi
+            mockList.mockResolvedValue(buildResponse([note]))
+            await mount()
+            let resolveFirst!: (note: AccountNotebookApi) => void
+            let rejectFirst!: (error: Error) => void
+            let startFirst!: () => void
+            const started = new Promise<void>((resolve) => {
+                startFirst = resolve
+            })
+            const first = new Promise<AccountNotebookApi>((resolve, reject) => {
+                resolveFirst = resolve
+                rejectFirst = reject
+            })
+            mockUpdate.mockImplementationOnce(() => {
+                startFirst()
+                return first
+            })
+            let resolveLatest!: (note: AccountNotebookApi) => void
+            let startLatest!: () => void
+            const latestStarted = new Promise<void>((resolve) => {
+                startLatest = resolve
+            })
+            const latest = new Promise<AccountNotebookApi>((resolve) => {
+                resolveLatest = resolve
+            })
+            mockUpdate.mockImplementationOnce(() => {
+                startLatest()
+                return latest
+            })
+            logic.actions.updateNotebook(note.short_id, { tags: ['first'] })
+            await started
+            logic.actions.updateNotebook(note.short_id, { tags: ['first', 'risk'] })
+            if (fails) {
+                rejectFirst(new Error('Save failed'))
+            } else {
+                resolveFirst({ ...note, tags: ['first'] })
+            }
+            await latestStarted
+            expect(logic.values.notebooks?.[0].tags).toEqual(['first', 'risk'])
+            expect(logic.values.pendingNotebookTags[note.short_id]).toEqual(['first', 'risk'])
+            resolveLatest({ ...note, tags: ['first', 'risk'] })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.notebooks?.[0].tags).toEqual(['first', 'risk'])
+            expect(logic.values.pendingNotebookTags).toEqual({})
+        }
+    )
 
     it('exposes the live search, tags and sort as a view state', async () => {
         await mount()
@@ -242,7 +293,19 @@ describe('accountNotebooksLogic', () => {
         expect(onConfigChange).toHaveBeenLastCalledWith({
             searchTerm: 'renewal',
             sorting: { columnKey: 'last_modified_at', order: -1 },
+            tagsFilter: ['risk'],
+            createdByFilter: [7],
+            currentViewId: null,
+            passthroughViewFilters: { assigned_to: [9], account_id: 'acc-2', account_name: 'Example account' },
+            passthroughViewOrdering: null,
         })
+        expect(logic.values.viewState).toEqual(viewState)
+
+        const initialConfig = onConfigChange.mock.lastCall?.[0]
+        logic.unmount()
+        logic = accountNotebooksLogic({ accountId: 'acc-1', initialConfig })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.viewState).toEqual(viewState)
     })
 
@@ -256,7 +319,10 @@ describe('accountNotebooksLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.sorting).toEqual({ columnKey: 'created_at', order: -1 })
+        expect(logic.values.viewState.ordering).toBe('account_name')
         expect(mockList).toHaveBeenLastCalledWith(TEAM, 'acc-1', defaultListParams)
+        logic.actions.setSorting({ columnKey: 'title', order: 1 })
+        expect(logic.values.viewState.ordering).toBe('title')
     })
 })
 

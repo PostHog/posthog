@@ -108,6 +108,21 @@ Browser storage failures do not prevent URL-based selection.
 `accountsLogic.viewState` supplies the snapshot for working state and explicit saves.
 The parent scene preserves the selected view ID when changing date or test-account filters.
 
+### Notes saved views
+
+Accounts and Notes use the same saved-view picker and management dialogs.
+The Notes toolbar starts with search. View tooltips describe the saved filters and sorting.
+Edit and Delete remain in each view's Manage menu.
+
+A Notes tile saves search, tags, authors, sorting, and the selected view ID in its configuration.
+Switching account tabs keeps the selected Notes view with its filters.
+A view's account and assignment filters apply only on the team Notes list.
+Sorting by account also applies only there. Within one account, the table uses creation-date sorting while preserving the saved account sort.
+Changing other filters and updating that view does not replace its team-only sort.
+
+Note tag edits appear immediately and save in order for each note.
+An earlier response cannot replace a later pending edit. A failed write restores the last saved tags unless another edit is pending.
+
 ## Sorting
 
 The Accounts list uses server sorting until it knows that the full matching set fits on one page.
