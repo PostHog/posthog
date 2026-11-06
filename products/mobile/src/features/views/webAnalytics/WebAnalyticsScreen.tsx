@@ -36,6 +36,7 @@ import { BreakdownCard } from './BreakdownCard'
 import { BreakdownSheet } from './BreakdownSheet'
 import { FilterChips } from './FilterChips'
 import { useWebAnalyticsActions, useWebAnalyticsScreen, type WebAnalyticsScreenState } from './hooks'
+import { LiveChip } from './LiveChip'
 import { MoreOnWeb } from './MoreOnWeb'
 import { OverviewGrid } from './OverviewGrid'
 import { RetentionCard } from './RetentionCard'
@@ -145,6 +146,11 @@ function WebAnalyticsBody({
     const contentStyle = [styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]
     const rangeDetail = overview ? resolvedRangeText(overview.resolvedRange, 'day') : null
     const sheetTile = screen.tiles.find((tile) => tile.def.id === tabsFor) ?? null
+    const liveChip = (
+        <View style={styles.liveChip}>
+            <LiveChip />
+        </View>
+    )
     // No compare row: every card compares with the previous period, as the web's tiles do.
     const rangeControl = (
         <ViewRangeControl
@@ -154,6 +160,7 @@ function WebAnalyticsBody({
             detail={rangeDetail}
             compare={null}
             style={tab ? styles.tabRange : undefined}
+            trailing={tab ? liveChip : undefined}
         />
     )
     // On a tab the shared tabs header draws the title and the status line, so only the range stays in the content.
@@ -166,6 +173,7 @@ function WebAnalyticsBody({
         <ViewTitle
             onTitleLayout={scrollTitle.onTitleLayout}
             title="Web analytics"
+            accessories={liveChip}
             refresh={refresh}
             range={rangeControl}
             rangeDetail={rangeDetail}
@@ -288,6 +296,10 @@ const useStyles = createStyles(({ colors }) => ({
     },
     tabRange: {
         marginTop: 0,
+    },
+    liveChip: {
+        marginLeft: 'auto',
+        paddingLeft: 8,
     },
     rangeText: {
         ...type.meta,

@@ -1,6 +1,8 @@
 import { act, renderHook } from '@testing-library/react-native'
 
-import { useLiveFeed } from './hooks'
+import { LiveDemo } from '@/demo/live'
+
+import { useLiveFeed, useLiveUsersOnline } from './hooks'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -52,5 +54,17 @@ describe('useLiveFeed', () => {
         expect(result.current.status).toBe('live')
         expect(result.current.updatedAt).not.toBe(updatedAt)
         unmount()
+    })
+
+    test('the Live chip counts users online alone, once every 30 seconds', async () => {
+        const respond = jest.spyOn(LiveDemo.prototype, 'respond')
+        const { result, unmount } = renderHook(() => useLiveUsersOnline())
+        expect(result.current).toBeNull()
+
+        await advance(65_000)
+        expect(result.current).toBeGreaterThan(0)
+        expect(respond.mock.calls.map(([key]) => key)).toEqual(['usersOnline', 'usersOnline', 'usersOnline'])
+        unmount()
+        respond.mockRestore()
     })
 })

@@ -1,7 +1,15 @@
 import { useIsFocused } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { fetchLiveProject, fetchLiveQuery, fetchLiveStats, type LiveProjectApi, liveStatsHost } from '@/api/live'
+import {
+    fetchLiveProject,
+    fetchLiveQuery,
+    fetchLiveStats,
+    type LiveProjectApi,
+    liveQuery,
+    liveStatsHost,
+    liveWindow,
+} from '@/api/live'
 import type { ProjectScope } from '@/api/reports'
 import { addSessionEndTask } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
@@ -11,7 +19,7 @@ import { LIVE_DEMO_READ_MS, liveDemo } from '@/demo/live'
 import { useAppActive } from '@/features/handoff/useTaskRun'
 import { reportScopeError } from '@/features/views/useViewsAccess'
 import { sleep } from '@/lib/sleep'
-import { liveUsersOnlineFromStats } from '@/model/adapters/live'
+import { liveUsersOnlineFromQuery, liveUsersOnlineFromStats } from '@/model/adapters/live'
 import { EMPTY_LIVE_SNAPSHOT, type LiveSnapshot } from '@/model/live'
 
 import {
@@ -35,6 +43,8 @@ import { type LiveQueryRunner, readLiveSnapshot } from './liveRead'
 /** The web's HogQL reload interval. */
 const READ_INTERVAL_MS = 30_000
 const STATS_INTERVAL_MS = 10_000
+/** The Live chip reads users online alone, never the screen's full read, at the HogQL cadence. */
+const CHIP_INTERVAL_MS = 30_000
 const READ_SLOWDOWN: LiveSlowdown = { afterMs: 10 * 60_000, intervalMs: 60_000 }
 const BACKGROUND_GRACE_MS = 2000
 const MAX_BACKOFF_MS = 5 * 60_000
@@ -159,6 +169,93 @@ function usePoller<T>({ enabled, read, intervalMs, slowdown, onEvent }: PollerOp
     return { state, controller }
 }
 
+interface StatsUsersOnline {
+    /** True while the live events service answers users online. */
+    active: boolean
+    /** True once the service cannot answer: another host, no token, or failed reads. The HogQL count stands in. */
+    fallback: boolean
+    count: number | null
+    controller: LiveController<number | null> | null
+}
+
+/** Users online from the live events service on Cloud, every `intervalMs` while the screen is seen. */
+function useStatsUsersOnline(source: LiveSource | null, intervalMs: number): StatsUsersOnline {
+    // Kept with the source it came from, so a project switch never reads with the last project's token.
+    const [known, setKnown] = useState<{ source: LiveSource; token: string | null } | null>(null)
+    const [failedFor, setFailedFor] = useState<LiveSource | null>(null)
+    const host = source?.statsHost ?? null
+    // Undefined until the project read settles, so the HogQL count does not start while the token loads.
+    const token = known !== null && known.source === source ? known.token : undefined
+    const failed = source !== null && failedFor === source
+
+    useEffect(() => {
+        let cancelled = false
+        if (source && host) {
+            void source.project().then((info) => {
+                if (!cancelled) {
+                    setKnown({ source, token: info?.token ?? null })
+                }
+            })
+        }
+        return () => {
+            cancelled = true
+        }
+    }, [source, host])
+
+    const active = host !== null && typeof token === 'string' && !failed
+    const read = useCallback(
+        async (signal: AbortSignal): Promise<LiveReadResult<number | null>> => {
+            if (!host || !token) {
+                throw new Error('Live has no stats token.')
+            }
+            const count = liveUsersOnlineFromStats(await fetchLiveStats(host, token, signal))
+            return { data: count, complete: count !== null }
+        },
+        [host, token]
+    )
+    const poller = usePoller<number | null>({ enabled: active, read, intervalMs })
+    useEffect(() => {
+        if (poller.state.failures >= STATS_FAILURES_BEFORE_FALLBACK) {
+            setFailedFor(source)
+        }
+    }, [poller.state.failures, source])
+    return {
+        active,
+        fallback: source !== null && (host === null || token === null || failed),
+        count: active ? poller.state.data : null,
+        controller: poller.controller,
+    }
+}
+
+/**
+ * Users online for the Live chip on the Web analytics screen. It reads only while that screen is focused and the app is
+ * in the foreground. Null until a read answers.
+ */
+export function useLiveUsersOnline(): number | null {
+    const mode = useDataMode()
+    const scope = useProjectScope()
+    const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
+    const stats = useStatsUsersOnline(source, CHIP_INTERVAL_MS)
+    const readCount = useCallback(
+        async (signal: AbortSignal): Promise<LiveReadResult<number | null>> => {
+            if (!source) {
+                throw new Error('Live has no data source yet.')
+            }
+            const now = Date.now()
+            const query = liveQuery('usersOnline', { window: liveWindow(now), pathCleaning: false })
+            const count = liveUsersOnlineFromQuery(await source.run('usersOnline', query, signal, now))
+            return { data: count, complete: count !== null }
+        },
+        [source]
+    )
+    const counted = usePoller<number | null>({
+        enabled: stats.fallback,
+        read: readCount,
+        intervalMs: CHIP_INTERVAL_MS,
+    })
+    return stats.active ? stats.count : counted.state.data
+}
+
 export interface LiveFeed {
     snapshot: LiveSnapshot
     status: LiveStatus
@@ -182,26 +279,9 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     const mode = useDataMode()
     const scope = useProjectScope()
     const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
-    const [statsToken, setStatsToken] = useState<string | null>(null)
-    const [statsFailed, setStatsFailed] = useState(false)
-    const statsHost = source?.statsHost ?? null
-    const useStats = statsHost !== null && statsToken !== null && !statsFailed
-    const useStatsRef = useRef(useStats)
-    useStatsRef.current = useStats
-
-    useEffect(() => {
-        let cancelled = false
-        if (source && statsHost) {
-            void source.project().then((info) => {
-                if (!cancelled) {
-                    setStatsToken(info?.token ?? null)
-                }
-            })
-        }
-        return () => {
-            cancelled = true
-        }
-    }, [source, statsHost])
+    const stats = useStatsUsersOnline(source, STATS_INTERVAL_MS)
+    const useStatsRef = useRef(stats.active)
+    useStatsRef.current = stats.active
 
     const read = useCallback(
         async (signal: AbortSignal, previous: LiveSnapshot | null): Promise<LiveReadResult<LiveSnapshot>> => {
@@ -234,23 +314,6 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         slowdown: READ_SLOWDOWN,
         onEvent,
     })
-
-    const readStats = useCallback(
-        async (signal: AbortSignal): Promise<LiveReadResult<number | null>> => {
-            if (!statsHost || !statsToken) {
-                throw new Error('Live has no stats token.')
-            }
-            const count = liveUsersOnlineFromStats(await fetchLiveStats(statsHost, statsToken, signal))
-            return { data: count, complete: count !== null }
-        },
-        [statsHost, statsToken]
-    )
-    const stats = usePoller<number | null>({ enabled: useStats, read: readStats, intervalMs: STATS_INTERVAL_MS })
-    useEffect(() => {
-        if (stats.state.failures >= STATS_FAILURES_BEFORE_FALLBACK) {
-            setStatsFailed(true)
-        }
-    }, [stats.state.failures])
 
     const paused = main.state.paused
     useEffect(() => {
@@ -298,7 +361,7 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         snapshot,
         status: source ? liveStatus(main.state) : 'loading',
         updatedAt: main.state.updatedAt,
-        usersOnline: (useStats ? stats.state.data : null) ?? snapshot.usersOnline,
+        usersOnline: stats.count ?? snapshot.usersOnline,
         paused,
         reading: main.state.reading,
         loadFailed: failing && !hasData,

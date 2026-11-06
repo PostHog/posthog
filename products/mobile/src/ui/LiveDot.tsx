@@ -10,7 +10,7 @@ import Animated, {
     withTiming,
 } from 'react-native-reanimated'
 
-import { createStyles, useColors } from '@/ui/theme'
+import { createStyles, useColors } from './theme'
 
 const SIZE = 10
 
