@@ -96,6 +96,10 @@ class RemoteConfig(UUIDTModel):
     synced_at = models.DateTimeField(null=True)
 
     @classmethod
+    def rebuild_cache_for_team(cls, team: Team) -> None:
+        cls.get_hypercache().update_cache(team.api_token)
+
+    @classmethod
     def get_hypercache(cls):
         def load_config(key):
             # Key may be a Team, api_token, or team id depending on the caller.

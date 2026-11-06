@@ -975,6 +975,43 @@ class TestDatabricksIntegration:
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
 
 
+class TestGitLabIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @patch("requests.request")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_create_returns_400_when_the_host_does_not_return_json(
+        self, _mock_is_url_allowed, mock_request, client: HttpClient
+    ):
+        mock_request.return_value = MagicMock(
+            status_code=200, **{"json.side_effect": requests.JSONDecodeError("Expecting value", "", 0)}
+        )
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "gitlab",
+                "config": {
+                    "hostname": "https://gitlab.example.com",
+                    "project_id": "1",
+                    "project_access_token": "token123",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "isn't JSON" in response.json()["detail"]
+        assert not Integration.objects.filter(team=self.team, kind="gitlab").exists()
+
+
 class TestGoogleCloudServiceAccountIntegration:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):

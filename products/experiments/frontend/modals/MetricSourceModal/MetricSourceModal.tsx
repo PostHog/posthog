@@ -4,9 +4,14 @@ import { IconWarning } from '@posthog/icons'
 import { LemonModal, Link } from '@posthog/lemon-ui'
 
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { getDefaultFunnelMetric } from 'scenes/experiments/utils'
 
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 import { sharedMetricModalLogic } from 'products/experiments/frontend/modals/SharedMetricModal/sharedMetricModalLogic'
+import {
+    getWarehouseNativeExposure,
+    toWarehouseNativeMetric,
+} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { metricSourceModalLogic } from './metricSourceModalLogic'
 
@@ -16,7 +21,7 @@ export const MetricSourceModal = (): JSX.Element | null => {
     const { isModalOpen, context } = useValues(metricSourceModalLogic)
     const { closeMetricSourceModal } = useActions(metricSourceModalLogic)
 
-    const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
+    const { openExperimentMetricModal, setMetric } = useActions(experimentMetricModalLogic)
     const { openSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     const { experiment } = useValues(experimentLogic)
@@ -35,6 +40,11 @@ export const MetricSourceModal = (): JSX.Element | null => {
                     onClick={() => {
                         closeMetricSourceModal()
                         openExperimentMetricModal(context)
+                        // An experiment with a warehouse-native exposure accepts warehouse-native metrics only
+                        const warehouseExposure = getWarehouseNativeExposure(experiment.exposure_criteria)
+                        if (warehouseExposure) {
+                            setMetric(toWarehouseNativeMetric(getDefaultFunnelMetric(), warehouseExposure))
+                        }
                     }}
                 >
                     <div className="font-semibold">
