@@ -5,16 +5,19 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.contracts import SourceKind
+from products.alerts_platform.backend.facade.api import create_configuration
+from products.alerts_platform.backend.facade.contracts import Grouping, PlatformAlertConfigurationEdit, SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG
 from products.logs.backend.platform_source_config import logs_source_config
 
 _NOW = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
@@ -57,7 +60,11 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
-        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self.native_create = False
+        patcher = patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *_, **__: flag != NATIVE_CREATE_FLAG or self.native_create,
+        )
         patcher.start()
         self.addCleanup(patcher.stop)
         HogFunctionTemplate.objects.get_or_create(
@@ -170,3 +177,75 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
         assert without_row[8][0] == status.HTTP_400_BAD_REQUEST
         assert without_row[9:] == [status.HTTP_404_NOT_FOUND, 0]
         assert not LogsAlertConfiguration.objects.filter(team=self.team).exists()
+
+    def _create(self, route: str) -> str:
+        if route == "logs_api":
+            response = self.client.post(
+                self.base_url, {"name": "High error rate", "threshold_count": 10, "filters": _FILTERS}, format="json"
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            return response.json()["id"]
+        with team_scope(self.team.id):
+            view = create_configuration(
+                team_id=self.team.id,
+                source_kind=SourceKind.LOGS,
+                edit=PlatformAlertConfigurationEdit(
+                    name="High error rate",
+                    enabled=True,
+                    source_config=logs_source_config(
+                        _FILTERS, {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
+                    ),
+                    grouping=Grouping(),
+                    schedule_restriction=None,
+                    evaluation_periods=1,
+                    datapoints_to_alarm=1,
+                    cooldown_minutes=0,
+                ),
+                created_by_id=self.user.id,
+            )
+        return str(view.destination_alert_id)
+
+    @parameterized.expand(
+        [
+            ("logs_api_flag_off", "logs_api", False),
+            ("logs_api_flag_on", "logs_api", True),
+            ("platform_api_flag_off", "platform_api", False),
+            ("platform_api_flag_on", "platform_api", True),
+        ]
+    )
+    def test_a_create_writes_a_logs_row_only_while_the_native_create_flag_is_off(
+        self, _name: str, route: str, native_create: bool, *_: object
+    ) -> None:
+        self.native_create = native_create
+
+        alert_id = self._create(route)
+
+        read = self.client.get(f"{self.base_url}{alert_id}/")
+        assert read.status_code == status.HTTP_200_OK, read.json()
+        assert (
+            LogsAlertConfiguration.objects.filter(team=self.team).count(),
+            read.json()["name"],
+            read.json()["threshold_count"],
+            read.json()["created_by"]["id"],
+            read.json()["first_enabled_at"] is not None,
+        ) == (0 if native_create else 1, "High error rate", 10, self.user.id, True)
+
+    def test_a_team_whose_alerts_stay_with_logs_keeps_the_logs_row_with_the_flag_on(self, *_: object) -> None:
+        LogsAlertConfiguration.objects.create(team=self.team, name="Kept on logs", enabled=False)
+        self.native_create = True
+
+        self._create("logs_api")
+
+        assert LogsAlertConfiguration.objects.filter(team=self.team).count() == 2
+
+    def test_an_alert_with_no_logs_row_takes_a_slot_under_the_cap(self, *_: object) -> None:
+        self.native_create = True
+
+        with patch("products.logs.backend.alert_creation.MAX_ALERTS_PER_TEAM", 1):
+            self._create("logs_api")
+            refused = self.client.post(
+                self.base_url, {"name": "Second", "threshold_count": 10, "filters": _FILTERS}, format="json"
+            )
+
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST, refused.json()
+        assert [alert["name"] for alert in self.client.get(self.base_url).json()["results"]] == ["High error rate"]

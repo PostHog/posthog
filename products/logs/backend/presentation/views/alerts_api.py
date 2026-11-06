@@ -64,6 +64,7 @@ from products.alerts_platform.backend.facade.contracts import (
     InvalidPlatformAlertEdit,
     PagerDutyRegion,
     PagerDutySeverity,
+    PlatformAlertCreateRefused,
     PlatformAlertHistory,
     PlatformAlertRuntime,
 )
@@ -112,7 +113,15 @@ from products.logs.backend.facade.api import (
 )
 from products.logs.backend.facade.platform_ownership import delete_alert, on_created, on_updated
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.native_alerts import delete_native, is_native, native_alert, native_alerts, update_native
+from products.logs.backend.native_alerts import (
+    create_native,
+    delete_native,
+    is_native,
+    native_alert,
+    native_alerts,
+    update_native,
+)
+from products.logs.backend.platform_cutover import creates_native_alert
 
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
@@ -933,6 +942,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if validated_data.get("enabled", True):
             validated_data["first_enabled_at"] = timezone.now()
         grouping: Grouping | None = validated_data.pop("grouping", None)
+        if creates_native_alert(validated_data["team_id"]):
+            return _write_platform_edit(lambda: _create_native_alert(validated_data, grouping))
 
         with transaction.atomic():
             try:
@@ -952,6 +963,23 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
                 )
             return created
+
+
+def _create_native_alert(validated_data: dict, grouping: Grouping | None) -> LogsAlertConfiguration:
+    snooze_until = validated_data.get("snooze_until")
+    try:
+        created = create_native(
+            team_id=validated_data["team_id"],
+            fields=validated_data,
+            grouping=grouping,
+            created_by_id=validated_data["created_by"].id,
+        )
+    except PlatformAlertCreateRefused as error:
+        raise ValidationError(str(error)) from error
+    if snooze_until is None:
+        return created
+    snoozed = update_native(created, {}, grouping=None, snooze_until=snooze_until, snooze_changed=True)
+    return created if snoozed is None else snoozed
 
 
 def _write_platform_edit[T](write: Callable[[], T]) -> T:

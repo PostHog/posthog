@@ -219,7 +219,7 @@ def create_configuration(
     if spec is None or not spec.creatable:
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
     validated = _validated(source_kind, None, edit, team_id=team_id)
-    if spec.native is not None and spec.creates_natively():
+    if spec.native is not None and spec.creates_natively(team_id):
         with transaction.atomic():
             _admit(
                 team_id=team_id,

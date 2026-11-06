@@ -9,12 +9,16 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime
 from enum import StrEnum
+from typing import Final
 from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
 
+import posthoganalytics
+
 from posthog.dataclasses import frozen
+from posthog.models.team.team import Team
 
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import Grouping, HandbackRefusal, PlatformOwnershipHandover
@@ -201,7 +205,7 @@ def hand_over(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping
     return True
 
 
-def takes_new_alert(team_id: int, *, new_alert_id: UUID) -> bool:
+def takes_new_alert(team_id: int, *, new_alert_id: UUID | None) -> bool:
     """Whether the platform owns a team's new logs alert: when it owns another of the team's alerts, or
     when the team has no other. A team whose alerts all stay with logs, such as one rolled back, keeps
     new ones on logs too."""
@@ -212,3 +216,29 @@ def takes_new_alert(team_id: int, *, new_alert_id: UUID) -> bool:
         .distinct()
     )
     return not owners or PlatformAlertOwner.PLATFORM in owners
+
+
+# Turns on, per team, creates that make no logs row. Off until the logs rollback window closes, because
+# rollback hands an alert back through its logs row, so an alert created without one stays on the platform.
+NATIVE_CREATE_FLAG: Final = "logs-alerts-native-create"
+
+
+def creates_native_alert(team_id: int) -> bool:
+    """Whether a new logs alert of the team gets no logs row. A team whose alerts stay with logs, and an
+    environment, whose alert the platform cannot store, keep the logs row."""
+    team = Team.objects.only("id", "uuid", "organization_id", "parent_team_id").get(id=team_id)
+    if team.parent_team_id is not None or not takes_new_alert(team_id, new_alert_id=None):
+        return False
+    return bool(
+        posthoganalytics.feature_enabled(
+            NATIVE_CREATE_FLAG,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                # Both regions read flags from one PostHog project, and project ids repeat across regions.
+                "project": {"id": str(team.id), "uuid": str(team.uuid)},
+            },
+            send_feature_flag_events=False,
+        )
+    )
