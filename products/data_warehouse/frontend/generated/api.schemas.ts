@@ -2628,7 +2628,7 @@ export interface HistoryTableRefApi {
 }
 
 export interface TableHistoryTableApi {
-    /** The table's history table, which keeps every past version of its rows. `null` when the table has none. */
+    /** The table's history table, which keeps every past version of its rows. `null` when the table has none or you can't view it. */
     history_table: HistoryTableRefApi | null
 }
 
