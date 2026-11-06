@@ -40,6 +40,7 @@ class TestSandboxSenderLifecycleExclusions(BaseTest):
             integration_id="hello@own.example.com",
             config={"provider": "ses", "email": "hello@own.example.com", "domain": "own.example.com", "verified": True},
         )
+        ses_provider.return_value.get_tenant_reputation.return_value = None
 
         reconcile_ses_tenant_states()
 
