@@ -6,6 +6,7 @@ import { BoundedPrimaryLookup } from '../../utils/bounded-primary-lookup'
 type OrganizationMemberSnapshot = {
     verifiedEmails: ReadonlySet<string>
     unverifiedEmails: ReadonlySet<string>
+    loadedAt: number
 }
 
 export type BlockedRecipient = { readonly address: string; readonly unverifiedMember: boolean }
@@ -15,6 +16,7 @@ const LOOKUP_TIMEOUT_MS = 3_000
 // The loader stamps a snapshot when its lookup ends, and the lookup deadline ends every lookup within
 // LOOKUP_TIMEOUT_MS of reading, so no cached snapshot is older than MAX_SNAPSHOT_AGE_MS.
 const REFRESH_AGE_MS = MAX_SNAPSHOT_AGE_MS - LOOKUP_TIMEOUT_MS
+const BLOCK_RECHECK_AGE_MS = 5_000
 const MAX_OPEN_LOOKUPS = 5
 const MAX_CACHED_TEAMS = 10_000
 
@@ -47,35 +49,42 @@ export class OrganizationMembersService {
         })
     }
 
-    // A cached snapshot can be up to a minute behind a member who just joined or verified, so a cached
-    // block is checked again fresh. A fresh block marks the cache stale, so the next cached check sees it.
     public async getBlockedRecipients(
         teamId: number,
         recipients: string[],
         { fresh }: { fresh: boolean }
     ): Promise<BlockedRecipient[]> {
         const id = String(teamId)
-        if (!fresh) {
-            const cached = await this.snapshots.get(id)
-            if (!cached) {
-                throw new Error('Could not check organization members')
+        if (fresh) {
+            const blocked = blockedBy((await this.loadSnapshots([id]))[id], recipients)
+            if (blocked.length) {
+                this.snapshots.markForRefresh(id)
             }
-            const blocked = blockedBy(cached, recipients)
-            if (!blocked.length) {
-                return blocked
-            }
+            return blocked
         }
-        const blocked = blockedBy((await this.loadSnapshots([id]))[id], recipients)
-        if (!fresh || blocked.length) {
+        let snapshot = await this.cachedSnapshot(id)
+        if (blockedBy(snapshot, recipients).length && Date.now() - snapshot.loadedAt > BLOCK_RECHECK_AGE_MS) {
             this.snapshots.markForRefresh(id)
+            snapshot = await this.cachedSnapshot(id)
         }
-        return blocked
+        return blockedBy(snapshot, recipients)
+    }
+
+    private async cachedSnapshot(id: string): Promise<OrganizationMemberSnapshot> {
+        const snapshot = await this.snapshots.get(id)
+        if (!snapshot) {
+            throw new Error('Could not check organization members')
+        }
+        return snapshot
     }
 
     private async loadSnapshots(teamIds: string[]): Promise<Record<string, OrganizationMemberSnapshot>> {
         const rows = await this.lookupMembers(teamIds.map(Number))
         const members = new Map(
-            teamIds.map((id) => [id, { verifiedEmails: new Set<string>(), unverifiedEmails: new Set<string>() }])
+            teamIds.map((id) => [
+                id,
+                { verifiedEmails: new Set<string>(), unverifiedEmails: new Set<string>(), loadedAt: Date.now() },
+            ])
         )
         for (const row of rows) {
             const { verifiedEmails, unverifiedEmails } = members.get(String(row.team_id))!
