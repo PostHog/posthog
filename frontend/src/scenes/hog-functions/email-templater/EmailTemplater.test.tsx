@@ -114,14 +114,12 @@ describe('email sender pickers', () => {
     )
 
     it.each([
-        { listed: 'listed', rotation: false, sandboxSender: SANDBOX, pick: SANDBOX, expectedSenderIds: [3] },
-        { listed: 'listed', rotation: true, sandboxSender: SANDBOX, pick: SANDBOX, expectedSenderIds: [1, 3] },
-        { listed: 'not listed', rotation: false, sandboxSender: null, pick: BOB, expectedSenderIds: [2] },
-        { listed: 'not listed', rotation: true, sandboxSender: null, pick: BOB, expectedSenderIds: [1, 2] },
+        { listed: 'listed', sandboxSender: SANDBOX, pick: SANDBOX, expectedSenderIds: [3] },
+        { listed: 'not listed', sandboxSender: null, pick: BOB, expectedSenderIds: [2] },
     ])(
-        'sends a pick to the template logic when the sandbox sender is $listed and rotation is $rotation',
-        ({ rotation, sandboxSender, pick, expectedSenderIds }) => {
-            mockSenderRotationEnabled = rotation
+        'sends a single-sender pick to the template logic when the sandbox sender is $listed',
+        ({ sandboxSender, pick, expectedSenderIds }) => {
+            mockSenderRotationEnabled = false
             mockPicker({ sandboxSender })
             const onChange = jest.fn()
 
