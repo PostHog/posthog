@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
     _DEADLOCK_VICTIM_ERROR,
     _SSH_HANDSHAKE_EOF_ERROR,
     _TABLE_NOT_FOUND_ERROR,
+    _TRANSIENT_CONNECTION_ERROR,
     MSSQL_METADATA_TIMEOUT_ERROR,
     MSSQL_ROW_READ_TIMEOUT_ERROR,
     MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
@@ -155,6 +156,12 @@ class MSSQLSource(
             # died between opening and the query running — just surfaced through a different
             # internal code path. A fresh connection from the next Temporal retry resolves it.
             "Not connected to any MS SQL server",
+            # DB-Lib error 20047, the same DBPROCESS-death class raised directly (see
+            # `_is_transient_connection_error` in mssql.py): the TDS connection died mid-stream
+            # during the row read itself, past the point `retry_on_transient_connection_error`
+            # covers (that helper only wraps schema discovery). A fresh connection from the next
+            # Temporal retry resolves it.
+            _TRANSIENT_CONNECTION_ERROR,
             # SQL Server error 1222. A metadata statement waited longer than the `SET LOCK_TIMEOUT`
             # that `MSSQLImplementation.connect` sets, because another session held a lock on the
             # catalog or on the table. The lock belongs to the customer's own workload and goes

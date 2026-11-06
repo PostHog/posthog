@@ -517,11 +517,11 @@ export class LogsIngestionConsumer {
 
     // Transformations write hog_function logs, which could come back here as internal logs and loop.
     private appliesTeamLogRules(message: LogsIngestionMessage): boolean {
-        return message.internalLogs?.teamRules ?? true
+        return message.verifiedAsInternalLogs?.teamRules ?? true
     }
 
     private isUnbilledInternal(message: LogsIngestionMessage): boolean {
-        return message.internalLogs !== undefined && !message.internalLogs.billed
+        return message.verifiedAsInternalLogs !== undefined && !message.verifiedAsInternalLogs.billed
     }
 
     private isTransformationsEnabledForTeam(teamId: number): boolean {
@@ -560,7 +560,8 @@ export class LogsIngestionConsumer {
         if (!(await transformer.teamHasTransformations(message.teamId))) {
             return undefined
         }
-        return (records) => transformer.transformRecords(message.teamId, records, batchBudget)
+        return (records) =>
+            transformer.transformRecords(message.teamId, records, batchBudget, message.sentAsInternalLogs)
     }
 
     /**
@@ -631,7 +632,7 @@ export class LogsIngestionConsumer {
             stages.push(makeTransformStage(recordsTransform))
         }
         let shortestRetentionDays =
-            message.internalLogs !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
+            message.verifiedAsInternalLogs !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
         if (useRetention && retentionRuleSet) {
             stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
             shortestRetentionDays = Math.min(
@@ -1259,8 +1260,8 @@ export class LogsIngestionConsumer {
                                         key: null,
                                         headers: {
                                             ...withoutInternalLogsHeaders(parseKafkaHeaders(message.message.headers)),
-                                            ...(message.internalLogs !== undefined
-                                                ? { [INTERNAL_SOURCE_HEADER]: message.internalLogs.source }
+                                            ...(message.verifiedAsInternalLogs !== undefined
+                                                ? { [INTERNAL_SOURCE_HEADER]: message.verifiedAsInternalLogs.source }
                                                 : {}),
                                             token: message.token,
                                             team_id: message.teamId.toString(),
@@ -1594,7 +1595,8 @@ export class LogsIngestionConsumer {
                         recordCount,
                         minTimestampMicros: parseMinTimestampHeader(headers.min_timestamp),
                         backfillRequested: headers.backfill_days !== undefined,
-                        internalLogs: this.internalLogsVerifier.verify(
+                        sentAsInternalLogs: headers[INTERNAL_LOGS_HEADER] !== undefined,
+                        verifiedAsInternalLogs: this.internalLogsVerifier.verify(
                             headers[INTERNAL_LOGS_HEADER],
                             team.id,
                             headers.created_at

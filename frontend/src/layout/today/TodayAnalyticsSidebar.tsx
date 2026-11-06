@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { TodayAnalyticsSection, todayAnalyticsLogic } from './todayAnalyticsLogic'
+import { todayAnalyticsLogic } from './todayAnalyticsLogic'
 import { TodayPaneRow } from './TodayPaneRow'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
 import { TodayPaneSection } from './TodayPaneSection'
@@ -76,14 +76,36 @@ function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
     )
 }
 
+interface ExplainerRow {
+    value: string
+    explainer: (typeof EXPLAINERS)[keyof typeof EXPLAINERS]
+    to: string
+    dataAttr: string
+}
+
+/** A fixed row whose hover card explains it. Its label and icon come from the explainer. */
+function ExplainerPaneRow({ row, active }: { row: ExplainerRow; active: boolean }): JSX.Element {
+    return (
+        <TodayPreviewTrigger payload={row.explainer}>
+            <TodayPaneRow
+                value={row.value}
+                label={row.explainer.label}
+                icon={row.explainer.icon}
+                to={row.to}
+                active={active}
+                dataAttr={row.dataAttr}
+            />
+        </TodayPreviewTrigger>
+    )
+}
+
 /** The Analytics sub-nav: the ways to browse, pinned items and collections, recently viewed items, PostHog's own analytics, and what to keep an eye on. */
 export function TodayAnalyticsSidebar(): JSX.Element {
-    const { collapsedSections, fromPostHog, recentAnalytics } = useValues(todayAnalyticsLogic)
-    const { toggleSection } = useActions(todayAnalyticsLogic)
+    const { fromPostHog, recentAnalytics, searchQuery, matchesSearch, isSectionOpen } = useValues(todayAnalyticsLogic)
+    const { toggleSection, setSearchQuery } = useActions(todayAnalyticsLogic)
     const { pinnedAnalytics } = useValues(analyticsPinnedLogic)
     const { location, searchParams } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
-    const isOpen = (section: TodayAnalyticsSection): boolean => !collapsedSections.includes(section)
     const listFilters =
         path === urls.analyticsList() || path === urls.analyticsMine()
             ? analyticsListFiltersFromUrl(searchParams)
@@ -94,58 +116,83 @@ export function TodayAnalyticsSidebar(): JSX.Element {
         [fromPostHog]
     )
 
+    const browseRows: (ExplainerRow & { active: boolean })[] = [
+        {
+            value: 'browse:all',
+            explainer: EXPLAINERS.all,
+            to: urls.analyticsList(),
+            active: path === urls.analyticsList() && openFolder === null,
+            dataAttr: 'analytics-sidebar-browse',
+        },
+        {
+            value: 'browse:mine',
+            explainer: EXPLAINERS.mine,
+            to: urls.analyticsMine(),
+            active: path === urls.analyticsMine(),
+            dataAttr: 'analytics-sidebar-browse',
+        },
+        {
+            value: 'browse:spaces',
+            explainer: EXPLAINERS.collections,
+            to: urls.analyticsSpaces(),
+            active: path === urls.analyticsSpaces(),
+            dataAttr: 'analytics-sidebar-browse',
+        },
+    ].filter((row) => matchesSearch(row.explainer.label))
+    const monitorRows: (ExplainerRow & { active: boolean })[] = [
+        {
+            value: 'monitor:alerts',
+            explainer: EXPLAINERS.alerts,
+            to: urls.alerts(),
+            active: path === urls.alerts(),
+            dataAttr: 'analytics-sidebar-monitor',
+        },
+        {
+            value: 'monitor:subscriptions',
+            explainer: EXPLAINERS.subscriptions,
+            to: `${urls.subscriptions()}?tab=mine`,
+            active: path === urls.subscriptions(),
+            dataAttr: 'analytics-sidebar-monitor',
+        },
+    ].filter((row) => matchesSearch(row.explainer.label))
+    const pinnedRows = pinnedAnalytics.filter((pinned) =>
+        matchesSearch(pinned.kind === 'collection' ? pinned.name : pinned.item.name)
+    )
+    const recentRows = recentAnalytics.filter((item) => matchesSearch(item.name))
+    const fromPostHogRows = fromPostHog.filter((product) => matchesSearch(product.label))
+    const noMatches =
+        browseRows.length + monitorRows.length + pinnedRows.length + recentRows.length + fromPostHogRows.length === 0
+
     return (
         <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
-            {/* The rows are list options that need the pane list around them; this pane has no search, so the field stays hidden. */}
             <TodayPaneSearchList
-                query=""
-                onQueryChange={() => {}}
+                query={searchQuery}
+                onQueryChange={setSearchQuery}
                 searchLabel="Search analytics"
                 dataAttr="analytics-sidebar-search"
-                className="[&>div:first-child]:hidden"
             >
-                <div className="flex flex-col gap-px pb-2">
-                    <TodayPreviewTrigger payload={EXPLAINERS.all}>
-                        <TodayPaneRow
-                            value="browse:all"
-                            label="View all"
-                            icon={<IconList />}
-                            to={urls.analyticsList()}
-                            active={path === urls.analyticsList() && openFolder === null}
-                            dataAttr="analytics-sidebar-browse"
-                        />
-                    </TodayPreviewTrigger>
-                    <TodayPreviewTrigger payload={EXPLAINERS.mine}>
-                        <TodayPaneRow
-                            value="browse:mine"
-                            label="My work"
-                            icon={<IconPerson />}
-                            to={urls.analyticsMine()}
-                            active={path === urls.analyticsMine()}
-                            dataAttr="analytics-sidebar-browse"
-                        />
-                    </TodayPreviewTrigger>
-                    <TodayPreviewTrigger payload={EXPLAINERS.collections}>
-                        <TodayPaneRow
-                            value="browse:spaces"
-                            label="Collections"
-                            icon={<IconBox />}
-                            to={urls.analyticsSpaces()}
-                            active={path === urls.analyticsSpaces()}
-                            dataAttr="analytics-sidebar-browse"
-                        />
-                    </TodayPreviewTrigger>
-                </div>
-                {pinnedAnalytics.length > 0 && (
+                {browseRows.length > 0 && (
+                    <div className="flex flex-col gap-px pb-2">
+                        {browseRows.map((row) => (
+                            <ExplainerPaneRow key={row.value} row={row} active={row.active} />
+                        ))}
+                    </div>
+                )}
+                {noMatches && (
+                    <div className="px-2 py-1 text-sm text-muted-foreground">
+                        Nothing in Analytics matches your search.
+                    </div>
+                )}
+                {pinnedRows.length > 0 && (
                     <TodayPaneSection
                         label="Pinned"
-                        open={isOpen('pinned')}
-                        count={pinnedAnalytics.length}
+                        open={isSectionOpen('pinned')}
+                        count={pinnedRows.length}
                         showCount={false}
                         onToggle={() => toggleSection('pinned')}
                         dataAttr="analytics-section-pinned"
                     >
-                        {pinnedAnalytics.map((pinned) =>
+                        {pinnedRows.map((pinned) =>
                             pinned.kind === 'collection' ? (
                                 <TodayPaneRow
                                     key={pinned.key}
@@ -189,17 +236,17 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                         )}
                     </TodayPaneSection>
                 )}
-                {recentAnalytics.length > 0 && (
+                {recentRows.length > 0 && (
                     <TodayPaneSection
                         label="Recents"
-                        open={isOpen('recents')}
-                        count={recentAnalytics.length}
+                        open={isSectionOpen('recents')}
+                        count={recentRows.length}
                         showCount={false}
                         onToggle={() => toggleSection('recents')}
                         divider
                         dataAttr="analytics-section-recents"
                     >
-                        {recentAnalytics.map((item) => (
+                        {recentRows.map((item) => (
                             <TodayPaneRow
                                 key={`${item.type}:${item.id}`}
                                 value={`recent:${item.type}:${item.id}`}
@@ -218,18 +265,18 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                         ))}
                     </TodayPaneSection>
                 )}
-                {fromPostHog.length > 0 && (
+                {fromPostHogRows.length > 0 && (
                     <TodayPaneSection
                         label="By PostHog"
                         icon={<Logomark className="h-auto w-3.5" />}
-                        open={isOpen('by-posthog')}
-                        count={fromPostHog.length}
+                        open={isSectionOpen('by-posthog')}
+                        count={fromPostHogRows.length}
                         showCount={false}
                         onToggle={() => toggleSection('by-posthog')}
                         divider
                         dataAttr="analytics-section-by-posthog"
                     >
-                        {fromPostHog.map((product) => {
+                        {fromPostHogRows.map((product) => {
                             const productPath = product.href.split(/[?#]/)[0]
                             const row = (
                                 <TodayPaneRow
@@ -255,36 +302,21 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                         })}
                     </TodayPaneSection>
                 )}
-                <TodayPaneSection
-                    label="Monitor"
-                    open={isOpen('monitor')}
-                    count={2}
-                    showCount={false}
-                    onToggle={() => toggleSection('monitor')}
-                    divider
-                    dataAttr="analytics-section-monitor"
-                >
-                    <TodayPreviewTrigger payload={EXPLAINERS.alerts}>
-                        <TodayPaneRow
-                            value="monitor:alerts"
-                            label="Alerts"
-                            icon={<IconBell />}
-                            to={urls.alerts()}
-                            active={path === urls.alerts()}
-                            dataAttr="analytics-sidebar-monitor"
-                        />
-                    </TodayPreviewTrigger>
-                    <TodayPreviewTrigger payload={EXPLAINERS.subscriptions}>
-                        <TodayPaneRow
-                            value="monitor:subscriptions"
-                            label="Subscriptions"
-                            icon={<IconNotification />}
-                            to={`${urls.subscriptions()}?tab=mine`}
-                            active={path === urls.subscriptions()}
-                            dataAttr="analytics-sidebar-monitor"
-                        />
-                    </TodayPreviewTrigger>
-                </TodayPaneSection>
+                {monitorRows.length > 0 && (
+                    <TodayPaneSection
+                        label="Monitor"
+                        open={isSectionOpen('monitor')}
+                        count={monitorRows.length}
+                        showCount={false}
+                        onToggle={() => toggleSection('monitor')}
+                        divider
+                        dataAttr="analytics-section-monitor"
+                    >
+                        {monitorRows.map((row) => (
+                            <ExplainerPaneRow key={row.value} row={row} active={row.active} />
+                        ))}
+                    </TodayPaneSection>
+                )}
             </TodayPaneSearchList>
         </div>
     )

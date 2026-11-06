@@ -18,6 +18,7 @@ import { EventsQuery } from '~/queries/schema/schema-general'
 import { ActivityScope, ActivityTab, InsightShortId, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'
+import { SettingSectionId } from './settings/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -99,6 +100,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'You can change anything you like and it is persisted to the URL for easy sharing.',
         layout: 'app-full-scene-height',
         hideProjectNotice: true,
+    },
+    [Scene.WorkloadTrustPolicyRequest]: {
+        projectBased: true,
+        layout: 'plain',
+        name: 'Trusted workload request',
+        description: 'Review a request to trust a workload',
     },
     [Scene.CLIAuthorize]: {
         name: 'Authorize CLI',
@@ -737,6 +744,8 @@ export const redirects: Record<
     // There is no /project/new scene; send typed URLs and old bookmarks to the create-project flow
     '/project/new': urls.projectCreateFirst(),
     '/project/settings': urls.settings('project'),
+    '/project/settings/:section': ({ section }, _searchParams, hashParams) =>
+        combineUrl(urls.settings(section as SettingSectionId), {}, hashParams).url,
     // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
     '/quickstart': urls.default(),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
@@ -852,6 +861,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.productTours()]: [Scene.ProductTours, 'productTours'],
     [urls.productTour(':id')]: [Scene.ProductTour, 'productTour'],
     [urls.approval(':id')]: [Scene.Approval, 'approval'],
+    // pinned: the backend builds this path into the approval link it returns, which people share
+    [urls.workloadTrustPolicyRequest(':id')]: [Scene.WorkloadTrustPolicyRequest, 'workloadTrustPolicyRequest'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlagTemplates()]: ['FeatureFlagTemplates' as Scene, 'featureFlagTemplates'],

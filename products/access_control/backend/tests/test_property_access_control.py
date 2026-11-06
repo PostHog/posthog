@@ -6,7 +6,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, PropertyDefinition
+from posthog.models import Organization, OrganizationMembership
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -18,6 +18,7 @@ from products.access_control.backend.property_access_control import (
     get_restricted_properties_for_team,
     restriction_cache_scope,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 def _enable_property_access_control(organization: Organization, *, role_based_access: bool = True) -> None:

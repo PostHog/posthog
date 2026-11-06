@@ -23,13 +23,13 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.models import PropertyDefinition
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
@@ -804,12 +804,12 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         # The action branch resolves the goal through Postgres and `action_to_expr` rather than a plain
         # event name. A goal that silently matched nothing would render an empty table that reads as an
         # honest absence of conversions.
-        action = Action.objects.create(team=self.team, name="Purchased", steps_json=[{"event": CONVERSION_EVENT}])
+        action = create_action(team=self.team, name="Purchased", steps_json=[{"event": CONVERSION_EVENT}])
         config = self.team.marketing_analytics_config
         config.conversion_goals = [
             ConversionGoalFilter2(
                 kind="ActionsNode",
-                id=str(action.pk),
+                id=str(action.id),
                 name="Purchased",
                 conversion_goal_id=GOAL_ID,
                 conversion_goal_name="Purchased",
@@ -936,7 +936,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         self.assertAlmostEqual(by_campaign["a"][AttributionMode.LAST_TOUCH], 1.0, places=4)
 
     def test_action_goal_whose_action_is_gone_reports_the_misconfiguration(self):
-        # An unresolvable action used to raise Action.DoesNotExist out of query building, so a goal
+        # An unresolvable action used to raise out of query building, so a goal
         # pointing at a deleted action 500d instead of telling the user to fix the goal.
         config = self.team.marketing_analytics_config
         config.conversion_goals = [
