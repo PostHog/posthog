@@ -7,6 +7,7 @@ import { buildBehavioralCohortsDatabaseUrl, buildPosthogDatabaseUrl } from '~/co
 import {
     MigrationStore,
     SqlxMigrationStore,
+    SqlxShadowResult,
     checkSqlxShadow,
     describeError,
     describeMissing,
@@ -20,6 +21,7 @@ import {
     readManifest,
     sqlxRequirements,
 } from './manifest'
+import { FetchFunction, PushTarget, SchemaCheckResult, pushMetrics } from './metrics-push'
 import { PostgresMigrationStore, PostgresSqlxMigrationStore } from './postgres-migration-store'
 
 export const EXIT_SATISFIED = 0
@@ -43,12 +45,14 @@ Reads DATABASE_URL, or POSTHOG_DB_NAME, POSTHOG_DB_USER, POSTHOG_DB_PASSWORD,
 POSTHOG_POSTGRES_HOST and POSTHOG_POSTGRES_PORT, the same as the Node services.
 sqlx databases use PERSONS_DATABASE_URL (or PERSONS_READONLY_DATABASE_URL),
 CYCLOTRON_NODE_DATABASE_URL and BEHAVIORAL_COHORTS_DATABASE_URL (or
-POSTGRES_BEHAVIORAL_COHORTS_HOST, _USER and _PASSWORD).`
+POSTGRES_BEHAVIORAL_COHORTS_HOST, _USER and _PASSWORD).
+The result is pushed to SCHEMA_CHECK_PUSHGATEWAY_URL under SCHEMA_CHECK_APP when both are set.`
 
 export interface CliDependencies {
     createStore: (databaseUrl: string, connectTimeoutMs: number, statementTimeoutMs: number) => MigrationStore
     createSqlxStore: (databaseUrl: string, connectTimeoutMs: number, statementTimeoutMs: number) => SqlxMigrationStore
     sleep?: (ms: number) => Promise<void>
+    fetch: FetchFunction
     log: (message: string) => void
     logError: (message: string) => void
 }
@@ -58,6 +62,9 @@ const defaultDependencies: CliDependencies = {
         new PostgresMigrationStore({ databaseUrl, connectTimeoutMs, statementTimeoutMs }),
     createSqlxStore: (databaseUrl, connectTimeoutMs, statementTimeoutMs) =>
         new PostgresSqlxMigrationStore({ databaseUrl, connectTimeoutMs, statementTimeoutMs }),
+    // A one-shot Job, so it skips the request util's pooled agents and metrics that long-running services need.
+    // eslint-disable-next-line no-restricted-globals
+    fetch: (url, init) => fetch(url, init),
     log: (message) => console.log(message),
     logError: (message) => console.error(message),
 }
@@ -83,6 +90,8 @@ const PERSONS_URL_KEYS = [
     'PERSONS_READONLY_DATABASE_URL',
 ] as const satisfies readonly (keyof CommonConfig)[]
 const CYCLOTRON_NODE_URL_KEY = 'CYCLOTRON_NODE_DATABASE_URL' satisfies keyof CdpConfig
+const PUSHGATEWAY_URL_KEY = 'SCHEMA_CHECK_PUSHGATEWAY_URL' satisfies keyof CommonConfig
+const PUSH_APP_KEY = 'SCHEMA_CHECK_APP' satisfies keyof CommonConfig
 
 // Reads the same variables as the Node services, without the dev defaults, so an empty result means the app does not use the database.
 export function resolveSqlxDatabaseUrl(database: SqlxDatabase, env: Record<string, string | undefined>): string {
@@ -102,12 +111,21 @@ export function resolveSqlxDatabaseUrl(database: SqlxDatabase, env: Record<strin
     })
 }
 
+export function resolvePushTarget(env: Record<string, string | undefined>): PushTarget | null {
+    const pushgatewayUrl = env[PUSHGATEWAY_URL_KEY]
+    const app = env[PUSH_APP_KEY]
+    if (!pushgatewayUrl || !app) {
+        return null
+    }
+    return { pushgatewayUrl, app }
+}
+
 async function logSqlxShadow(
     requirements: SqlxRequirement[],
     env: Record<string, string | undefined>,
     options: { connectTimeoutMs: number; statementTimeoutMs: number },
     deps: CliDependencies
-): Promise<void> {
+): Promise<SqlxShadowResult[]> {
     const results = await Promise.all(
         requirements.map((requirement) => {
             const databaseUrl = resolveSqlxDatabaseUrl(requirement.database, env)
@@ -122,6 +140,7 @@ async function logSqlxShadow(
             `Shadow sqlx check (does not block): ${result.requirement.database} ${result.status}, ${result.detail}`
         )
     }
+    return results
 }
 
 function parseSeconds(name: string, value: string | undefined, fallback: number): number {
@@ -133,6 +152,23 @@ function parseSeconds(name: string, value: string | undefined, fallback: number)
         throw new Error(`--${name} must be a number of seconds, got "${value}"`)
     }
     return seconds
+}
+
+async function finish(
+    result: SchemaCheckResult,
+    env: Record<string, string | undefined>,
+    deps: CliDependencies
+): Promise<number> {
+    await pushMetrics(result, resolvePushTarget(env), {
+        fetch: deps.fetch,
+        log: deps.log,
+        logError: deps.logError,
+    })
+    return result.djangoExitCode
+}
+
+function cannotCheckResult(): SchemaCheckResult {
+    return { djangoExitCode: EXIT_ERROR, djangoMissingMigrations: 0, djangoWaitSeconds: 0, sqlx: [] }
 }
 
 export async function runCli(
@@ -172,7 +208,7 @@ export async function runCli(
         }
     } catch (error) {
         deps.logError(`Schema check error: ${error.message}\n\n${USAGE}`)
-        return EXIT_ERROR
+        return finish(cannotCheckResult(), env, deps)
     }
 
     let store: MigrationStore
@@ -186,7 +222,7 @@ export async function runCli(
         )
     } catch (error) {
         deps.logError(`Schema check error: ${error.message}`)
-        return EXIT_ERROR
+        return finish(cannotCheckResult(), env, deps)
     }
 
     const django = djangoRequirements(manifest)
@@ -194,14 +230,16 @@ export async function runCli(
     deps.log(
         `Checking ${django.length} Django apps and ${sqlx.length} sqlx databases in shadow mode (manifest ${manifest.digest}, commit ${manifest.source_commit ?? 'unknown'})`
     )
+    const waitStartedMs = Date.now()
     const outcome = await waitForRequirements(django, store, {
         waitSeconds: options.waitSeconds,
         pollIntervalMs: options.pollIntervalSeconds * 1000,
         sleep: deps.sleep,
         log: deps.log,
     })
+    const djangoWaitSeconds = (Date.now() - waitStartedMs) / 1000
     // Runs after the Django wait so that the log shows the sqlx state at the moment the Deployment would roll.
-    await logSqlxShadow(
+    const sqlxResults = await logSqlxShadow(
         sqlx,
         env,
         {
@@ -211,17 +249,27 @@ export async function runCli(
         deps
     )
 
+    const result: SchemaCheckResult = {
+        djangoExitCode: EXIT_SATISFIED,
+        djangoMissingMigrations: 0,
+        djangoWaitSeconds,
+        sqlx: sqlxResults,
+    }
     if (outcome.status === 'satisfied') {
         deps.log('All required Django migrations are applied.')
-        return EXIT_SATISFIED
+        return finish(result, env, deps)
     }
     if (outcome.status === 'error') {
         deps.logError(`Schema check error: could not read django_migrations: ${describeError(outcome.error)}`)
-        return EXIT_ERROR
+        return finish({ ...result, djangoExitCode: EXIT_ERROR }, env, deps)
     }
     deps.logError('Required Django migrations are not applied yet:')
     describeMissing(outcome.missing, outcome.latestApplied).forEach((line) => deps.logError(`  ${line}`))
-    return EXIT_MISSING
+    return finish(
+        { ...result, djangoExitCode: EXIT_MISSING, djangoMissingMigrations: outcome.missing.length },
+        env,
+        deps
+    )
 }
 
 if (require.main === module) {

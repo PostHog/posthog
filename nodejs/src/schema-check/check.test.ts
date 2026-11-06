@@ -7,11 +7,13 @@ import {
     MigrationStore,
     SqlxMigrationRow,
     SqlxMigrationStore,
+    SqlxShadowResult,
     evaluateSqlxRows,
     findMissingRequirements,
 } from './check'
 import { CliDependencies, EXIT_ERROR, EXIT_MISSING, EXIT_SATISFIED, runCli } from './cli'
 import { DjangoRequirement, SqlxRequirement, buildManifest } from './manifest'
+import { renderMetrics } from './metrics-push'
 
 const WORKFLOWS: DjangoRequirement = {
     kind: 'django',
@@ -105,6 +107,73 @@ describe('schema check', () => {
         })
     })
 
+    describe('renderMetrics', () => {
+        const sqlxResult = (
+            requirement: SqlxRequirement,
+            status: SqlxShadowResult['status'],
+            missingVersions: number[] = []
+        ): SqlxShadowResult => ({ requirement, status, detail: '', missingVersions })
+
+        it.each<[string, number, number, SqlxShadowResult[], string[]]>([
+            [
+                'satisfied',
+                0,
+                0,
+                [sqlxResult(PERSONS, 'satisfied')],
+                [
+                    'node_schema_check_sqlx_missing_versions{database="persons"} 0',
+                    'node_schema_check_sqlx_error{database="persons"} 0',
+                ],
+            ],
+            [
+                'missing',
+                1,
+                3,
+                [sqlxResult(CYCLOTRON, 'missing', [20260101000001, 20260201000001])],
+                [
+                    'node_schema_check_sqlx_missing_versions{database="cyclotron-node"} 2',
+                    'node_schema_check_sqlx_error{database="cyclotron-node"} 0',
+                ],
+            ],
+            [
+                'skipped database omitted',
+                0,
+                0,
+                [sqlxResult(PERSONS, 'skipped'), sqlxResult(CYCLOTRON, 'satisfied')],
+                [
+                    'node_schema_check_sqlx_missing_versions{database="cyclotron-node"} 0',
+                    'node_schema_check_sqlx_error{database="cyclotron-node"} 0',
+                ],
+            ],
+            [
+                'errored and dirty databases',
+                2,
+                0,
+                [sqlxResult(PERSONS, 'error'), sqlxResult(CYCLOTRON, 'dirty')],
+                [
+                    'node_schema_check_sqlx_missing_versions{database="persons"} 0',
+                    'node_schema_check_sqlx_missing_versions{database="cyclotron-node"} 0',
+                    'node_schema_check_sqlx_error{database="persons"} 1',
+                    'node_schema_check_sqlx_error{database="cyclotron-node"} 1',
+                ],
+            ],
+        ])('%s', (_case, djangoExitCode, djangoMissingMigrations, sqlx, expectedSqlxSamples) => {
+            const body = renderMetrics(
+                { djangoExitCode, djangoMissingMigrations, djangoWaitSeconds: 12.5, sqlx },
+                1700000000
+            )
+
+            const samples = body.split('\n').filter((line) => line && !line.startsWith('#'))
+            expect(samples).toEqual([
+                'node_schema_check_last_run_timestamp_seconds 1700000000',
+                `node_schema_check_django_exit_code ${djangoExitCode}`,
+                `node_schema_check_django_missing_migrations ${djangoMissingMigrations}`,
+                'node_schema_check_django_wait_seconds 12.5',
+                ...expectedSqlxSamples,
+            ])
+        })
+    })
+
     describe('runCli', () => {
         let dir: string
         let output: string[]
@@ -122,6 +191,7 @@ describe('schema check', () => {
         ): CliDependencies => ({
             createStore: () => store,
             createSqlxStore: () => sqlxStore,
+            fetch: jest.fn(),
             sleep: (ms) => {
                 if (clock) {
                     clock.now += ms
@@ -200,6 +270,32 @@ describe('schema check', () => {
 
             expect(code).toBe(EXIT_SATISFIED)
             expect(output.some((line) => line.includes(expectedLog))).toBe(true)
+        })
+
+        it.each<[string, () => Promise<Response>]>([
+            ['the Pushgateway is unreachable', () => Promise.reject(new Error('connect ECONNREFUSED'))],
+            ['the Pushgateway answers 500', () => Promise.resolve(new Response('', { status: 500 }))],
+        ])('keeps the exit code when %s', async (_case, respond) => {
+            const manifestPath = writeManifest(JSON.stringify(buildManifest([WORKFLOWS], null)))
+            const store = new FakeMigrationStore([[]])
+            const fetchMock = jest.fn(respond)
+
+            const code = await runCli(
+                ['--manifest', manifestPath],
+                {
+                    DATABASE_URL: 'postgres://x',
+                    SCHEMA_CHECK_PUSHGATEWAY_URL: 'http://pushgateway.example.com:9091/',
+                    SCHEMA_CHECK_APP: 'ingestion events',
+                },
+                { ...makeDeps(store), fetch: fetchMock }
+            )
+
+            expect(code).toBe(EXIT_MISSING)
+            expect(fetchMock).toHaveBeenCalledWith(
+                'http://pushgateway.example.com:9091/metrics/job/node_schema_check/node_app/ingestion%20events',
+                expect.objectContaining({ method: 'PUT' })
+            )
+            expect(output.some((line) => line.startsWith('Warning: schema check metrics push failed'))).toBe(true)
         })
 
         it('keeps polling until the migration lands within --wait-seconds', async () => {
