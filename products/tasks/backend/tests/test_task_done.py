@@ -44,8 +44,8 @@ class TestTaskDone(TestCase):
         Task.objects.filter(pk=self.task.pk).update(status=status, status_reason=reason)
         self.task.refresh_from_db()
 
-    def _mode(self, mode: str):
-        return patch(PAYLOAD, return_value={USER.key: mode})
+    def _mode(self, mode: str | None):
+        return patch(PAYLOAD, return_value=None if mode is None else {USER.key: mode})
 
     @parameterized.expand(
         [
@@ -53,10 +53,12 @@ class TestTaskDone(TestCase):
             ("json_payload", '{"user": "shadow"}', DoneMode.SHADOW),
             ("other_profile_only", {"signals": "enforce"}, DoneMode.OFF),
             ("unknown_value", {"user": "maybe"}, DoneMode.OFF),
-            ("flag_off", None, DoneMode.OFF),
+            ("unresolved", None, None),
         ]
     )
-    def test_done_mode_reads_the_profile_from_the_payload(self, _name: str, payload: object, expected: str) -> None:
+    def test_done_mode_reads_the_profile_from_the_payload(
+        self, _name: str, payload: object, expected: str | None
+    ) -> None:
         with patch(PAYLOAD, return_value=payload):
             self.assertEqual(done_mode(USER.key, self.team.id), expected)
 
@@ -82,8 +84,10 @@ class TestTaskDone(TestCase):
         with self.assertRaises(ValueError):
             transition(self.task.id, Task.Status.DONE, reason=Task.StatusReason.TURN_CLOSED, actor="test")
 
-    @parameterized.expand([("enforce", "enforce", "done"), ("off", "off", "queued")])
-    def test_run_sync_leaves_done_alone_only_under_enforce(self, _name: str, mode: str, expected: str) -> None:
+    @parameterized.expand([("enforce", "enforce", "done"), ("unresolved", None, "done"), ("off", "off", "queued")])
+    def test_run_sync_leaves_done_alone_unless_explicitly_off(
+        self, _name: str, mode: str | None, expected: str
+    ) -> None:
         self._set_status(Task.Status.DONE, Task.StatusReason.FINISHED)
         TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.QUEUED)
 
@@ -125,8 +129,10 @@ class TestTaskDone(TestCase):
         )
         self.assertEqual(done_change, done_changed_by)
 
-    @parameterized.expand([("enforce", "enforce", True), ("off", "off", False)])
-    def test_new_runs_on_a_done_task_are_refused_only_under_enforce(self, _name: str, mode: str, refused: bool) -> None:
+    @parameterized.expand([("enforce", "enforce", True), ("unresolved", None, True), ("off", "off", False)])
+    def test_new_runs_on_a_done_task_are_refused_unless_explicitly_off(
+        self, _name: str, mode: str | None, refused: bool
+    ) -> None:
         self._set_status(Task.Status.DONE, Task.StatusReason.CLOSED)
 
         with self._mode(mode):
