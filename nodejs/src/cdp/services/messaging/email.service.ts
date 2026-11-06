@@ -645,16 +645,6 @@ export class EmailService {
                 )
             }
 
-            if (isSandbox && !isTest && !isWorkflowEmailStep(invocation)) {
-                this.skipSandboxSend(
-                    result,
-                    isTest,
-                    'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
-                    'sending_suspended'
-                )
-                await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'not_workflow_step', 0)
-                return result
-            }
             if (isSandbox && !this.sandboxSender?.canSend) {
                 this.skipSandboxSend(
                     result,
@@ -663,6 +653,16 @@ export class EmailService {
                     'sending_suspended'
                 )
                 await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'switch_off', 0)
+                return result
+            }
+            if (isSandbox && !isTest && !isWorkflowEmailStep(invocation)) {
+                this.skipSandboxSend(
+                    result,
+                    isTest,
+                    'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
+                    'sending_suspended'
+                )
+                await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'not_workflow_step', 0)
                 return result
             }
 
