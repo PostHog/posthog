@@ -51,10 +51,10 @@ describe('creationChecklist', () => {
         } as EvaluationConfig
         expect(creationChecklist(input({ evaluation })).map((item) => item.summary)).toEqual([
             'Helpfulness',
-            'Is it helpful?',
             'Pass or fail',
-            'gpt-5-mini',
             '100% of all generations',
+            'Is it helpful?',
+            'gpt-5-mini',
         ])
     })
 
