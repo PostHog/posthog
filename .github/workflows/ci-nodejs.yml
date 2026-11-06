@@ -141,6 +141,13 @@ jobs:
                         # A migration change makes the test job build Postgres from the Django
                         # models, and the Jest integration tests read product tables too.
                         - 'products/*/backend/migrations/**'
+                        # The schema-check test reads every Django app's migrations and the routing
+                        # file to prove that each table Node SQL reads has a migration the check covers.
+                        - 'posthog/*/migrations/**'
+                        - 'products/db_routing.yaml'
+                        - 'rust/persons_migrations/**'
+                        - 'rust/cyclotron-node-migrations/**'
+                        - 'rust/behavioral_cohorts_migrations/**'
                         - 'posthog/plugins/**'
                         # Django reads this to decide which filter globals it accepts, and the only
                         # check that it still matches the runtime type is a jest test.
@@ -336,6 +343,9 @@ jobs:
                   count=$(printf '%s\n' $NODE_SRC_FILES | grep -c . || true)
                   [ "$count" -le 200 ] || full over_ceiling
                   [ -n "${files// /}" ] || full empty_file_list
+                  # This test reads Node SQL and the migrations from disk, so no import connects it to the
+                  # changed files and --findRelatedTests would never select it.
+                  files="$files src/schema-check/derive-requirements.test.ts"
 
                   echo "::notice::selective jest over $count changed Node source file(s)"
                   {
