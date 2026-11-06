@@ -684,11 +684,10 @@ describe('SesWebhookHandler', () => {
             { mail, ...buildEvent(['TO@example.com', 'not-sent-to@example.org']) },
             { mail, ...buildEvent(['not-sent-to@example.org']) },
         ]
-        // The counter is the post-deploy signal for a filter that drops real recipients. Read it as a delta,
-        // because other tests in the process add to it.
+        // Other tests in the process add to the counter, so read it as a delta.
         const notSentToCount = async (): Promise<number> => {
             const metric = await register.getSingleMetric('email_tracking_recipients_not_sent_to_total')!.get()
-            return metric.values.find((v) => v.labels.event_type === buildEvent([]).eventType)?.value ?? 0
+            return metric.values.find((v) => v.labels.event_type === body[0].eventType)?.value ?? 0
         }
         const countBefore = await notSentToCount()
 
