@@ -43,6 +43,14 @@ IOS: dict[str, Any] = {
     "properties": [{"key": "$device_type", "value": "iOS", "operator": "exact", "type": "person"}],
     "rollout_percentage": 100,
 }
+NOT_STAFF: dict[str, Any] = {
+    "properties": [{"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}],
+    "rollout_percentage": 100,
+}
+NOT_IOS: dict[str, Any] = {
+    "properties": [{"key": "$device_type", "value": "iOS", "operator": "is_not", "type": "person"}],
+    "rollout_percentage": 100,
+}
 
 CHANGED_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
 
@@ -128,6 +136,16 @@ class TestForcedVariantReleaseCondition(TestCase):
             (
                 "cohorts_forced_into_both_variants",
                 _context([{**IOS, "variant": "test"}, {**STAFF, "variant": "control"}]),
+                ("closed_to_matched_users", ExperimentHealthFindingSeverity.WARNING, "1, 2", "test, control", None),
+            ),
+            (
+                "everyone_but_staff_forced_into_one_variant",
+                _context([{**NOT_STAFF, "variant": "test"}]),
+                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "test", None),
+            ),
+            (
+                "segment_and_its_complement_forced_into_both_variants",
+                _context([{**IOS, "variant": "test"}, {**NOT_IOS, "variant": "control"}]),
                 ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "test, control", None),
             ),
             (
@@ -148,7 +166,7 @@ class TestForcedVariantReleaseCondition(TestCase):
                         {**_property_is("plan", "pro"), "variant": "test"},
                     ]
                 ),
-                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "control, test", None),
+                ("closed_to_matched_users", ExperimentHealthFindingSeverity.WARNING, "1, 2", "control, test", None),
             ),
             (
                 "variants_mapped_from_a_person_and_a_group_property_of_one_key",
@@ -158,12 +176,27 @@ class TestForcedVariantReleaseCondition(TestCase):
                         {**_property_is("arm", "test", group_type_index=0), "variant": "test"},
                     ]
                 ),
-                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "control, test", None),
+                ("closed_to_matched_users", ExperimentHealthFindingSeverity.WARNING, "1, 2", "control, test", None),
             ),
             (
                 "one_variant_mapped_from_a_property",
                 _context([{**_property_is("arm", "control"), "variant": "control"}]),
-                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "control", None),
+                ("closed_to_matched_users", ExperimentHealthFindingSeverity.WARNING, "1", "control", None),
+            ),
+            (
+                "list_is_the_only_condition_with_users",
+                _context([{**STAFF, "variant": "test"}, {**EVERYONE, "rollout_percentage": 0}]),
+                ("closed_to_matched_users", ExperimentHealthFindingSeverity.WARNING, "1", "test", None),
+            ),
+            (
+                "draft_list_is_the_only_condition_with_users",
+                _context([{**STAFF, "variant": "test"}, {**IOS, "variant": "test"}], status=DRAFT),
+                ("closed_to_matched_users", ExperimentHealthFindingSeverity.WARNING, "1, 2", "test", None),
+            ),
+            (
+                "list_and_catch_all_pin_one_variant",
+                _context([{**STAFF, "variant": "test"}, {**EVERYONE, "variant": "test"}]),
+                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "test", None),
             ),
             (
                 "variants_mapped_from_two_properties",
@@ -173,7 +206,7 @@ class TestForcedVariantReleaseCondition(TestCase):
                         {**_property_is("cell", "test"), "variant": "test"},
                     ]
                 ),
-                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "control, test", None),
+                ("closed_to_matched_users", ExperimentHealthFindingSeverity.WARNING, "1, 2", "control, test", None),
             ),
             ("override_after_a_catch_all_is_unreachable", _context([EVERYONE, {**STAFF, "variant": "test"}]), None),
             (
@@ -405,6 +438,54 @@ class TestForcedVariantReleaseCondition(TestCase):
                 else "Then reset the experiment, or move its start date to after the removal."
             )
         )
+
+    @parameterized.expand(
+        [
+            (
+                "one_list",
+                [{**STAFF, "variant": "test"}, {**EVERYONE, "rollout_percentage": 0}],
+                "Only users who match Set 1 get a variant",
+                "Set 1 is the only release condition that includes users. It matches only some users and sets the "
+                'variant override "test", so only those users enter the experiment, and they all get "test". Everyone '
+                "else gets no variant. With no other variant to compare against, the results can't show whether "
+                '"test" makes a difference. If these are test users, add a release condition without a variant '
+                "override for the users you want to test, or end the experiment. If they are the users you want to "
+                "test, remove the override so they are assigned at random. Then reset the experiment, or move its "
+                "start date to after the removal.",
+            ),
+            (
+                "lists_for_both_variants",
+                [{**STAFF, "variant": "test"}, {**IOS, "variant": "control"}],
+                "Only users who match Sets 1 and 2 get a variant",
+                "Sets 1 and 2 are the only release conditions that include users. Each matches only some users and "
+                'sets a variant override ("test", "control"), so only those users enter the experiment, and each gets '
+                "the variant of their condition. Everyone else gets no variant. Each variant holds a different group "
+                "of users, so a difference in the results can come from who those users are and not from the "
+                "variant. If these are test users, add a release condition without a variant override for the users "
+                "you want to test, or end the experiment. If they are the users you want to test, remove the "
+                "overrides so they are assigned at random. Then reset the experiment, or move its start date to after "
+                "the removal.",
+            ),
+            (
+                "segment_and_its_complement",
+                [{**IOS, "variant": "test"}, {**NOT_IOS, "variant": "control"}],
+                "No users are randomly assigned to a variant",
+                'Every release condition that includes users sets a variant override ("test", "control"), so each '
+                "user gets the variant of the condition they match instead of a random one. Each variant then holds a "
+                "different group of users, so a difference in the results can come from who those users are and not "
+                "from the variant. To assign users at random, remove the overrides. Users who already saw a variant "
+                "can then switch to another one. Then reset the experiment, or move its start date to after the "
+                "removal.",
+            ),
+        ]
+    )
+    def test_names_who_can_enter_when_every_condition_pins(
+        self, _name: str, groups: list[dict[str, Any]], title: str, detail: str
+    ) -> None:
+        finding = forced_variant_release_condition(_context(groups))
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        self.assertEqual((finding.title, finding.detail), (title, detail))
 
     def test_variants_mapped_from_a_property_say_who_assigns_them(self) -> None:
         finding = forced_variant_release_condition(

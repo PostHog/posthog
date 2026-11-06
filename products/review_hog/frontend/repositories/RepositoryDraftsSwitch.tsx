@@ -13,11 +13,12 @@ export function RepositoryDraftsSwitch({ entry }: { entry: ReviewRepositoryOverv
     const { busyRepositories } = useValues(reviewHogRepositoriesLogic)
     const { setRepositoryDrafts } = useActions(reviewHogRepositoriesLogic)
 
-    const disabledReason = !canEdit
-        ? 'Only project admins can change this'
-        : busyRepositories.includes(entry.full_name)
-          ? 'Saving…'
-          : undefined
+    const disabledReason =
+        !canEdit && entry.review_drafts
+            ? 'Only project admins can turn this off'
+            : busyRepositories.includes(entry.full_name)
+              ? 'Saving…'
+              : undefined
 
     return (
         <span className="flex items-center gap-1.5">

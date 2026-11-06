@@ -485,6 +485,8 @@ class TestGetTaskProcessingContextActivity:
             (None, False, False),
             ("business_knowledge", True, False),
             ("business_knowledge", False, False),
+            ("space_setup", True, True),
+            ("space_setup", False, False),
             ("test.unregistered", True, True),
         ],
     )
