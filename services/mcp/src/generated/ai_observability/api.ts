@@ -2244,7 +2244,8 @@ export const EvaluationsTestHogCreateBody = () => zod
                         id: zod
                             .string()
                             .max(evaluationsTestHogCreateBodyConditionsItemIdMax)
-                            .describe('Stable identifier for this condition set.'),
+                            .optional()
+                            .describe('Identifier of this condition set, if any.'),
                         rollout_percentage: zod
                             .number()
                             .min(evaluationsTestHogCreateBodyConditionsItemRolloutPercentageMin)
@@ -2260,7 +2261,7 @@ export const EvaluationsTestHogCreateBody = () => zod
                                 'Property filters (event or person) that scope which generations match this condition set.'
                             ),
                     })
-                    .describe('A trigger condition set controlling which generations an evaluation runs on.')
+                    .describe('A trigger condition set, as on an evaluation. The id is optional here.')
             )
             .optional()
             .describe('Optional trigger conditions to filter which events are sampled.'),

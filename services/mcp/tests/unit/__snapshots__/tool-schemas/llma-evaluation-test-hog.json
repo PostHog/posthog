@@ -10,10 +10,10 @@
         "conditions": {
             "description": "Optional trigger conditions to filter which events are sampled.",
             "items": {
-                "description": "A trigger condition set controlling which generations an evaluation runs on.",
+                "description": "A trigger condition set, as on an evaluation. The id is optional here.",
                 "properties": {
                     "id": {
-                        "description": "Stable identifier for this condition set.",
+                        "description": "Identifier of this condition set, if any.",
                         "maxLength": 100,
                         "type": "string"
                     },
@@ -36,7 +36,6 @@
                         "type": "number"
                     }
                 },
-                "required": ["id"],
                 "type": "object"
             },
             "type": "array"

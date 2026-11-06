@@ -40,7 +40,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError, query_ai_events
-from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
+from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties, with_global_in_subqueries
 from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission, is_service_auth
 from posthog.rate_limit import (
@@ -1176,10 +1176,16 @@ class EvaluationRunsQuerySerializer(EvaluationsOverviewPeriodSerializer):
     )
 
 
+class PreviewConditionSerializer(EvaluationConditionSerializer):
+    """A trigger condition set, as on an evaluation. The id is optional here."""
+
+    id = serializers.CharField(max_length=100, required=False, help_text="Identifier of this condition set, if any.")
+
+
 class _EvaluationPreviewScopeSerializer(serializers.Serializer):
     """What a preview samples from: the unsaved evaluation's conditions and target."""
 
-    conditions = EvaluationConditionSerializer(
+    conditions = PreviewConditionSerializer(
         many=True,
         required=False,
         default=list,
@@ -1789,7 +1795,7 @@ def _unit_previews(*, team: Team, user: "User", target: str, unit_ids: Sequence[
     if not unit_ids:
         return []
     response = query_ai_events(
-        query=parse_select(_UNIT_PREVIEW_SQL),
+        query=with_global_in_subqueries(parse_select(_UNIT_PREVIEW_SQL)),
         placeholders={
             "unit_key": ai_events_unit_key(target),
             "unit_ids": ast.Constant(value=list(unit_ids)),
@@ -2345,18 +2351,19 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         condition_filter = build_condition_filter(data["conditions"], team, ai_events_unit_key(target))
 
         tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
-        try:
-            unit_ids = _sample_unit_ids(
-                team=team,
-                user=user,
-                target=target,
-                condition_filter=condition_filter,
-                count=count,
-                target_config=data["target_config"],
-            )
-            results = _unit_previews(team=team, user=user, target=target, unit_ids=unit_ids)
-        except AIEventsUnavailableError:
-            results = []
+        with query_concurrency_slots(team):
+            try:
+                unit_ids = _sample_unit_ids(
+                    team=team,
+                    user=user,
+                    target=target,
+                    condition_filter=condition_filter,
+                    count=count,
+                    target_config=data["target_config"],
+                )
+                results = _unit_previews(team=team, user=user, target=target, unit_ids=unit_ids)
+            except AIEventsUnavailableError:
+                results = []
         return Response({"results": results})
 
     @extend_schema(request=EvaluationTestOnSampleRequestSerializer, responses={200: TestHogResponseSerializer})
@@ -2421,44 +2428,45 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
 
         units: list[Any]
-        try:
-            if target == EvaluationTarget.SESSION.value:
-                units = sample_test_sessions(
-                    team,
-                    condition_filter,
-                    MAX_TEST_ON_SAMPLE_UNITS,
-                    quiet_period_seconds=target_config.get(
-                        "quiet_period_seconds", SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS
-                    ),
-                    user=user,
-                    sample_ids=sample_ids,
-                )
-                unit_ids = list(units)
-            elif target == EvaluationTarget.TRACE.value:
-                units = sample_test_traces(
-                    team,
-                    condition_filter,
-                    MAX_TEST_ON_SAMPLE_UNITS,
-                    window_seconds=target_config.get("window_seconds", TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
-                    user=user,
-                    sample_ids=sample_ids,
-                )
-                unit_ids = [unit.trace_id for unit in units]
-            else:
-                units = _fetch_generation_events(
-                    team=team,
-                    user=user,
-                    condition_filter=condition_filter,
-                    sample_count=MAX_TEST_ON_SAMPLE_UNITS,
-                    sample_ids=sample_ids,
-                )
-                unit_ids = [unit["uuid"] for unit in units]
-            previews = {
-                preview["sample_id"]: preview
-                for preview in _unit_previews(team=team, user=user, target=target, unit_ids=unit_ids)
-            }
-        except AIEventsUnavailableError:
-            units, unit_ids, previews = [], [], {}
+        with query_concurrency_slots(team):
+            try:
+                if target == EvaluationTarget.SESSION.value:
+                    units = sample_test_sessions(
+                        team,
+                        condition_filter,
+                        MAX_TEST_ON_SAMPLE_UNITS,
+                        quiet_period_seconds=target_config.get(
+                            "quiet_period_seconds", SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS
+                        ),
+                        user=user,
+                        sample_ids=sample_ids,
+                    )
+                    unit_ids = list(units)
+                elif target == EvaluationTarget.TRACE.value:
+                    units = sample_test_traces(
+                        team,
+                        condition_filter,
+                        MAX_TEST_ON_SAMPLE_UNITS,
+                        window_seconds=target_config.get("window_seconds", TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
+                        user=user,
+                        sample_ids=sample_ids,
+                    )
+                    unit_ids = [unit.trace_id for unit in units]
+                else:
+                    units = _fetch_generation_events(
+                        team=team,
+                        user=user,
+                        condition_filter=condition_filter,
+                        sample_count=MAX_TEST_ON_SAMPLE_UNITS,
+                        sample_ids=sample_ids,
+                    )
+                    unit_ids = [unit["uuid"] for unit in units]
+                previews = {
+                    preview["sample_id"]: preview
+                    for preview in _unit_previews(team=team, user=user, target=target, unit_ids=unit_ids)
+                }
+            except AIEventsUnavailableError:
+                units, unit_ids, previews = [], [], {}
 
         # One test per user at a time: a single call can run to the provider's timeout, which the budget
         # below cannot cut short, so this bounds how many web workers one user holds to one.

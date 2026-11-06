@@ -2171,9 +2171,9 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
 
     @staticmethod
     def _conditions(model: str, rollout_percentage: float = 100) -> list[dict[str, Any]]:
+        # No id: previews accept condition sets that were never saved.
         return [
             {
-                "id": "set-1",
                 "rollout_percentage": rollout_percentage,
                 "properties": [{"key": "$ai_model", "value": model, "operator": "exact", "type": "event"}],
             }

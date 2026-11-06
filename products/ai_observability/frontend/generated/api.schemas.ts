@@ -3302,6 +3302,27 @@ export interface EvaluationsOverviewApi {
     passRateOverview: PassRateOverviewApi
 }
 
+export type PreviewConditionApiPropertiesItem = { [key: string]: unknown }
+
+/**
+ * A trigger condition set, as on an evaluation. The id is optional here.
+ */
+export interface PreviewConditionApi {
+    /**
+     * Identifier of this condition set, if any.
+     * @maxLength 100
+     */
+    id?: string
+    /**
+     * Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_percentage?: number
+    /** Property filters (event or person) that scope which generations match this condition set. */
+    properties?: PreviewConditionApiPropertiesItem[]
+}
+
 export interface TestHogTargetConfigApi {
     /**
      * Aggregation window for trace samples, in seconds.
@@ -3322,7 +3343,7 @@ export interface TestHogTargetConfigApi {
  */
 export interface EvaluationSampleTrafficRequestApi {
     /** Optional trigger conditions to filter which events are sampled. */
-    conditions?: EvaluationConditionApi[]
+    conditions?: PreviewConditionApi[]
     /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
      *
      * * `generation` - Generation
@@ -3471,7 +3492,7 @@ export const HogEvaluationOutputTypeEnumApi = {
  */
 export interface TestHogRequestApi {
     /** Optional trigger conditions to filter which events are sampled. */
-    conditions?: EvaluationConditionApi[]
+    conditions?: PreviewConditionApi[]
     /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
      *
      * * `generation` - Generation
@@ -3702,7 +3723,7 @@ export const TestOnSampleEvaluationTypeEnumApi = {
  */
 export interface EvaluationTestOnSampleRequestApi {
     /** Optional trigger conditions to filter which events are sampled. */
-    conditions?: EvaluationConditionApi[]
+    conditions?: PreviewConditionApi[]
     /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
      *
      * * `generation` - Generation

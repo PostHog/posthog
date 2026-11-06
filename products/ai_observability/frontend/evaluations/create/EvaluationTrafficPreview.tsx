@@ -51,7 +51,14 @@ function ResultTag({
           ? String(result.score)
           : 'N/A'
     return (
-        <Tooltip title={result.error || result.reasoning || undefined}>
+        // The tooltip renders in a portal outside the preview, so it needs its own capture opt-out.
+        <Tooltip
+            title={
+                result.error || result.reasoning ? (
+                    <span className="ph-no-capture">{result.error || result.reasoning}</span>
+                ) : undefined
+            }
+        >
             <LemonTag
                 size="small"
                 type={result.error || passes === false ? 'danger' : passes ? 'success' : 'muted'}
@@ -111,7 +118,8 @@ export function EvaluationTrafficPreview({ testable }: { testable: boolean }): J
     const testCount = Math.min(rows.length, JUDGE_TEST_LIMIT)
 
     return (
-        <div className="flex flex-col gap-2" data-attr="llma-evaluation-create-preview">
+        // Rows hold customer prompts, so autocapture and session replay must not record them.
+        <div className="ph-no-capture flex flex-col gap-2" data-attr="llma-evaluation-create-preview">
             <div className="flex items-baseline justify-between gap-2">
                 <h4 className="mb-0 text-xs font-semibold">Would run on</h4>
                 {verdicts.length > 0 ? (

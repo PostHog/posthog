@@ -1625,7 +1625,8 @@ export const EvaluationsSampleTrafficCreateBody = /* @__PURE__ */ zod
                         id: zod
                             .string()
                             .max(evaluationsSampleTrafficCreateBodyConditionsItemIdMax)
-                            .describe('Stable identifier for this condition set.'),
+                            .optional()
+                            .describe('Identifier of this condition set, if any.'),
                         rollout_percentage: zod
                             .number()
                             .min(evaluationsSampleTrafficCreateBodyConditionsItemRolloutPercentageMin)
@@ -1641,7 +1642,7 @@ export const EvaluationsSampleTrafficCreateBody = /* @__PURE__ */ zod
                                 'Property filters (event or person) that scope which generations match this condition set.'
                             ),
                     })
-                    .describe('A trigger condition set controlling which generations an evaluation runs on.')
+                    .describe('A trigger condition set, as on an evaluation. The id is optional here.')
             )
             .optional()
             .describe('Optional trigger conditions to filter which events are sampled.'),
@@ -1728,7 +1729,8 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod
                         id: zod
                             .string()
                             .max(evaluationsTestHogCreateBodyConditionsItemIdMax)
-                            .describe('Stable identifier for this condition set.'),
+                            .optional()
+                            .describe('Identifier of this condition set, if any.'),
                         rollout_percentage: zod
                             .number()
                             .min(evaluationsTestHogCreateBodyConditionsItemRolloutPercentageMin)
@@ -1744,7 +1746,7 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod
                                 'Property filters (event or person) that scope which generations match this condition set.'
                             ),
                     })
-                    .describe('A trigger condition set controlling which generations an evaluation runs on.')
+                    .describe('A trigger condition set, as on an evaluation. The id is optional here.')
             )
             .optional()
             .describe('Optional trigger conditions to filter which events are sampled.'),
@@ -1947,7 +1949,8 @@ export const EvaluationsTestOnSampleCreateBody = /* @__PURE__ */ zod
                         id: zod
                             .string()
                             .max(evaluationsTestOnSampleCreateBodyConditionsItemIdMax)
-                            .describe('Stable identifier for this condition set.'),
+                            .optional()
+                            .describe('Identifier of this condition set, if any.'),
                         rollout_percentage: zod
                             .number()
                             .min(evaluationsTestOnSampleCreateBodyConditionsItemRolloutPercentageMin)
@@ -1963,7 +1966,7 @@ export const EvaluationsTestOnSampleCreateBody = /* @__PURE__ */ zod
                                 'Property filters (event or person) that scope which generations match this condition set.'
                             ),
                     })
-                    .describe('A trigger condition set controlling which generations an evaluation runs on.')
+                    .describe('A trigger condition set, as on an evaluation. The id is optional here.')
             )
             .optional()
             .describe('Optional trigger conditions to filter which events are sampled.'),
