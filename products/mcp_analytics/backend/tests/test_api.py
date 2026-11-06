@@ -1,3 +1,4 @@
+import json
 import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -412,6 +413,44 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         # Unknown / unsafe column falls back to default
         assert order("password") == [new_id, big_id, old_id]
         assert order("-DROP TABLE") == [new_id, big_id, old_id]
+
+    @parameterized.expand(
+        [
+            (
+                "captured_failure",
+                {
+                    "$mcp_is_error": True,
+                    "$mcp_parameters": {"query": "select 1", "limit": 5},
+                    "$mcp_error_type": "api_5xx",
+                    "$mcp_error_status": 503,
+                },
+                {"query": "select 1", "limit": 5},
+                ("api_5xx", "503"),
+            ),
+            ("nothing_captured", {}, None, ("", "")),
+        ]
+    )
+    def test_returns_captured_arguments_and_error_bucket(
+        self,
+        _name: str,
+        extra_properties: dict[str, Any],
+        expected_parameters: dict[str, Any] | None,
+        expected_bucket: tuple[str, str],
+    ) -> None:
+        session_id = str(uuid7())
+        start = datetime.now(tz=UTC) - timedelta(minutes=5)
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="seed",
+            timestamp=start,
+            properties={"$session_id": session_id, "$mcp_tool_name": "query_run", **extra_properties},
+        )
+
+        [call] = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=50, offset=0, date_from=start).results
+
+        assert (json.loads(call.parameters) if call.parameters else None) == expected_parameters
+        assert (call.error_type, call.error_status) == expected_bucket
 
     def test_has_next_signals_more_pages(self) -> None:
         # Identical session_end across all three so only the session_id tiebreaker

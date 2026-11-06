@@ -150,6 +150,22 @@ TOOL_DESCRIPTIONS = {
     "session_recording_get": "Fetch metadata for a session recording.",
 }
 
+# One plausible argument set per tool, so the session view has $mcp_parameters to show.
+TOOL_ARGUMENTS: dict[str, dict[str, Any]] = {
+    "query_run": {"query": "SELECT event, count() FROM events WHERE timestamp > now() - INTERVAL 7 DAY GROUP BY event"},
+    "read_data_schema": {"kind": "events"},
+    "insight_get": {"insight_id": "aB3dE9xY"},
+    "project_get": {},
+    "dashboard_get": {"dashboard_id": 42},
+    "feature_flag_get": {"key": "new-onboarding-flow"},
+    "error_tracking_issue_get": {"issue_id": "0192f3a1-7c2e-7d4b-9f00-000000000001"},
+    "docs_search": {"query": "how do I filter out internal users"},
+    "logs_query": {"service": "api", "level": "error", "search": "timeout"},
+    "person_get": {"distinct_id": "user_1234"},
+    "experiment_get": {"experiment_id": 7},
+    "session_recording_get": {"session_id": "0192f3a1-7c2e-7d4b-9f00-000000000002"},
+}
+
 
 @frozen
 class _ToolQuality:
@@ -1584,6 +1600,7 @@ class Command(BaseCommand):
                     "$mcp_intent": session_intent,
                     "$mcp_intent_source": rng.choices(["context_parameter", "inferred"], weights=[92, 8], k=1)[0],
                     "$mcp_is_error": failure is not None,
+                    "$mcp_parameters": TOOL_ARGUMENTS.get(tool_name, {}),
                 }
                 if failure:
                     # Permission and validation errors fail before any work; the rest fail after it.

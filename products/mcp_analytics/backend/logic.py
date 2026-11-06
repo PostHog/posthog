@@ -59,7 +59,10 @@ SELECT
     toString(properties.$mcp_intent) AS intent,
     toString(properties.$mcp_is_error) AS is_error_raw,
     toString(properties.$mcp_error_message) AS error_message,
-    toString(properties.$mcp_duration_ms) AS duration_ms_raw
+    toString(properties.$mcp_duration_ms) AS duration_ms_raw,
+    toString(properties.$mcp_parameters) AS parameters,
+    toString(properties.$mcp_error_type) AS error_type,
+    toString(properties.$mcp_error_status) AS error_status
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
@@ -997,6 +1000,9 @@ def list_mcp_tool_calls(
             is_error=str(row[4]).lower() in ("true", "1"),
             error_message=row[5] or "",
             duration_ms=_parse_int(row[6]),
+            parameters=row[7] or "",
+            error_type=row[8] or "",
+            error_status=row[9] or "",
         )
         for row in rows[:limit]
     ]

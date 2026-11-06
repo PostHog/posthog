@@ -183,6 +183,9 @@ const TOOL_CALL_LIST = {
             is_error: true,
             error_message: 'Estimated query execution time is too long (max_execution_time=600)',
             duration_ms: 610000,
+            parameters: '{"query":"SELECT event, count() FROM events GROUP BY event","timeout_seconds":600}',
+            error_type: 'timeout',
+            error_status: '',
         },
     ],
 }
