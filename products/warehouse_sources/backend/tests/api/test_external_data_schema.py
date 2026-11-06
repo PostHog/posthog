@@ -459,7 +459,7 @@ class TestExternalDataSchema(APIBaseTest):
             "supports_webhooks": False,
             "webhook_only": False,
             "available_columns": [
-                {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
             ],
             "detected_primary_keys": ["id"],
             "primary_key_detection_supported": True,
@@ -3381,6 +3381,7 @@ class TestUpdateExternalDataSchema:
                     "cdc_mode": "streaming",
                     "cdc_last_log_position": "0/16B3748",
                     "cdc_snapshot_lane": "buffer",
+                    "cdc_snapshot_position": 23803368,
                 },
                 "posthog",
                 id="left_over_from_earlier_cdc_period",
@@ -3416,6 +3417,7 @@ class TestUpdateExternalDataSchema:
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
         assert "cdc_last_log_position" not in schema.sync_type_config
         assert "cdc_snapshot_lane" not in schema.sync_type_config
+        assert "cdc_snapshot_position" not in schema.sync_type_config
         assert schema.initial_sync_complete is False
 
     @pytest.mark.parametrize(
@@ -4889,8 +4891,8 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         assert response.status_code == 200, response.json()
         payload = response.json()
         assert payload["available_columns"] == [
-            {"name": "id", "data_type": "integer", "is_nullable": False},
-            {"name": "email", "data_type": "text", "is_nullable": True},
+            {"name": "id", "data_type": "integer", "is_nullable": False, "sensitivity": None},
+            {"name": "email", "data_type": "text", "is_nullable": True, "sensitivity": "email"},
         ]
 
     @parameterized.expand(
@@ -4950,8 +4952,8 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         assert response.status_code == 200, response.json()
         # Sort by name: `columns` is JSONB, which doesn't preserve key insertion order.
         assert sorted(response.json()["available_columns"], key=lambda column: column["name"]) == [
-            {"name": "balance", "data_type": "Int64", "is_nullable": True},
-            {"name": "id", "data_type": "String", "is_nullable": False},
+            {"name": "balance", "data_type": "Int64", "is_nullable": True, "sensitivity": None},
+            {"name": "id", "data_type": "String", "is_nullable": False, "sensitivity": None},
         ]
 
     def test_available_columns_fallback_preserves_descriptions_for_source_projection(self):
@@ -4976,7 +4978,7 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json()["available_columns"] == [
-            {"name": "account_id", "data_type": "String", "is_nullable": False}
+            {"name": "account_id", "data_type": "String", "is_nullable": False, "sensitivity": None}
         ]
         assert response.json()["source_column_metadata_available"] is False
 

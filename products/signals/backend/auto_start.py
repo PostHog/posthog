@@ -93,6 +93,7 @@ from products.signals.backend.supersession import (
     targets_still_eligible,
     verify_target,
 )
+from products.signals.backend.task_profiles import IMPLEMENTATION
 from products.signals.backend.task_run_artefacts import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -106,6 +107,7 @@ from products.signals.backend.typed_report_links import (
     outgoing_links,
 )
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.profiles import SourceKind, TaskRunOptions, TaskSource
 from products.tasks.backend.facade.usage import task_run_usage_limited
 
 logger = structlog.get_logger(__name__)
@@ -932,21 +934,26 @@ def _create_implementation_task_if_absent(
             # relabel, so the Runs surface reads "<relationship>: <report>" for every pipeline run.
             title=f"Implementation: {title}",
             description=description,
-            origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+            profile=IMPLEMENTATION,
+            source=TaskSource(kind=SourceKind.SIGNAL_REPORT, id=report_id),
             user_id=user_id,
             repository=repository,
             branch=base_branch,
-            signal_report_id=report_id,
             implementation_spend_kind=implementation_spend_kind,
             # Research increments run_count after admission; scouts create READY reports directly.
             continue_admitted_pipeline=report.run_count > 0 or report.status == SignalReport.Status.READY,
             # Resolved by the caller outside this lock, like `agent_runtime` above, so the
             # create-time free-trial gate makes no flag request while the report row is locked.
             free_trial_enabled=free_trial_enabled,
-            # `full` scopes so the implementation agent can log its work on the report (notes,
-            # code references) via the task:write artefact tools, plus the scratchpad so what it
-            # learned about the codebase outlives the run.
-            posthog_mcp_scopes=IMPLEMENTATION_MCP_SCOPES,
+            options=TaskRunOptions(
+                adapter=agent_runtime.runtime_adapter,
+                model=agent_runtime.model,
+                reasoning_effort=agent_runtime.reasoning_effort,
+                # `full` scopes so the implementation agent can log its work on the report (notes,
+                # code references) via the task:write artefact tools, plus the scratchpad so what it
+                # learned about the codebase outlives the run.
+                mcp_scopes=IMPLEMENTATION_MCP_SCOPES,
+            ),
             interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
             ai_stage=AI_STAGE_IMPLEMENTATION,
             # The pre-generated branch the description instructs the agent to push to; stamped
@@ -954,11 +961,6 @@ def _create_implementation_task_if_absent(
             self_driving_head_branch=head_branch,
             stack_base_branch=stack_base_branch,
             github_access_repositories=access_repositories,
-            # Internal so the run stays out of the default task list; the report surfaces it by id.
-            internal=True,
-            runtime_adapter=agent_runtime.runtime_adapter,
-            model=agent_runtime.model,
-            reasoning_effort=agent_runtime.reasoning_effort,
             service_tier=agent_runtime.service_tier,
         )
         if created.latest_run is None:

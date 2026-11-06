@@ -24,6 +24,7 @@ export type TraceDialogEntryPoint =
     | 'log_trace_id_cell'
     | 'metric_sample'
     | 'metric_exemplar'
+    | 'exception_card'
 
 export type TraceDialogCloseReason = 'dismissed' | 'back_to_log' | 'open_in_tracing' | 'navigated' | 'replaced'
 

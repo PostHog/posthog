@@ -117,16 +117,22 @@ def update_team_metadata_cache_on_realtime_cohort_access_save(
     _enqueue_team_metadata_update_on_commit(instance.team_id)
 
 
-def _enqueue_deleted_team_metadata_clear_on_commit(team_id: int, api_token: str) -> None:
-    # The pre_delete clear runs before the commit and does not retry. A refresh in that gap can write the
-    # entry back. The S3 copy has no TTL, so a retrying task clears the entry again after the commit.
+def enqueue_retired_token_metadata_clear_on_commit(team_id: int, api_token: str) -> None:
+    """After the commit, clear the metadata cache entry of a token that no longer belongs to the team.
+
+    The flags service trusts a cache hit without a Postgres check.
+    Until the entry is gone, the token keeps resolving to the team there.
+    """
+    if not settings.FLAGS_REDIS_URL:
+        return
+
     def enqueue_task() -> None:
         # Imported lazily for the same reason as in _enqueue_team_metadata_update_on_commit.
         from posthog.tasks.team_metadata import clear_team_metadata_cache_for_token_task  # noqa: PLC0415
 
         _enqueue_or_record_failure(
             lambda: clear_team_metadata_cache_for_token_task.delay(api_token),
-            "Failed to enqueue deleted team metadata clear",
+            "Failed to enqueue retired token metadata clear",
             team_id=team_id,
         )
 
@@ -141,7 +147,9 @@ def clear_team_metadata_cache_on_delete(sender: type[Team], instance: Team, **kw
     # NB: For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
     kinds = ["redis"] if settings.TEST else None
     clear_team_metadata_cache(instance, kinds=kinds)
-    _enqueue_deleted_team_metadata_clear_on_commit(instance.id, instance.api_token)
+    # This clear runs before the commit and does not retry. A refresh in that gap can write the entry back.
+    # The S3 copy has no TTL, so a retrying task clears the entry again after the commit.
+    enqueue_retired_token_metadata_clear_on_commit(instance.id, instance.api_token)
 
 
 # Organization and project names are denormalized into team metadata, but only the Team signal
