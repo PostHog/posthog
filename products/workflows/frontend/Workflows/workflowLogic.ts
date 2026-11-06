@@ -5105,7 +5105,10 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             let createdWorkflow: HogFlow
             try {
-                createdWorkflow = await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
+                createdWorkflow = (await hogFlowsCreate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    prepareWorkflowDuplicate(workflow) as unknown as Parameters<typeof hogFlowsCreate>[1]
+                )) as unknown as HogFlow
             } catch {
                 lemonToast.error('Could not duplicate the workflow. Please try again.')
                 return

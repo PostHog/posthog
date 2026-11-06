@@ -477,7 +477,7 @@ describe('view-only workflow', () => {
 
     it('tells a viewer when Duplicate fails', async () => {
         setWorkflowResourceAccess(AccessControlLevel.Editor)
-        useMocks({ post: { '/api/environments/:team_id/hog_flows/': () => [500, { detail: 'Server error' }] } })
+        useMocks({ post: { '/api/projects/:team_id/hog_flows/': () => [500, { detail: 'Server error' }] } })
         const toastError = jest.spyOn(lemonToast, 'error')
 
         renderForViewer(<WorkflowViewOnlyBanner id={WORKFLOW_ID} />)
