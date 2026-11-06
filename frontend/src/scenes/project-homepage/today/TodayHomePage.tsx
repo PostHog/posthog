@@ -4,9 +4,12 @@ import { useLayoutEffect, useRef } from 'react'
 
 import { Skeleton, Text } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { TodayExplore } from './TodayExplore'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
+import { TodayHomeComposer } from './TodayHomeComposer'
 import { reportIdFromPath, todayLogic } from './todayLogic'
 import { TodayPulse } from './TodayPulse'
 import { TodayPulseEditor } from './TodayPulseEditor'
@@ -65,6 +68,7 @@ export function TodayHomePage(): JSX.Element {
     } = useValues(todayHighlightsLogic)
     const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
+    const homeComposer = useFeatureFlag('TODAY_HOME_COMPOSER')
 
     useLayoutEffect(() => {
         pulseViewMounted(useSampleData)
@@ -123,6 +127,7 @@ export function TodayHomePage(): JSX.Element {
                     <TodayMetaLine />
                     {!pulsePending && highlights && pulsePinsLoaded ? <TodayPulseEditor /> : null}
                 </div>
+                {homeComposer ? <TodayHomeComposer /> : null}
             </section>
             <div className="TodayHome__body">
                 {pulsePending ? (
