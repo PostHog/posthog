@@ -45,7 +45,6 @@ TURN_TEXT_CHARS = 3000
 _DISCOVER_SQL = """
 SELECT
     toString(properties.$ai_trace_id) AS trace_id,
-    min(timestamp) AS first_seen,
     uniq(toDate(timestamp)) AS days
 FROM events
 WHERE event = '$ai_generation'
@@ -117,9 +116,14 @@ def held_out_bucket(profile: TeamProfile) -> int | None:
     return buckets[0] if len(buckets) >= 2 else None
 
 
-def _discover(
-    team: Team, start: datetime, end: datetime, expected_traces: int, limit: int
-) -> list[tuple[str, datetime, int]]:
+@frozen
+class DiscoveredTrace:
+    trace_id: str
+    # Distinct days the trace has generations on.
+    days: int
+
+
+def _discover(team: Team, start: datetime, end: datetime, expected_traces: int, limit: int) -> list[DiscoveredTrace]:
     per_mille = (
         1000
         if expected_traces <= limit * DISCOVERY_OVERSAMPLE
@@ -137,7 +141,7 @@ def _discover(
         },
         "EvalSuggestionsSampleDiscovery",
     )
-    return [(str(row[0]), row[1], int(row[2])) for row in rows]
+    return [DiscoveredTrace(trace_id=str(row[0]), days=int(row[1])) for row in rows]
 
 
 def _hydrate(team: Team, trace_ids: Sequence[str], start: datetime, end: datetime) -> dict[str, list[tuple[Any, ...]]]:
@@ -228,33 +232,37 @@ def fetch_sample(team: Team, window: ProfileWindow, profile: TeamProfile) -> Tra
     bucket = held_out_bucket(profile)
     if bucket is None:
         main = _discover(team, window.start, window.end, profile.traces, MAIN_SAMPLE_TRACES)
-        held: list[tuple[str, datetime, int]] = []
+        held: list[DiscoveredTrace] = []
     else:
         held_start, held_end = window.end - timedelta(days=bucket + 1), window.end - timedelta(days=bucket)
         held_traces = profile.traces_by_days_ago.get(bucket, 0)
         main = _discover(team, window.start, held_start, profile.traces - held_traces, MAIN_SAMPLE_TRACES)
-        main_ids = {row[0] for row in main}
+        main_ids = {trace.trace_id for trace in main}
         # A trace that runs across the boundary is discovered on both sides, and hydration reads all of it
         # for each, so keeping it in both would re-test a check on a trace it was measured on.
         held = [
-            row
-            for row in _discover(team, held_start, held_end, held_traces, HELD_OUT_SAMPLE_TRACES)
-            if row[0] not in main_ids
+            trace
+            for trace in _discover(team, held_start, held_end, held_traces, HELD_OUT_SAMPLE_TRACES)
+            if trace.trace_id not in main_ids
         ]
 
-    discovered = [(row, False) for row in main] + [(row, True) for row in held]
+    discovered = [(trace, False) for trace in main] + [(trace, True) for trace in held]
     rows = (
-        _hydrate(team, [row[0] for row, _ in discovered], window.start - timedelta(days=1), window.end)
+        _hydrate(team, [trace.trace_id for trace, _ in discovered], window.start - timedelta(days=1), window.end)
         if discovered
         else {}
     )
     segment_keys = sorted(profile.segments)
     sample: dict[bool, list[SampledTrace]] = {False: [], True: []}
-    for (trace_id, _first_seen, days), is_held_out in discovered:
-        if trace_id not in rows:
+    for trace, is_held_out in discovered:
+        if trace.trace_id not in rows:
             continue
         sampled = _sampled_trace(
-            trace_id, rows[trace_id], held_out=is_held_out, spans_days=days > 1, segment_keys=segment_keys
+            trace.trace_id,
+            rows[trace.trace_id],
+            held_out=is_held_out,
+            spans_days=trace.days > 1,
+            segment_keys=segment_keys,
         )
         if sampled is not None:
             sample[is_held_out].append(sampled)

@@ -239,6 +239,14 @@ class StructuredOutput:
 
 
 @frozen
+class GapExample:
+    trace_id: str
+    # Items with a flagged value, out of all the trace's items in the field.
+    matching: int
+    total: int
+
+
+@frozen
 class StructuredGap:
     field: str
     meaning: FieldMeaning
@@ -249,8 +257,8 @@ class StructuredGap:
     other_rate: float
     segment_items: int
     other_items: int
-    # (trace id, items with a flagged value, all items), most flagged first.
-    examples: tuple[tuple[str, int, int], ...]
+    # Most flagged first.
+    examples: tuple[GapExample, ...]
 
     @property
     def items(self) -> str:
@@ -318,10 +326,18 @@ def _enum_fields(outputs: Sequence[StructuredOutput]) -> dict[str, FieldMeaning]
     }
 
 
+@frozen
+class SegmentRates:
+    inside: int
+    inside_total: int
+    outside: int
+    outside_total: int
+
+
 def _rates(
     outputs: Sequence[StructuredOutput], field: str, segment_key: str, segment_value: str, values: Sequence[str]
-) -> tuple[int, int, int, int]:
-    """(matching, total) inside the segment, then (matching, total) in its sibling segments."""
+) -> SegmentRates:
+    """Matching and total items inside the segment, and in its sibling segments."""
     inside = inside_total = outside = outside_total = 0
     for output in outputs:
         segment = output.segments.get(segment_key)
@@ -333,7 +349,7 @@ def _rates(
             inside, inside_total = inside + matching, inside_total + len(items)
         else:
             outside, outside_total = outside + matching, outside_total + len(items)
-    return inside, inside_total, outside, outside_total
+    return SegmentRates(inside=inside, inside_total=inside_total, outside=outside, outside_total=outside_total)
 
 
 def _over_represented(
@@ -342,12 +358,12 @@ def _over_represented(
     """Values the segment uses at least MIN_VALUE_RATIO times as often as its siblings."""
     over = []
     for value in values:
-        inside, inside_total, outside, outside_total = _rates(outputs, field, segment_key, segment_value, [value])
+        rates = _rates(outputs, field, segment_key, segment_value, [value])
         if (
-            inside
-            and inside_total
-            and outside_total
-            and inside / inside_total >= MIN_VALUE_RATIO * outside / outside_total
+            rates.inside
+            and rates.inside_total
+            and rates.outside_total
+            and rates.inside / rates.inside_total >= MIN_VALUE_RATIO * rates.outside / rates.outside_total
         ):
             over.append(value)
     return over
@@ -373,16 +389,15 @@ def find_structured_gaps(outputs: Sequence[StructuredOutput]) -> list[Structured
                 flagged = _over_represented(outputs, field, segment_key, segment_value, values)
                 if not flagged:
                     continue
-                inside, inside_total, outside, outside_total = _rates(
-                    outputs, field, segment_key, segment_value, flagged
-                )
-                if inside_total < MIN_GAP_ITEMS or outside_total < MIN_GAP_ITEMS:
+                rates = _rates(outputs, field, segment_key, segment_value, flagged)
+                if rates.inside_total < MIN_GAP_ITEMS or rates.outside_total < MIN_GAP_ITEMS:
                     continue
-                inside_rate, outside_rate = inside / inside_total, outside / outside_total
+                inside_rate, outside_rate = rates.inside / rates.inside_total, rates.outside / rates.outside_total
                 if (
                     inside_rate < MIN_GAP_RATIO * outside_rate
                     or inside_rate - outside_rate < MIN_GAP_DIFFERENCE
-                    or wilson_interval(inside, inside_total)[0] <= wilson_interval(outside, outside_total)[1]
+                    or wilson_interval(rates.inside, rates.inside_total).low
+                    <= wilson_interval(rates.outside, rates.outside_total).high
                 ):
                     continue
                 gaps.append(
@@ -394,8 +409,8 @@ def find_structured_gaps(outputs: Sequence[StructuredOutput]) -> list[Structured
                         segment_value=segment_value,
                         segment_rate=inside_rate,
                         other_rate=outside_rate,
-                        segment_items=inside_total,
-                        other_items=outside_total,
+                        segment_items=rates.inside_total,
+                        other_items=rates.outside_total,
                         examples=_examples(outputs, field, segment_key, segment_value, flagged),
                     )
                 )
@@ -404,7 +419,7 @@ def find_structured_gaps(outputs: Sequence[StructuredOutput]) -> list[Structured
 
 def _examples(
     outputs: Sequence[StructuredOutput], field: str, segment_key: str, segment_value: str, values: Sequence[str]
-) -> tuple[tuple[str, int, int], ...]:
+) -> tuple[GapExample, ...]:
     counted = []
     for output in outputs:
         if output.segments.get(segment_key) != segment_value:
@@ -412,15 +427,13 @@ def _examples(
         items = output.fields.get(field, ())
         matching = sum(1 for item in items if item in values)
         if matching:
-            counted.append((output.trace_id, matching, len(items)))
-    return tuple(sorted(counted, key=lambda example: (-example[1], example[0])))
+            counted.append(GapExample(trace_id=output.trace_id, matching=matching, total=len(items)))
+    return tuple(sorted(counted, key=lambda example: (-example.matching, example.trace_id)))
 
 
 def gap_holds(gap: StructuredGap, outputs: Sequence[StructuredOutput]) -> bool | None:
     """Whether a gap found on the main sample shows again on held-out traces. None when they hold too few items."""
-    inside, inside_total, outside, outside_total = _rates(
-        outputs, gap.field, gap.segment_key, gap.segment_value, gap.values
-    )
-    if inside_total < MIN_GAP_ITEMS // 3 or outside_total < MIN_GAP_ITEMS // 3:
+    rates = _rates(outputs, gap.field, gap.segment_key, gap.segment_value, gap.values)
+    if rates.inside_total < MIN_GAP_ITEMS // 3 or rates.outside_total < MIN_GAP_ITEMS // 3:
         return None
-    return inside / inside_total > outside / outside_total
+    return rates.inside / rates.inside_total > rates.outside / rates.outside_total
