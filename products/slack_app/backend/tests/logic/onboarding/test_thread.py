@@ -48,6 +48,7 @@ CLICKS = "products.slack_app.backend.logic.onboarding.interactivity"
 STEP = "products.slack_app.backend.logic.onboarding.step"
 MODEL_STEP = "products.slack_app.backend.logic.onboarding.model_step"
 INBOX_STEP = "products.slack_app.backend.logic.onboarding.inbox_channel_step"
+AI_STEP = "products.slack_app.backend.logic.onboarding.ai_consent_step"
 LINK_SCOPES = "chat:write,users:read,users:read.email"
 ADMIN_SCOPES = f"{LINK_SCOPES},channels:manage,channels:read,groups:read"
 
@@ -517,6 +518,7 @@ def test_workspace_step_clicks(
         patch(f"{CLICKS}.post_response_url") as reply,
         patch(f"{CLICKS}.capture_slack_event"),
         patch(f"{STEP}.capture_slack_event"),
+        patch(f"{AI_STEP}.start_work_focus") as work_focus,
         patch(f"{INBOX_STEP}.ensure_inbox_channel", return_value=("C_INBOX", "#posthog-inbox")),
         patch(f"{INBOX_STEP}.invite_user_to_inbox", return_value=action != "inbox_join_fails") as invite,
         patch("products.signals.backend.facade.api.set_sources") as set_sources,
@@ -528,6 +530,8 @@ def test_workspace_step_clicks(
     if action == "ai_consent":
         org.refresh_from_db()
         assert org.is_ai_data_processing_approved is org_admin
+        # The work focus waits for consent, so allowing it starts the work focus for the admin.
+        assert work_focus.called is org_admin
     if action == "inbox_join":
         invite.assert_called_once_with(integration, "C_INBOX", SLACK_USER_ID)
         assert "inbox_channel" in get_state(SLACK_TEAM_ID, SLACK_USER_ID).used

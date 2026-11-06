@@ -4644,10 +4644,10 @@ def _handle_work_focus_task_click(payload: dict) -> HttpResponse:
     )
     value = read_action_value(action) if action else None
     integration_id = value.get("integration_id") if value else None
-    label = str(value.get("label") or "") if value else ""
-    prompt = str(value.get("prompt") or "") if value else ""
+    request = str(value.get("request") or "").strip() if value else ""
     message_ts = (payload.get("container") or {}).get("message_ts")
-    if not (slack_team_id and slack_user_id and isinstance(integration_id, int) and label and prompt):
+    block_id = (action or {}).get("block_id")
+    if not (slack_team_id and slack_user_id and isinstance(integration_id, int) and request):
         return HttpResponse(status=200)
     integration = get_workspace_integration(integration_id, slack_team_id)
     if integration is None:
@@ -4666,18 +4666,19 @@ def _handle_work_focus_task_click(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     # A second click on the same suggestion would start the same task twice.
-    claim_key = f"slack_app_work_focus_claim:{integration.id}:{message_ts}:{label}"
+    claim_key = f"slack_app_work_focus_claim:{integration.id}:{message_ts}:{block_id}"
     if not cache.add(claim_key, slack_user_id, timeout=24 * 60 * 60):
         return HttpResponse(status=200)
 
-    posted = client.chat_postMessage(channel=slack_user_id, text=f"Starting a task: *{label}*")
+    # The thread opens with the whole request, so the person sees what the task works on.
+    posted = client.chat_postMessage(channel=slack_user_id, text=f"*Starting a task*\n{request}")
     event = {
         "type": "message",
         "user": slack_user_id,
         "channel": posted["channel"],
         "ts": posted["ts"],
         "thread_ts": posted["ts"],
-        "text": prompt,
+        "text": request,
     }
     try:
         _start_mention_workflow(event, integration, slack_team_id, None, posthog_user=posthog_user)
