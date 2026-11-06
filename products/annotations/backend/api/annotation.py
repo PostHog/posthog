@@ -14,7 +14,8 @@ from posthog.models.user import User
 from posthog.models.utils import strict_fetch
 
 from products.annotations.backend.models.annotation import Annotation
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.contracts import DashboardSummary
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -132,9 +133,9 @@ class AnnotationSerializer(serializers.ModelSerializer):
         dashboard = None
         if "dashboard_id" in attrs:
             if attrs["dashboard_id"] is not None:
-                dashboard = Dashboard.objects_including_soft_deleted.filter(
-                    id=attrs["dashboard_id"], team_id=team.id
-                ).first()
+                dashboard = dashboards_api.get_dashboard(
+                    team_id=team.id, dashboard_id=attrs["dashboard_id"], include_deleted=True
+                )
                 # A deleted dashboard answers exactly as an unknown one does unless the annotation
                 # already points at it, so a guessed ID cannot report back its name.
                 if dashboard is None or (
@@ -143,8 +144,10 @@ class AnnotationSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
                 if dashboard.id != getattr(self.instance, "dashboard_id", None):
                     self._require_viewer_access(dashboard, "dashboard_id", "dashboard")
-        elif self.instance is not None:
-            dashboard = self.instance.dashboard
+        elif self.instance is not None and self.instance.dashboard_id is not None:
+            dashboard = dashboards_api.get_dashboard(
+                team_id=team.id, dashboard_id=self.instance.dashboard_id, include_deleted=True
+            )
 
         if "dashboard_item" in attrs:
             insight = attrs["dashboard_item"]
@@ -193,11 +196,11 @@ class AnnotationSerializer(serializers.ModelSerializer):
         return attrs
 
     def _require_viewer_access(
-        self, parent: Dashboard | Insight, field: str, resource: Literal["dashboard", "insight"]
+        self, parent: DashboardSummary | Insight, field: str, resource: Literal["dashboard", "insight"]
     ) -> None:
         user_access_control = self.context["view"].user_access_control
         if isinstance(self.context["request"].user, User) and user_access_control.denied_object_ids(
-            resource, [(str(parent.pk), parent.team_id, parent.created_by_id)], "viewer"
+            resource, [(str(parent.id), parent.team_id, parent.created_by_id)], "viewer"
         ):
             raise serializers.ValidationError({field: f"You need viewer access to this {resource} to annotate it."})
 
