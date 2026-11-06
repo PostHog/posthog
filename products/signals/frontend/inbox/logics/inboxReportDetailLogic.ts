@@ -1139,7 +1139,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    return await signalsReportArtefactsDiff(String(teamId), props.reportId, artefactId)
+                    const response = await signalsReportArtefactsDiff(String(teamId), props.reportId, artefactId)
+                    if (typeof response?.diff !== 'string') {
+                        throw new Error('Invalid diff response')
+                    }
+                    return response
                 },
             },
         ],
