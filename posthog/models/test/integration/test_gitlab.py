@@ -3,6 +3,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+import requests
+
 
 class TestGitLabIntegrationSSRFProtection:
     """Test SSRF protections in GitLabIntegration."""
@@ -89,6 +91,34 @@ class TestGitLabIntegrationSSRFProtection:
 
 
 class TestGitLabIntegrationModel:
+    @pytest.mark.parametrize(
+        "response, expected_error",
+        [
+            (MagicMock(status_code=301), "HTTP 301"),
+            (MagicMock(status_code=401), "HTTP 401"),
+            (
+                MagicMock(status_code=200, **{"json.side_effect": requests.JSONDecodeError("Expecting value", "", 0)}),
+                "isn't JSON",
+            ),
+            (requests.ConnectionError("Name or service not known"), "Couldn't connect"),
+        ],
+        ids=["redirect", "unauthorized", "html_body", "unreachable_host"],
+    )
+    @patch("requests.request")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_create_integration_rejects_a_host_that_does_not_answer_like_gitlab(
+        self, _mock_is_url_allowed, mock_request, response, expected_error
+    ):
+        from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
+
+        if isinstance(response, Exception):
+            mock_request.side_effect = response
+        else:
+            mock_request.return_value = response
+
+        with pytest.raises(GitLabIntegrationError, match=expected_error):
+            GitLabIntegration.create_integration("https://gitlab.example.com", "1", "token123", 1, None)
+
     @patch("requests.request")
     @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
     def test_search_issues_filters_by_issue_id(self, _mock_is_url_allowed, mock_get):

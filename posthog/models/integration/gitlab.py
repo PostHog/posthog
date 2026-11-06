@@ -71,18 +71,41 @@ class GitLabIntegration:
         )
 
     @staticmethod
+    def _json(response: requests.Response) -> Any:
+        try:
+            return response.json()
+        except ValueError as error:
+            raise GitLabIntegrationError(
+                f"GitLab returned a response that isn't JSON (HTTP {response.status_code}). "
+                "Check that the hostname points to a GitLab instance."
+            ) from error
+
+    @staticmethod
     def get(hostname: str, path: str, project_access_token: str, *, endpoint: str) -> dict:
-        return GitLabIntegration._request("GET", hostname, path, project_access_token, endpoint=endpoint).json()
+        return GitLabIntegration._json(
+            GitLabIntegration._request("GET", hostname, path, project_access_token, endpoint=endpoint)
+        )
 
     @staticmethod
     def post(hostname: str, path: str, project_access_token: str, json: dict, *, endpoint: str) -> dict:
-        return GitLabIntegration._request(
-            "POST", hostname, path, project_access_token, endpoint=endpoint, json=json
-        ).json()
+        return GitLabIntegration._json(
+            GitLabIntegration._request("POST", hostname, path, project_access_token, endpoint=endpoint, json=json)
+        )
 
     @classmethod
     def create_integration(cls, hostname, project_id, project_access_token, team_id, user) -> model.Integration:
-        project = cls.get(hostname, f"projects/{project_id}", project_access_token, endpoint="/api/v4/projects/{id}")
+        try:
+            response = cls._request(
+                "GET", hostname, f"projects/{project_id}", project_access_token, endpoint="/api/v4/projects/{id}"
+            )
+        except requests.RequestException as error:
+            raise GitLabIntegrationError("Couldn't connect to GitLab. Check the hostname and try again.") from error
+        if response.status_code != 200:
+            raise GitLabIntegrationError(
+                f"GitLab returned HTTP {response.status_code} for this project. "
+                "Check the hostname, project ID, and access token."
+            )
+        project = cls._json(response)
 
         integration = model.Integration.objects.create(
             team_id=team_id,
