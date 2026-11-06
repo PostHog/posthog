@@ -1,3 +1,5 @@
+import './TodayShell.scss'
+
 import { cn } from '@posthog/quill'
 
 import { TodayPaneOption } from './TodayPaneOption'

@@ -40,10 +40,12 @@ from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 from posthog.models import Team
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import TtlSchedule
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     DIMENSIONAL_TTL_SECONDS,
     dimensional_insert_modifiers,
+    dimensional_ttl_schedule,
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
     sessions_coverage_floor,
@@ -209,6 +211,16 @@ def _merge_spans(spans: Iterable[TimeSpan]) -> list[TimeSpan]:
     return merged
 
 
+def _effective_expires_at(job: PreaggregationJob, ttl_schedule: TtlSchedule) -> datetime | None:
+    # The reader judges freshness by the current schedule, not by the stored `expires_at`. A job
+    # written under a longer TTL keeps its old `expires_at`, so the check must apply the same
+    # schedule or it reports a day as covered that the reader rejects.
+    if job.expires_at is None:
+        return None
+    schedule_ttl = ttl_schedule.get_ttl(job.time_range_start, jittered=True)
+    return min(job.expires_at, job.created_at + timedelta(seconds=schedule_ttl))
+
+
 def summarize_coverage(
     *,
     team_id: int,
@@ -217,6 +229,7 @@ def summarize_coverage(
     window: TimeSpan,
     current_day: date,
     now: datetime,
+    ttl_schedule: TtlSchedule,
 ) -> TableCoverage:
     """Report which UTC days of the window have a fresh READY job, and how old the current day's job is.
 
@@ -229,7 +242,7 @@ def summarize_coverage(
     merged = _merge_spans(
         TimeSpan(start=job.time_range_start, end=job.time_range_end)
         for job in jobs
-        if job.expires_at is not None and job.expires_at >= fresh_cutoff
+        if (expires_at := _effective_expires_at(job, ttl_schedule)) is not None and expires_at >= fresh_cutoff
     )
 
     missing: list[date] = []
@@ -287,6 +300,7 @@ def find_table_coverage(
         window=window,
         current_day=current_day,
         now=now,
+        ttl_schedule=dimensional_ttl_schedule(),
     )
 
 
@@ -333,13 +347,17 @@ def _ensure_for_team(
     `chunk_days` of raw data), so no single query scans the whole window. Failures
     per (table, chunk) are caught so one bad chunk doesn't poison the rest;
     already-fresh chunks are cheap PG cache-checks with no INSERT.
+
+    Chunks run newest first, and each chunk builds both tables before the next one starts. A read
+    needs both tables for every day it covers, so after a full rebuild (a new job identity) the
+    recent ranges become servable after a few chunks instead of after a whole pass over one table.
     """
     failures = 0
-    for table_label, ensure_fn in (
-        (STATS_TABLE, ensure_web_stats_dimensional_precomputed),
-        (BOUNCES_TABLE, ensure_web_bounces_dimensional_precomputed),
-    ):
-        for chunk_start, chunk_end in chunk_ranges(window.start, window.end, chunk_days):
+    for chunk_start, chunk_end in chunk_ranges(window.start, window.end, chunk_days):
+        for table_label, ensure_fn in (
+            (STATS_TABLE, ensure_web_stats_dimensional_precomputed),
+            (BOUNCES_TABLE, ensure_web_bounces_dimensional_precomputed),
+        ):
             try:
                 result = ensure_fn(team, chunk_start, chunk_end)
             except Exception as exc:

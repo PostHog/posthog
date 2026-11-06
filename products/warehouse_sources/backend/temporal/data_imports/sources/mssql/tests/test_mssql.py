@@ -686,6 +686,12 @@ class TestMSSQLSourceRetryableErrors:
             # pymssql's own InterfaceError, raised when a query runs on a connection that died
             # between opening and use (see `MSSQLSource.get_retryable_errors`).
             pymssql.InterfaceError("Not connected to any MS SQL server"),
+            # DB-Lib error 20047 raised directly from `cursor.fetchmany` during the row read
+            # (see `MSSQLSource.get_retryable_errors`) — the same DBPROCESS-death class as the
+            # 20017 case above, past the point `retry_on_transient_connection_error` covers.
+            pymssql.OperationalError(
+                20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
+            ),
             # SQL Server error 1205 raised mid-stream from `cursor.fetchmany`, past the point
             # `retry_on_deadlock` can safely rerun the query (see `MSSQLSource.get_retryable_errors`).
             pymssql.OperationalError(
