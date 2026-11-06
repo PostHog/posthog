@@ -139,6 +139,13 @@ def validate_workload_trust_conditions(attrs: dict[str, Any], *, instance: Any |
         raise serializers.ValidationError({"issuer": UNSUPPORTED_ISSUER_MESSAGE})
     raw_conditions = attrs["conditions"] if "conditions" in attrs else getattr(instance, "conditions", {})
     attrs["conditions"] = normalize_workload_conditions(raw_conditions, provider)
+    labels_by_name = {claim.name: claim.label for claim in provider.condition_claims}
+    for claim, companions in provider.condition_claim_companions:
+        if claim in attrs["conditions"] and not any(name in attrs["conditions"] for name in companions):
+            needed = " or ".join(labels_by_name[name] for name in companions)
+            raise serializers.ValidationError(
+                {"conditions": f"{labels_by_name[claim]} also matches runs you may not expect. Set {needed} too."}
+            )
     if provider.condition_claims and not attrs["conditions"]:
         labels = ", ".join(claim.label for claim in provider.condition_claims)
         raise serializers.ValidationError(
@@ -345,12 +352,19 @@ class WorkloadProviderSerializer(serializers.Serializer):
     condition_presets = ConditionPresetSerializer(
         many=True, help_text="Common choices of conditions to offer before the raw claims, in display order."
     )
+    condition_claim_companions = serializers.SerializerMethodField(
+        help_text="Condition claims that a policy may set only together with at least one of the listed claims."
+    )
     can_resolve_subject = serializers.SerializerMethodField(
         help_text="Whether PostHog can look up the subject from its name with resolve_subject."
     )
     setup_snippet = serializers.SerializerMethodField(
         help_text="The CI config a job of this project needs, empty when the provider has none."
     )
+
+    @extend_schema_field(serializers.DictField(child=serializers.ListField(child=serializers.CharField())))
+    def get_condition_claim_companions(self, provider: WorkloadProvider) -> dict[str, list[str]]:
+        return {claim: list(companions) for claim, companions in provider.condition_claim_companions}
 
     def get_can_resolve_subject(self, provider: WorkloadProvider) -> bool:
         return provider.resolve_subject is not None

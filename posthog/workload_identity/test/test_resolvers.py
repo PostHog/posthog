@@ -59,6 +59,12 @@ class TestResolveGitHubRepository(SimpleTestCase):
                 _response(404, {}),
                 WorkloadSubjectLookupUnavailable,
             ),
+            (
+                "missing_repository_while_the_installation_errors",
+                _response(503, {}),
+                _response(404, {}),
+                WorkloadSubjectLookupUnavailable,
+            ),
         ]
     )
     def test_looks_up_the_repository(
@@ -83,7 +89,7 @@ class TestResolveGitHubRepository(SimpleTestCase):
             else:
                 assert resolve_github_repository(1, "git@github.com:acme/web.git") == expected
 
-        assert public.called is not isinstance(integration, MagicMock)
+        assert public.called is not (isinstance(integration, MagicMock) and integration.status_code == 200)
 
     def test_refuses_a_name_that_could_reach_another_github_endpoint(self) -> None:
         with (

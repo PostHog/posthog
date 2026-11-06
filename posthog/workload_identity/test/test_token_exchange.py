@@ -226,13 +226,15 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert response.json()["error"] == "temporarily_unavailable"
         assert response.json()["error_code"] == "workload_provider_unavailable"
 
-    def test_exchange_is_rate_limited_per_workload_once_the_token_verifies(self) -> None:
+    def test_exchange_is_rate_limited_per_policy_once_a_policy_matches(self) -> None:
         with patch("posthog.workload_identity.token_exchange.WORKLOAD_EXCHANGE_BUDGET", Budget(burst=1, per_hour=60)):
             unverified = self._exchange(_oidc_token(signing_key=_OTHER_KEY_PEM))
+            untrusted_branch = self._exchange(_oidc_token(ref="refs/heads/feature"))
             first = self._exchange()
             second = self._exchange()
 
         assert unverified.json()["error_code"] == "workload_token_invalid"
+        assert untrusted_branch.json()["error_code"] == "workload_no_matching_policy"
         assert first.status_code == status.HTTP_200_OK, first.json()
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert second.json()["error_code"] == "workload_rate_limited"

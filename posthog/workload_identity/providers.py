@@ -82,6 +82,8 @@ class WorkloadProvider:
     # when the provider has no API PostHog can ask.
     resolve_subject: SubjectResolver | None = None
     condition_presets: tuple[ConditionPreset, ...] = ()
+    # A condition claim that matches unexpected runs on its own, with the claims a policy must set beside it.
+    condition_claim_companions: tuple[tuple[str, tuple[str, ...]], ...] = ()
     # The CI config a job needs, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
     setup_snippet: str = ""
 
@@ -102,6 +104,9 @@ class WorkloadProvider:
             unknown = sorted(set(fields) - recorded_names)
             if unknown:
                 raise ValueError(f"{self.key}: templates can only use recorded claims, not {unknown}.")
+        for claim, companions in self.condition_claim_companions:
+            if not companions or not {claim, *companions} <= set(condition_names):
+                raise ValueError(f"{self.key}: companions of {claim} must be condition claims.")
         preset_keys = [preset.key for preset in self.condition_presets]
         if len(set(preset_keys)) != len(preset_keys):
             raise ValueError(f"{self.key}: condition presets must have unique keys.")
@@ -190,6 +195,11 @@ GITHUB_ACTIONS = WorkloadProvider(
     run_url_template="https://github.com/{repository}/actions/runs/{run_id}",
     docs_url="https://posthog.com/docs/api/workload-identity/github-actions",
     resolve_subject=resolve_github_repository,
+    # pull_request_target and issue_comment runs, fork pull requests among them, carry the base branch's ref.
+    condition_claim_companions=tuple(
+        (claim, ("event_name", "environment"))
+        for claim in ("ref", "ref_protected", "workflow_ref", "job_workflow_ref", "runner_environment")
+    ),
     condition_presets=(
         ConditionPreset(
             key="branch_push",
