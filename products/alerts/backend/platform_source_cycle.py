@@ -2,9 +2,7 @@
 
 A parallel run. The production insight fleet evaluates the same alerts against
 `AlertConfiguration` and notifies their destinations. This decides what the platform would have
-said, and asks for a delivery for the alerts the platform owns and for the alerts in
-`LIVE_DELIVERY_INSIGHT_ALERT_IDS`. An owned alert sends without the platform's live delivery flag.
-Every other alert on the list still sends only to projects on that flag.
+said, and asks for a delivery only for the alerts the platform owns.
 
 Each platform row resolves to its production alert through `legacy_configuration_id`, because
 `check_alert_for_insight` reads the insight, the threshold and the condition off that model. The
@@ -178,11 +176,6 @@ EVALUATED_INTERVALS = frozenset(
     }
 )
 
-
-# The production insight alerts whose platform evaluations ask for a native delivery while production
-# still owns them, as a test. The platform's live delivery flag still has to be on for the project.
-# The list stays short because production also sends for these alerts, so each one sends twice.
-LIVE_DELIVERY_INSIGHT_ALERT_IDS: Final = frozenset({"01a11d6f-598e-0000-8529-4bcb65526f6d"})
 
 # Which event each announced kind's destinations listen on. A resolve is left out, because
 # production never announces one and the analytics platform team has not agreed to start. A kind
@@ -583,7 +576,7 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
     if check.legacy_configuration_id is None:
         return None
     legacy_id = str(check.legacy_configuration_id)
-    if not check.owned_by_platform and legacy_id not in LIVE_DELIVERY_INSIGHT_ALERT_IDS:
+    if not check.owned_by_platform:
         return None
     actions = _incident_actions(check, outcome)
     if actions and not configured_destination_template_ids(

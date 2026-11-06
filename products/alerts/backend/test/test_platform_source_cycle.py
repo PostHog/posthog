@@ -526,21 +526,19 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            # name, allowlisted, was_firing, owned, paged, breaks, (incident_actions, sends_messages) or no delivery
-            ("allowlisted", True, False, False, False, False, ({}, True)),
-            ("not_allowlisted", False, False, False, False, False, None),
-            ("allowlisted_resolve", True, True, False, False, False, None),
-            ("platform_owned", False, False, True, False, False, ({}, True)),
-            ("paged_firing", False, False, True, True, False, ({"": IncidentAction.TRIGGER}, True)),
-            ("paged_resolve", False, True, True, True, False, ({"": IncidentAction.RESOLVE}, False)),
-            ("paged_firing_that_breaks", False, True, True, True, True, ({}, True)),
-            ("paged_but_not_allowlisted", False, False, False, True, False, None),
+            # name, was_firing, owned, paged, breaks, (incident_actions, sends_messages) or no delivery
+            ("source_owned", False, False, False, False, None),
+            ("platform_owned", False, True, False, False, ({}, True)),
+            ("platform_owned_resolve", True, True, False, False, None),
+            ("paged_firing", False, True, True, False, ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve", True, True, True, False, ({"": IncidentAction.RESOLVE}, False)),
+            ("paged_firing_that_breaks", True, True, True, True, ({}, True)),
+            ("paged_but_source_owned", False, False, True, False, None),
         ]
     )
-    def test_only_an_allowlisted_or_platform_owned_firing_failure_or_incident_edge_asks_for_a_delivery(
+    def test_only_a_platform_owned_firing_failure_or_incident_edge_asks_for_a_delivery(
         self,
         _name: str,
-        allowlisted: bool,
         was_firing: bool,
         owned: bool,
         paged: bool,
@@ -549,7 +547,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     ) -> None:
         alert = self._alert()
         configuration = self._copy(alert, **({"owner": PlatformAlertOwner.PLATFORM} if owned else {}))
-        allowlist = frozenset({str(alert.id)}) if allowlisted else frozenset()
         if paged:
             HogFunction.objects.create(
                 team=self.team,
@@ -571,13 +568,12 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             with team_scope(self.team.id):
                 platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
 
-        with patch(f"{_MODULE}.LIVE_DELIVERY_INSIGHT_ALERT_IDS", allowlist):
-            self._evaluate(
-                configuration,
-                result=AlertExtractionError("bad query shape")
-                if breaks
-                else AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
-            )
+        self._evaluate(
+            configuration,
+            result=AlertExtractionError("bad query shape")
+            if breaks
+            else AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
+        )
 
         expected = (
             [
