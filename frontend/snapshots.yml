@@ -212,6 +212,46 @@ snapshots:
         hash: v1.k794b7964.6f40a483b5f9667ae4d7a756d6891631f51722d8e15e204ae90bb7aa8a2ad793.sKw8KEDc0oFdcwVY1v3-aKSTc_1iReoOphfzIvOsv10
     ai-observability-scorers--offline-disabled--light:
         hash: v1.k794b7964.8653fc6927bddd03f0e54db4fec063bcd19e39cee1cf74ba7d167050e276f960.M7E6GZC6Psi5rOfwVLNry3cZPlCT0T-2NKSyceQmbis
+    charts-flamegraph--compare-to-baseline--dark:
+        hash: v1.k794b7964.b7842de83fbf16ace0542468002572671342673c5c3cfa9ada8ace5e753abe2b.p5kPtogHK5TEY2KkIcblwfDYmPoLmxKPD6SpfzpYH-A
+    charts-flamegraph--compare-to-baseline--light:
+        hash: v1.k794b7964.4ad08b535e7863c0840b2ba579e7bae7b0a06a1271da91a657e37c57c7677111.Ib5KOoFtjUXN8xZx0LEgKwEhnB0OeWlAKb2TTilDTR8
+    charts-flamegraph--cpu-profile--dark:
+        hash: v1.k794b7964.04d2ff46eedb4abbbf53e6ff3d57d3c988dd28cdd586ddd668e35e44a0721f7d.8RuH8reglzDiytwl80lQfmBTttaH_PLi-W-6qHpm9bQ
+    charts-flamegraph--cpu-profile--light:
+        hash: v1.k794b7964.e0cb78f562af6c8335d49a678fba4f711fc9307f1bd4c10a261809e1f3d05fbc.74CfuoOGMVNroT6ULlRe3Elcj4ugMrOtM8v2RhDGLCw
+    charts-flamegraph--edge-cases--dark:
+        hash: v1.k794b7964.4c0d2e40826f347ed50d38313ce654db31b4accb45b44b370e306c18e697c103.AT8IYSD2sVjd8EyQgp2dHCdu5XFe5B5AC-m7rcemzkI
+    charts-flamegraph--edge-cases--light:
+        hash: v1.k794b7964.0af1bf00a9b758c8729e7413e3c0db0f2737c72ae38c531fbad58c6a79fd5eb7.H_bSe8KwCEPifRbZSBeIYrAbczue1kb-H-S6xUMbcK4
+    charts-flamegraph--empty--dark:
+        hash: v1.k794b7964.bf833e79e31200bb849511de4fac8c2b1cb4bb2bc739f74aab3ed1bb03b7e346.QWUfYvxHq24fNHPbjKY9CornEfsUGsNMbh7X1dbo18k
+    charts-flamegraph--empty--light:
+        hash: v1.k794b7964.bb868f7afc71b1b469aa1a205ca6887b20417c1580d307835bfba298d2a52232.xXJdc4B3Hc3DVV7rM_cPH-mOXXsnHVcPMbr_wh4pL0s
+    charts-flamegraph--focused--dark:
+        hash: v1.k794b7964.677613cfa998c5413fc1b98c52939afa13db58bd9217e4cc47c66a735fd8fc55.c9hbdmpBzYRrq7N6W1h1HGQZeMxq8A6IukNmih3jGpE
+    charts-flamegraph--focused--light:
+        hash: v1.k794b7964.46344808b17a723ddf7b4b54f2052a96c25c636b8ad4835e515d6896192435e2.wbvK63ukXZyRl2ejzTyW3YSm0Cx6q5Ar_xYvToqwOdQ
+    charts-flamegraph--llm-trace--dark:
+        hash: v1.k794b7964.b5503ebb135e4caa41a3bd56396d7602d968e20872a5c94d388f7bdd05e1898d.TK2I28TB60gxTww2gmYBXf43dG02YAOBZWMxiQxopXs
+    charts-flamegraph--llm-trace--light:
+        hash: v1.k794b7964.2a7ed21f4e031b8e69e8a20914d1f43eafdeab3e4307763e6de1cd0213cc1d0a.cFEBW7jNOlXVDGOmoofqG2I5bJVHoKlEs9PI8vblEXo
+    charts-flamegraph--narrow--dark:
+        hash: v1.k794b7964.c8cdc6bf02e8cbcd19cd61300d66e146078ab9f85d2cbea7a78dcceb3765cce0.b8MQyslMD04HRyQxJC9JgDLPo0UvoECdYy8G2qLo65c
+    charts-flamegraph--narrow--light:
+        hash: v1.k794b7964.20558b06383ea43421c7e01c9c3e93787c5781dde7424e496eefa3db3642c469.hzTnnlVSTsZbrXoLGVhXHekmcMCs3iZOcBgpmKGlwNI
+    charts-flamegraph--search--dark:
+        hash: v1.k794b7964.afb87add905967977d4795bc283709ebd1817494267be6202269c147bf5bca03.LsBGrBtdjyv20REjBgZAM8hfia3h6E5-csJ-eFUYgFM
+    charts-flamegraph--search--light:
+        hash: v1.k794b7964.f44041249dab2dbd43351fcfbc96e48b4161efa2b9c4b41e41e2a8ed11ab2ffd.KmS0bKXVX86ebw7wN_MZHXOJr6_8ym6ICSCu2g2hR90
+    charts-flamegraph--several-roots--dark:
+        hash: v1.k794b7964.93eba6ca6ce1c5027a0e354724780b8defcba7fc5a9aeb41b93c79c1da59d6ce.oDyR4O3SzkBOt1h5iLcakBhnCnXQasRVDD-CMk9yV2g
+    charts-flamegraph--several-roots--light:
+        hash: v1.k794b7964.6504d5d31e36e814859ec826cd7554c5af744beb96850df199c1e35ab7d49c22.bNWTiY37y0kxGF6wUD3sS5CBQ-q5PBqwL5eLazo9YQs
+    charts-flamegraph--single-node--dark:
+        hash: v1.k794b7964.f8ea68aaab973e2ca1e1336fcdd415ac946bf3c8d2d30d5e64f4899c454a0c8a.DVgVd8VK8VAyTJ5emz2YHCyr09xo0RcD-DN-iYRbvzU
+    charts-flamegraph--single-node--light:
+        hash: v1.k794b7964.638069aa6d12c77cd6aeb088a87696081bc897a2ee0baed4d8e36a47790e948d.Jo4NQWzHxmlR1XrXHOP-lpoEV8VbKKSKTWEWjmHMLcw
     charts-heatmap--activity-by-day-and-hour--dark:
         hash: v1.k794b7964.cb3a745c072482c2b24a91879fea9a6f72d195ac683a38efc3f222d944828b9e.jlohG3R6gpgos058qmytizuCZtVRjXramep8NJDaIQE
     charts-heatmap--activity-by-day-and-hour--light:
