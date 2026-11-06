@@ -19,11 +19,8 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.customer_analytics.backend.hogql_queries.book_activity_base import (
     BookActivityQueryRunner,
     day_key,
-    events_for_products,
-    events_where,
     in_values,
     person_label,
-    product_events,
     validated_product_keys,
 )
 from products.customer_analytics.backend.logic.posthog_product_usage import POSTHOG_PRODUCTS
@@ -53,23 +50,9 @@ class BookActivityFirstsQueryRunner(BookActivityQueryRunner[BookActivityFirstsQu
 
     def _firsts_query(self, *, people: bool) -> ast.SelectQuery:
         keys = self._product_keys
-        group_type_index = self.team.customer_analytics_config.account_group_type_index
-        accounts = self._book_accounts[: self._row_limit]
-        if group_type_index is None or not accounts:
+        if self._empty_reason:
             return ast.SelectQuery.empty()
-        qualified = product_events(
-            group_type_index,
-            events_where(
-                group_type_index,
-                [account.external_id or "" for account in accounts],
-                upper=datetime.now(UTC),
-                events=events_for_products(keys),
-            ),
-            extra=[
-                parse_expr("coalesce(person.properties.email, '') AS email"),
-                parse_expr("coalesce(person.properties.name, '') AS name"),
-            ],
-        )
+        qualified = self._person_product_events(keys, upper=datetime.now(UTC))
         if people:
             sql = """
                 SELECT account_key, product, person_id, argMax(email, timestamp), argMax(name, timestamp),
@@ -91,7 +74,9 @@ class BookActivityFirstsQueryRunner(BookActivityQueryRunner[BookActivityFirstsQu
                 "qualified": qualified,
                 "products": in_values(ast.Field(chain=["product"]), keys) if keys else parse_expr("product != ''"),
                 "row_limit": ast.Constant(
-                    value=MAX_FIRST_USE_ROWS + 1 if people else len(accounts) * len(POSTHOG_PRODUCTS)
+                    value=MAX_FIRST_USE_ROWS + 1
+                    if people
+                    else len(self._book_accounts[: self._row_limit]) * len(POSTHOG_PRODUCTS)
                 ),
             },
         )

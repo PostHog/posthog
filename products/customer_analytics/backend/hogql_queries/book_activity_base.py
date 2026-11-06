@@ -18,6 +18,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.query_runner import AR
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -135,6 +136,34 @@ class BookActivityQueryRunner(ActivityQueryRunner[AR], Generic[AR]):
     @property
     def _accounts_were_dropped(self) -> bool:
         return len(self._book_accounts) > self._row_limit or len(self.query.accountIds or []) > MAX_ACCOUNT_IDS
+
+    def _person_product_events(
+        self,
+        product_keys: list[str],
+        *,
+        upper: datetime,
+        lower: datetime | None = None,
+        period: ast.Expr | None = None,
+        extra: list[ast.Expr] | None = None,
+    ) -> ast.SelectQuery:
+        group_type_index = self.team.customer_analytics_config.account_group_type_index
+        assert group_type_index is not None
+        return product_events(
+            group_type_index,
+            events_where(
+                group_type_index,
+                [account.external_id or "" for account in self._book_accounts[: self._row_limit]],
+                lower=lower,
+                upper=upper,
+                events=events_for_products(product_keys),
+            ),
+            period=period,
+            extra=[
+                parse_expr("coalesce(person.properties.email, '') AS email"),
+                parse_expr("coalesce(person.properties.name, '') AS name"),
+                *(extra or []),
+            ],
+        )
 
 
 class BookActivityRangeQueryRunner(BookActivityQueryRunner[AR], Generic[AR]):

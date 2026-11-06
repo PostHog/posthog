@@ -21,11 +21,8 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.customer_analytics.backend.hogql_queries.book_activity_base import (
     BookActivityRangeQueryRunner,
     day_key,
-    events_for_products,
-    events_where,
     in_values,
     person_label,
-    product_events,
     validated_product_keys,
 )
 from products.customer_analytics.backend.logic.posthog_product_usage import PAGE_EVENTS
@@ -52,24 +49,15 @@ class BookActivityPeopleQueryRunner(BookActivityRangeQueryRunner[BookActivityPeo
 
     def to_query(self) -> ast.SelectQuery:
         keys = self._product_keys
-        group_type_index = self.team.customer_analytics_config.account_group_type_index
-        accounts = self._book_accounts[: self._row_limit]
-        if group_type_index is None or not accounts:
+        if self._empty_reason:
             return ast.SelectQuery.empty()
-        qualified = product_events(
-            group_type_index,
-            events_where(
-                group_type_index,
-                [account.external_id or "" for account in accounts],
-                lower=self._date_range.date_from(),
-                upper=self._date_range.date_to(),
-                events=events_for_products(keys),
-            ),
+        qualified = self._person_product_events(
+            keys,
+            lower=self._date_range.date_from(),
+            upper=self._date_range.date_to(),
             period=self._period_expr(),
             extra=[
                 parse_expr("event"),
-                parse_expr("coalesce(person.properties.email, '') AS email"),
-                parse_expr("coalesce(person.properties.name, '') AS name"),
                 parse_expr(
                     "if(event IN {pages}, toFloat(properties.$prev_pageview_duration), 0) AS engaged",
                     placeholders={"pages": ast.Tuple(exprs=[ast.Constant(value=event) for event in PAGE_EVENTS])},
