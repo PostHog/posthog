@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { Suspense, useState } from 'react'
 
-import { IconEllipsis, IconExternal, IconWarning } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconExternal, IconWarning } from '@posthog/icons'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
+    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@posthog/quill'
@@ -14,6 +16,8 @@ import { PostHogErrorBoundary } from '@posthog/react'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -40,8 +44,9 @@ const WizardRunsMoreMenuItem = lazyWithRetry(() =>
  * Its `data-attr`s are pinned: they match the classic help menu, so autocapture data stays continuous.
  */
 export function TodayMoreMenu(): JSX.Element {
-    const { isHelpMenuOpen } = useValues(helpMenuLogic)
-    const { setHelpMenuOpen } = useActions(helpMenuLogic)
+    const { isHelpMenuOpen, accountOwner } = useValues(helpMenuLogic)
+    const { setHelpMenuOpen, copyAccountOwnerEmail } = useActions(helpMenuLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
     const { statusPageUrl } = useValues(posthogStatusLogic)
     const { statusSeverity, statusText, healthSeverity, healthText, moreSeverity, moreLabel } =
         useValues(todayRailStatusLogic)
@@ -117,6 +122,13 @@ export function TodayMoreMenu(): JSX.Element {
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
+                    render={todayMenuLinkItem('https://posthog.com/docs', { external: true })}
+                    data-attr="more-menu-docs-button"
+                >
+                    Docs
+                    <IconExternal data-icon="inline-end" className="ms-auto" />
+                </DropdownMenuItem>
+                <DropdownMenuItem
                     render={todayMenuLinkItem('https://posthog.com/changelog', { external: true })}
                     data-attr="more-menu-changelog-button"
                 >
@@ -126,6 +138,34 @@ export function TodayMoreMenu(): JSX.Element {
                 <DropdownMenuItem render={todayMenuLinkItem(urls.exports())} data-attr="more-menu-exports-button">
                     Exports
                 </DropdownMenuItem>
+                {!isCloudOrDev && (
+                    <DropdownMenuItem
+                        render={todayMenuLinkItem(urls.moveToPostHogCloud())}
+                        data-attr="help-menu-upgrade-to-cloud-button"
+                    >
+                        Try PostHog Cloud
+                    </DropdownMenuItem>
+                )}
+                {accountOwner?.name && accountOwner?.email && (
+                    <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuGroup>
+                            <DropdownMenuLabel>Your PostHog human</DropdownMenuLabel>
+                            <DropdownMenuItem
+                                onClick={() => copyAccountOwnerEmail()}
+                                description="Copy their email. They can help you try new products, solve problems, and reduce your spend."
+                                data-attr="help-menu-account-owner-button"
+                            >
+                                <ProfilePicture
+                                    user={{ first_name: accountOwner.name, email: accountOwner.email }}
+                                    size="xs"
+                                />
+                                <span className="min-w-0 truncate">{accountOwner.name}</span>
+                                <IconCopy data-icon="inline-end" className="ms-auto" />
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    </>
+                )}
             </DropdownMenuContent>
         </DropdownMenu>
     )

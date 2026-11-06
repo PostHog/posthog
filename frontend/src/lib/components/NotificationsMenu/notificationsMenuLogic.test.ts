@@ -1,5 +1,8 @@
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { initKeaTests } from '~/test/init'
@@ -76,5 +79,35 @@ describe('notificationsMenuLogic', () => {
 
         expect(captureSpy).not.toHaveBeenCalled()
         expect(panelLayoutLogic.values.isLayoutPanelVisible).toBe(false)
+    })
+
+    describe('under the Today layout', () => {
+        beforeEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+        })
+
+        it('opens and closes the rail popover from the bell, leaving the classic panel alone', () => {
+            logic.actions.toggleNotificationsPanel('bell')
+            expect(logic.values.isNotificationsMenuOpen).toBe(true)
+            expect(logic.values.isNotificationsPanelActive).toBe(true)
+            expect(panelLayoutLogic.values.isLayoutPanelVisible).toBe(false)
+
+            logic.actions.toggleNotificationsPanel('bell')
+            expect(logic.values.isNotificationsMenuOpen).toBe(false)
+            expect(logic.values.isNotificationsPanelActive).toBe(false)
+        })
+
+        it('opens the rail popover on the unread tab from a critical toast', () => {
+            logic.actions.openToUnread()
+
+            expect(logic.values.isNotificationsMenuOpen).toBe(true)
+            expect(logic.values.activeTab).toEqual('unread')
+            expect(captureSpy).toHaveBeenCalledWith(
+                'notification panel opened',
+                expect.objectContaining({ source: 'critical_toast' })
+            )
+        })
     })
 })

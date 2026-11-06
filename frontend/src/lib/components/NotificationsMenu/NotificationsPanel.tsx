@@ -16,32 +16,14 @@ import { NotificationGroupRow } from './NotificationGroupRow'
 import { notificationsMenuLogic } from './notificationsMenuLogic'
 
 export function NotificationsPanel(): JSX.Element {
-    const { activeTab } = useValues(notificationsMenuLogic)
+    const { activeTab, isArchivedTab, visibleGroups, visibleGroupsLoading, showMarkAllRead, showLoadMore } =
+        useValues(notificationsMenuLogic)
     const { setActiveTab } = useActions(notificationsMenuLogic)
-    const {
-        groups,
-        archivedGroups,
-        archivedLoaded,
-        loadedUnreadCount,
-        inAppUnreadCount,
-        isInitialLoadComplete,
-        hasMoreNotifications,
-        hasMoreArchived,
-        isLoadingMore,
-        isLoadingMoreArchived,
-        hasArchivableNotifications,
-        archivingEnabled,
-    } = useValues(sidePanelNotificationsLogic)
+    const { loadedUnreadCount, isLoadingMore, isLoadingMoreArchived, hasArchivableNotifications, archivingEnabled } =
+        useValues(sidePanelNotificationsLogic)
     const { markAllAsRead, loadMoreNotifications, loadMoreArchived, archiveAll } =
         useActions(sidePanelNotificationsLogic)
     const { closePanel } = useActions(panelLayoutLogic)
-
-    const isArchivedTab = archivingEnabled && activeTab === 'archived'
-    const filteredGroups = isArchivedTab
-        ? archivedGroups
-        : activeTab === 'unread'
-          ? groups.filter((g: NotificationGroup) => g.has_unread)
-          : groups
 
     const header = (
         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -74,9 +56,7 @@ export function NotificationsPanel(): JSX.Element {
                     </span>
                 )}
             </div>
-            {/* Only surface "Mark all read" when unread items sit on not-yet-loaded pages — the ones
-                already loaded get cleared by the 3s auto-mark-on-view as the user scrolls. */}
-            {!isArchivedTab && hasMoreNotifications && inAppUnreadCount > loadedUnreadCount && (
+            {showMarkAllRead && (
                 <LemonButton
                     size="xsmall"
                     type="secondary"
@@ -126,14 +106,14 @@ export function NotificationsPanel(): JSX.Element {
                 className="flex-1 overflow-hidden"
                 innerClassName="p-1"
             >
-                {(isArchivedTab ? !archivedLoaded : !isInitialLoadComplete && groups.length === 0) ? (
+                {visibleGroupsLoading ? (
                     <div className="p-2">
                         <LemonSkeleton className="h-10 my-1" repeat={5} fade />
                     </div>
-                ) : filteredGroups.length > 0 ? (
+                ) : visibleGroups.length > 0 ? (
                     <>
                         <div className="flex flex-col gap-px">
-                            {filteredGroups.map((group: NotificationGroup) => (
+                            {visibleGroups.map((group: NotificationGroup) => (
                                 <NotificationGroupRow
                                     key={group.group_key}
                                     group={group}
@@ -142,7 +122,7 @@ export function NotificationsPanel(): JSX.Element {
                                 />
                             ))}
                         </div>
-                        {isArchivedTab && hasMoreArchived && (
+                        {isArchivedTab && showLoadMore && (
                             <div className="p-2">
                                 <LemonButton
                                     type="secondary"
@@ -156,7 +136,7 @@ export function NotificationsPanel(): JSX.Element {
                                 </LemonButton>
                             </div>
                         )}
-                        {!isArchivedTab && hasMoreNotifications && activeTab === 'all' && (
+                        {!isArchivedTab && showLoadMore && (
                             <div className="p-2">
                                 <LemonButton
                                     type="secondary"

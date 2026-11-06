@@ -15,7 +15,8 @@ import { navPanelProductPushLogic } from './navPanelProductPushLogic'
 
 // Growth owns this sidebar promotion slot and every card in it. Other teams must not add cards to the slot
 // or change which card wins it. Ask #team-growth to run a promotion for your product instead.
-export function NavPanelAdvertisement(): JSX.Element | null {
+/** `isCollapsed` defaults to the classic nav's collapsed state. The Today sidebar passes its own. */
+export function NavPanelAdvertisement({ isCollapsed }: { isCollapsed?: boolean } = {}): JSX.Element | null {
     const { activeCampaign } = useValues(navPanelProductPushLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
@@ -23,7 +24,7 @@ export function NavPanelAdvertisement(): JSX.Element | null {
 
     const broadcastPayload = getFeatureFlagPayload(FEATURE_FLAGS.NAV_PANEL_BROADCAST) as BroadcastPayload | undefined
 
-    if (isLayoutNavCollapsed) {
+    if (isCollapsed ?? isLayoutNavCollapsed) {
         return null
     }
 

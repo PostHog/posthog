@@ -22,6 +22,7 @@ import { TODAY_PANES } from './todayRailItems'
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
 import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
+import { TodaySidebarNotices } from './TodaySidebarNotices'
 import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
 
@@ -122,6 +123,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 actions={PaneAction && <PaneAction />}
             />
             {paneContent}
+            <TodaySidebarNotices />
         </div>
     )
 
