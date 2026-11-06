@@ -93,35 +93,35 @@ Aviationstack,access_key airport_iata_codes,,,flights_future_days,,aviationstack
 Aviator,api_token,,,,,aviator
 Awin,api_token region,,,,,awin
 AwsAthena,aws_access_key_id aws_secret_access_key aws_session_token aws_region database workgroup output_location,,,,,aws-athena
-AwsBatch,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-batch
+AwsBatch,aws_auth region,aws_auth=role,,,,aws-batch
 AwsBudgets,aws_access_key_id aws_secret_access_key aws_session_token,,,,,aws-budgets
 AwsCloudTrail,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-cloud-trail
 AwsCloudformation,,,,,,aws-cloudformation
-AwsComputeOptimizer,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-compute-optimizer
+AwsComputeOptimizer,aws_auth region,aws_auth=role,,,,aws-compute-optimizer
 AwsConfig,aws_auth region,aws_auth=role,,,,aws-config
 AwsConnect,,,,,,aws-connect
 AwsCostAndUsageReport,aws_access_key_id aws_secret_access_key aws_session_token aws_region bucket,,,prefix export_name first_billing_period,,aws-cost-and-usage-report
 AwsCostAnomalyDetection,aws_access_key_id aws_secret_access_key aws_session_token,,,,,aws-cost-anomaly-detection
 AwsCostExplorer,aws_access_key_id aws_secret_access_key aws_session_token,,,start_date,,aws-cost-explorer
 AwsDocumentDB,connection_string database_name,,,,,aws-documentdb
-AwsGlueDataCatalog,aws_access_key_id aws_secret_access_key aws_session_token aws_region,,,,,aws-glue-data-catalog
-AwsGuardduty,aws_access_key_id aws_secret_access_key aws_session_token aws_region,,,,,aws-guardduty
+AwsGlueDataCatalog,aws_auth aws_region,aws_auth=role,,,,aws-glue-data-catalog
+AwsGuardduty,aws_auth aws_region,aws_auth=role,,,,aws-guardduty
 AwsHealth,,,,,,aws-health
-AwsIamAccessAnalyzer,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-iam-access-analyzer
-AwsInspector,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-inspector
-AwsMacie,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-macie
+AwsIamAccessAnalyzer,aws_auth region,aws_auth=role,,,,aws-iam-access-analyzer
+AwsInspector,aws_auth region,aws_auth=role,,,,aws-inspector
+AwsMacie,aws_auth region,aws_auth=role,,,,aws-macie
 AwsOrganizations,aws_access_key_id aws_secret_access_key aws_session_token,,,,,aws-organizations
 AwsRdsPerformanceInsights,,,,,,aws-rds-performance-insights
 AwsS3Tables,,,,,,aws-s3-tables
-AwsSagemaker,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-sagemaker
-AwsSavingsPlans,aws_access_key_id aws_secret_access_key aws_session_token,,,start_date,,aws-savings-plans
-AwsSecurityHub,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-security-hub
+AwsSagemaker,aws_auth region,aws_auth=role,,,,aws-sagemaker
+AwsSavingsPlans,aws_auth,aws_auth=role,,start_date,,aws-savings-plans
+AwsSecurityHub,aws_auth region,aws_auth=role,,,,aws-security-hub
 AwsSes,aws_access_key_id aws_secret_access_key aws_region aws_session_token,,,,,aws-ses
-AwsStepFunctions,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-step-functions
+AwsStepFunctions,aws_auth region,aws_auth=role,,,,aws-step-functions
 AwsSupport,,,,,,aws-support
-AwsSystemsManager,aws_access_key_id aws_secret_access_key aws_region aws_session_token,,,,,aws-systems-manager
+AwsSystemsManager,aws_auth aws_region,aws_auth=role,,,,aws-systems-manager
 AwsTrustedAdvisor,,,,,,aws-trusted-advisor
-AwsWaf,aws_access_key_id aws_secret_access_key aws_session_token aws_region scope,,,,,aws-waf
+AwsWaf,aws_auth aws_region scope,aws_auth=role,,,,aws-waf
 AwsXray,,,,,,aws-xray
 Axiom,api_token org_id,,,,,axiom
 AzureActivityLog,,,,,,azure-activity-log

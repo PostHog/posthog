@@ -102,3 +102,16 @@ ERROR_MESSAGES = {
     "ExpiredToken": "The AWS session token expired. Reconnect with current credentials.",
     "SubscriptionRequiredException": "Enable GuardDuty in the selected AWS region, then reconnect.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "guardduty:DescribeMalwareScans",
+    "guardduty:GetDetector",
+    "guardduty:GetFindings",
+    "guardduty:GetUsageStatistics",
+    "guardduty:ListCoverage",
+    "guardduty:ListDetectors",
+    "guardduty:ListFindings",
+    "guardduty:ListMembers",
+)

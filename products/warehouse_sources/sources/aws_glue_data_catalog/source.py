@@ -8,12 +8,16 @@ from products.warehouse_sources.sources.aws_glue_data_catalog.aws_glue_data_cata
     validate_credentials,
 )
 from products.warehouse_sources.sources.aws_glue_data_catalog.settings import (
+    AWS_SESSION_ACTIONS,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     ERROR_MESSAGES,
     GLUE_API_VERSION,
 )
 from products.warehouse_sources.sources.sdk import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
@@ -28,8 +32,11 @@ from products.warehouse_sources.sources.sdk import (
     SourceRegistry,
     SourceResponse,
     SourceSchema,
+    aws_auth_endpoint_reasons,
+    aws_auth_field,
     build_endpoint_schemas,
     detect,
+    resolve_aws_credentials,
 )
 
 
@@ -49,12 +56,19 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
     default_version = GLUE_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/glue/latest/webapi/API_Operations.html"
 
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
+    credential_kind = "aws-glue-data-catalog"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSGLUEDATACATALOG
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {f"AWS Glue request failed: {code}": message for code, message in ERROR_MESSAGES.items()}
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS Glue request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.sources.aws_glue_data_catalog.canonical_descriptions import (
@@ -81,7 +95,11 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_credentials(config, self.resolve_api_version(api_version), schema_name)
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_credentials(config, credentials, self.resolve_api_version(api_version), schema_name)
 
     def get_endpoint_permissions(
         self,
@@ -90,7 +108,11 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
         endpoints: list[str],
         api_version: str | None = None,
     ) -> dict[str, str | None]:
-        return probe_endpoint_permissions(config, self.resolve_api_version(api_version), endpoints)
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
+        except AwsAuthError as error:
+            return aws_auth_endpoint_reasons(error, endpoints)
+        return probe_endpoint_permissions(config, credentials, self.resolve_api_version(api_version), endpoints)
 
     def get_resumable_source_manager(
         self, inputs: SourceInputs
@@ -104,7 +126,11 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_glue_data_catalog_source(
-            config, inputs.schema_name, self.resolve_api_version(inputs.api_version), resumable_source_manager
+            config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
+            inputs.schema_name,
+            self.resolve_api_version(inputs.api_version),
+            resumable_source_manager,
         )
 
     @property
@@ -123,7 +149,7 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
                 "Grant `glue:GetTable` for column statistics, `glue:ListTableOptimizerRuns` for table optimizer runs, "
                 "and `glue:ListSessions` for interactive sessions. "
                 "Lake Formation permissions can also restrict catalog access. "
-                "Enter the access key ID and secret access key. Add a session token for temporary credentials."
+                "Connect with an IAM role, or enter an access key ID and secret access key. Add a session token for temporary credentials."
             ),
             iconPath="/static/services/aws_glue_data_catalog.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-glue-data-catalog",
@@ -132,31 +158,7 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        caption="Temporary credentials expire. Replace them before the next scheduled sync.",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="aws_region",
                         label="AWS region",

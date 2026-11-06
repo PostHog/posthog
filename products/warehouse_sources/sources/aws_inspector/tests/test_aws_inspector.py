@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
+from botocore.credentials import Credentials
 from botocore.session import Session
 from botocore.validate import validate_parameters
 
@@ -27,6 +28,8 @@ from products.warehouse_sources.sources.sdk.testing import (
     route,
     scripted_network,
 )
+
+CREDENTIALS = Credentials("AKIAEXAMPLE", "example-secret", "example-session")
 
 MODULE = "products.warehouse_sources.sources.aws_inspector.aws_inspector"
 SERVICE_MODEL = Session().get_service_model("inspector2", api_version="2020-06-08")
@@ -128,11 +131,13 @@ def response(payload: object, status: int = 200, headers: dict[str, str] | None 
 
 @pytest.fixture
 def config() -> AwsInspectorSourceConfig:
-    return AwsInspectorSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE",
-        aws_secret_access_key="example-secret",
-        aws_session_token="example-session",
-        region="eu-west-1",
+    return AwsInspectorSourceConfig.from_dict(
+        {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "example-secret",
+            "aws_session_token": "example-session",
+            "region": "eu-west-1",
+        }
     )
 
 
@@ -175,7 +180,7 @@ def test_signed_requests_and_pagination(
         response({result_key: [], "nextToken": "page-3"}),
         response({result_key: [{"resourceId": "example-two"}], "nextToken": ""}),
     ]
-    resource = aws_inspector_source(config, endpoint, manager, False, None)
+    resource = aws_inspector_source(config, CREDENTIALS, endpoint, manager, False, None)
     batches = list(cast(Iterable[Any], resource.items()))
     assert batches == [
         [{"resource_id": "example-one", "region": "eu-west-1"}],
@@ -312,7 +317,7 @@ def test_invalid_pagination_does_not_complete(
     manager.load_state.return_value = AwsInspectorResumeConfig(next_token="same")
     http.post.return_value = response({"nextToken": token})
     with pytest.raises(ValueError, match="invalid pagination token"):
-        list(cast(Iterable[Any], aws_inspector_source(config, "findings", manager, False, None).items()))
+        list(cast(Iterable[Any], aws_inspector_source(config, CREDENTIALS, "findings", manager, False, None).items()))
     manager.save_state.assert_not_called()
     manager.clear_state.assert_not_called()
     http.close.assert_called_once()
@@ -344,7 +349,7 @@ def test_credential_errors(
     message: str | None,
 ) -> None:
     http.post.return_value = response({"message": "example error"}, status, {"x-amzn-ErrorType": f"{code}:details"})
-    valid, reason = validate_credentials(config, schema)
+    valid, reason = validate_credentials(config, CREDENTIALS, schema)
     assert valid is success
     if message:
         assert reason is not None and message in reason
@@ -367,7 +372,7 @@ def test_transient_errors_report_an_unreachable_vendor(
 ) -> None:
     script = [ScriptedResponse(json={"__type": code}, status=status) for _ in range(4)]
     with scripted_network(script):
-        assert validate_credentials(config) == (
+        assert validate_credentials(config, CREDENTIALS) == (
             False,
             "Couldn't reach AWS Inspector to check your credentials. Try again in a few minutes.",
         )
@@ -390,7 +395,7 @@ def test_credential_probe_is_one_small_request(
     config: AwsInspectorSourceConfig, schema: str | None, expected: dict[str, Any]
 ) -> None:
     with scripted_network([ScriptedResponse(json={})]) as network:
-        assert validate_credentials(config, schema) == (True, None)
+        assert validate_credentials(config, CREDENTIALS, schema) == (True, None)
     assert len(network.requests_log) == 1
     assert network.requests_log[0].json() == expected
 
@@ -399,7 +404,7 @@ def test_credential_probe_is_one_small_request(
 def test_invalid_region_never_sends_credentials(config: AwsInspectorSourceConfig, region: str) -> None:
     config.region = region
     with scripted_network([]) as network:
-        valid, reason = validate_credentials(config)
+        valid, reason = validate_credentials(config, CREDENTIALS)
     assert not valid
     assert reason and "region code" in reason
     assert network.requests_log == []
@@ -407,16 +412,19 @@ def test_invalid_region_never_sends_credentials(config: AwsInspectorSourceConfig
 
 @pytest.mark.parametrize("field", ["aws_access_key_id", "aws_secret_access_key"])
 def test_missing_credentials(config: AwsInspectorSourceConfig, field: str) -> None:
-    setattr(config, field, "")
+    setattr(config.aws_auth, field, "")
     with scripted_network([]) as network:
-        assert validate_credentials(config) == (False, "Enter both an AWS access key ID and a secret access key.")
+        assert AwsInspectorSource().validate_credentials(config, team_id=1) == (
+            False,
+            "Enter both an AWS access key ID and a secret access key.",
+        )
     assert network.requests_log == []
 
 
 def test_unknown_schema_and_version(config: AwsInspectorSourceConfig) -> None:
     with scripted_network([]) as network:
-        assert validate_credentials(config, "unknown") == (False, "Unknown AWS Inspector table: unknown")
-        assert validate_credentials(config, api_version="1999-01-01") == (
+        assert validate_credentials(config, CREDENTIALS, "unknown") == (False, "Unknown AWS Inspector table: unknown")
+        assert validate_credentials(config, CREDENTIALS, api_version="1999-01-01") == (
             False,
             "Unsupported AWS Inspector API version: 1999-01-01",
         )
@@ -430,9 +438,8 @@ def test_unknown_schema_and_version(config: AwsInspectorSourceConfig) -> None:
 @pytest.mark.parametrize("region,suffix", [("cn-north-1", "amazonaws.com.cn"), ("us-gov-west-1", "amazonaws.com")])
 def test_regional_signing_without_session_token(config: AwsInspectorSourceConfig, region: str, suffix: str) -> None:
     config.region = region
-    config.aws_session_token = None
     with scripted_network([ScriptedResponse(json={})]) as network:
-        assert validate_credentials(config) == (True, None)
+        assert validate_credentials(config, Credentials("AKIAEXAMPLE", "example-secret")) == (True, None)
     assert [request.url for request in network.requests_log] == [f"https://inspector2.{region}.{suffix}/findings/list"]
     headers = network.requests_log[0].headers
     assert "x-amz-security-token" not in headers
@@ -455,7 +462,7 @@ def test_error_shapes(payload: object, headers: dict[str, str], status: int, cod
 
 def test_transport_retries_read_only_posts_and_redacts_credentials(config: AwsInspectorSourceConfig) -> None:
     with scripted_network([]) as network:
-        client = AwsInspectorClient(config)
+        client = AwsInspectorClient(config, CREDENTIALS)
         client.close()
     assert len(network.session_options) == 1
     retry = network.session_options[0]["retry"]
@@ -497,10 +504,10 @@ def test_malformed_response(config: AwsInspectorSourceConfig, http: MagicMock, s
     http.post.return_value = response([], status)
     if status == 200:
         with pytest.raises(ValueError, match="invalid response"):
-            validate_credentials(config)
+            validate_credentials(config, CREDENTIALS)
     else:
         http.post.return_value._content = b"not JSON"
-        assert validate_credentials(config) == (
+        assert validate_credentials(config, CREDENTIALS) == (
             False,
             "Couldn't reach AWS Inspector to check your credentials. Try again in a few minutes.",
         )
