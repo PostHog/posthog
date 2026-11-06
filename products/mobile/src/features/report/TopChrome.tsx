@@ -1,13 +1,16 @@
-import type { ReactElement } from 'react'
-import { ActivityIndicator, View } from 'react-native'
+import { Stack, useRouter } from 'expo-router'
+import { type ReactElement, useMemo } from 'react'
+import { ActivityIndicator, Platform, useWindowDimensions, View } from 'react-native'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
+import { nativeIcons } from '@/ui/icons/nativeIcons'
 import { ScreenChrome } from '@/ui/ScreenChrome'
 import { SegmentedPill } from '@/ui/SegmentedPill'
 import { SCREEN_CHROME_BOTTOM, SCREEN_CONTENT_TOP, screenLayout } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, motion } from '@/ui/tokens'
+import { useAppLayout } from '@/ui/useAppLayout'
 import type { ScrollTitle } from '@/ui/useScrollTitle'
 
 export const HEADLINE_GAP = SCREEN_CONTENT_TOP - SCREEN_CHROME_BOTTOM
@@ -30,6 +33,38 @@ export function TopChrome({
     refreshing = false,
     withPager = true,
 }: TopChromeProps): ReactElement {
+    const router = useRouter()
+    const { contentWidth, paired } = useAppLayout()
+    const { height } = useWindowDimensions()
+    const navigation = useMemo(
+        () =>
+            Platform.OS === 'ios' && contentWidth >= 600 && height >= 480 ? (
+                <Stack.Toolbar.Menu iconRenderingMode="template" icon={nativeIcons.views} accessibilityLabel="Navigate">
+                    <Stack.Toolbar.MenuAction
+                        iconRenderingMode="template"
+                        icon={nativeIcons.home}
+                        onPress={() => router.navigate('/inbox')}
+                    >
+                        Home
+                    </Stack.Toolbar.MenuAction>
+                    <Stack.Toolbar.MenuAction
+                        iconRenderingMode="template"
+                        icon={nativeIcons.chats}
+                        onPress={() => router.navigate('/chats')}
+                    >
+                        Chats
+                    </Stack.Toolbar.MenuAction>
+                    <Stack.Toolbar.MenuAction
+                        iconRenderingMode="template"
+                        icon={nativeIcons.views}
+                        onPress={() => router.navigate('/views')}
+                    >
+                        Views
+                    </Stack.Toolbar.MenuAction>
+                </Stack.Toolbar.Menu>
+            ) : null,
+        [contentWidth, height, router]
+    )
     const styles = useStyles()
     const colors = useColors()
     return (
@@ -37,6 +72,28 @@ export function TopChrome({
             onBack={onBack}
             backTestID="report-back"
             title={title}
+            hideNativeTitle={withPager && paired}
+            nativeActions={
+                Platform.OS === 'ios' && withPager ? (
+                    <>
+                        {navigation}
+                        <Stack.Toolbar.Button
+                            iconRenderingMode="template"
+                            icon={nativeIcons.back}
+                            accessibilityLabel="Previous report"
+                            disabled={!onPrevious}
+                            onPress={onPrevious}
+                        />
+                        <Stack.Toolbar.Button
+                            iconRenderingMode="template"
+                            icon={nativeIcons.next}
+                            accessibilityLabel="Next report"
+                            disabled={!onNext}
+                            onPress={onNext}
+                        />
+                    </>
+                ) : null
+            }
             right={
                 <View style={styles.actions}>
                     <View style={styles.refreshSlot}>

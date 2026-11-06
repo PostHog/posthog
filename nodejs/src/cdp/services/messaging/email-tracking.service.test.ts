@@ -446,6 +446,78 @@ describe('EmailTrackingService', () => {
                 })
             })
 
+            it('counts a large audience, where most new people do not change the HyperLogLog', async () => {
+                const parentRunId = new UUIDT().toString()
+                const service = api['emailTrackingService'] as any
+                let opened = 0
+                for (let index = 0; index < 5000; index++) {
+                    const added = await service.newEngagedPeople(parentRunId, `person-${index}`, 'email_opened', 'ses')
+                    opened += added[0]?.count ?? 0
+                }
+                expect(opened).toBeGreaterThan(4900)
+                expect(opened).toBeLessThan(5100)
+            })
+
+            it('still records the open when Redis stalls', async () => {
+                const parentRunId = new UUIDT().toString()
+                const service = api['emailTrackingService'] as any
+                jest.spyOn(service.engagementRedis, 'useClient').mockReturnValue(new Promise(() => {}))
+                const code = signer.generate({
+                    functionId: hogFunction.id,
+                    id: new UUIDT().toString(),
+                    teamId: team.id,
+                    parentRunId,
+                })
+
+                const response = await supertest(app).get(`/public/m/pixel?ph_id=${code}`)
+
+                expect(response.status).toBe(200)
+                await waitForExpect(() => {
+                    const names = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                        .filter(({ value }) => value.app_source_id === parentRunId)
+                        .map(({ value }) => value.metric_name)
+                    expect(names).toEqual(['email_opened'])
+                })
+            })
+
+            it('counts a person once per run however often they open or click', async () => {
+                const parentRunId = new UUIDT().toString()
+                const phId = (id: string): string =>
+                    signer.generate({
+                        functionId: hogFunction.id,
+                        id,
+                        teamId: team.id,
+                        parentRunId,
+                    })
+                const first = phId(new UUIDT().toString())
+                const second = phId(new UUIDT().toString())
+
+                for (const code of [first, first, second]) {
+                    await supertest(app).get(`/public/m/pixel?ph_id=${code}`)
+                }
+                await supertest(app).get(`/public/m/redirect?ph_id=${first}&target=https://example.com`)
+                await supertest(app).get(`/public/m/redirect?ph_id=${first}&target=https://example.com`)
+
+                await waitForExpect(() => {
+                    const counts: Record<string, number> = {}
+                    for (const { value } of mockProducerObserver.getProducedKafkaMessagesForTopic(
+                        KAFKA_APP_METRICS_2
+                    )) {
+                        if (value.app_source_id === parentRunId) {
+                            counts[value.metric_name as string] =
+                                (counts[value.metric_name as string] ?? 0) + (value.count as number)
+                        }
+                    }
+                    expect(counts).toEqual({
+                        email_opened: 3,
+                        email_opened_by_person: 2,
+                        email_link_clicked: 2,
+                        email_clicked_by_person: 1,
+                    })
+                })
+            })
+
             it('should return a 200 even if the tracking code is invalid', async () => {
                 const res = await supertest(app).get(`/public/m/pixel?ph_id=invalid-tracking-code`)
                 expect(res.status).toBe(200)

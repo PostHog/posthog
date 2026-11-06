@@ -36,7 +36,6 @@ from hogli_commands.doctor import (
     _find_volume_mount,
     _format_kv_block,
     _generated_config_path,
-    _get_process_cwds,
     _git_common_dir,
     _git_health,
     _git_housekeeping_running,
@@ -61,6 +60,7 @@ from hogli_commands.doctor import (
     doctor_migrate_volumes,
     doctor_ports,
 )
+from hogli_commands.processes import process_cwds
 
 _QUARTER_BUDGET = FLOX_LOG_MAX_TOTAL_BYTES // 4
 _TWO_FIFTHS_BUDGET = int(FLOX_LOG_MAX_TOTAL_BYTES * 0.4)
@@ -255,25 +255,25 @@ def test_probe_command_imports(commands: dict[str, dict], expected_failure: tupl
     assert expected_failure[1] in error
 
 
-def test_get_process_cwds_skips_lsof_for_empty_input(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_process_cwds_skips_lsof_for_empty_input(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail(*_args: object, **_kwargs: object) -> SimpleNamespace:
         raise AssertionError("lsof must not run for an empty pid list")
 
-    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fail)
-    assert _get_process_cwds([]) == {}
+    monkeypatch.setattr("hogli_commands.processes.subprocess.run", fail)
+    assert process_cwds([]) == {}
 
 
-def test_get_process_cwds_parses_and_batches(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_process_cwds_parses_and_batches(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
     def fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
         captured["cmd"] = cmd
         return SimpleNamespace(returncode=1, stdout="p100\nn/repo/a\np200\nn/repo/b\n", stderr="")
 
-    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+    monkeypatch.setattr("hogli_commands.processes.subprocess.run", fake_run)
 
     # Non-zero rc (a pid vanished) must not discard the records that did resolve.
-    assert _get_process_cwds([100, 200]) == {100: "/repo/a", 200: "/repo/b"}
+    assert process_cwds([100, 200]) == {100: "/repo/a", 200: "/repo/b"}
     # One batched, ANDed lsof call covering every pid — not one call per pid.
     cmd = captured["cmd"]
     assert isinstance(cmd, list)

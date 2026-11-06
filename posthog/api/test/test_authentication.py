@@ -2503,6 +2503,11 @@ class TestTimeSensitivePermissions(APIBaseTest):
                 "delete",
                 "/api/projects/@current/workload_trust_policies/00000000-0000-0000-0000-000000000001/",
             ),
+            (
+                "workload_trust_policy_request_approve",
+                "post",
+                "/api/projects/@current/workload_trust_policy_requests/00000000-0000-0000-0000-000000000001/approve/",
+            ),
         ]
     )
     def test_credential_writes_require_recent_authentication(self, _name, method, url):

@@ -24,6 +24,7 @@ import type {
     MetricsDashboardTemplatesPictureRetrieveParams,
     MetricsErrorSpikesRetrieveParams,
     MetricsNamesRetrieveParams,
+    MetricsQueryCountsRetrieveParams,
     MetricsSuggestedDashboardApi,
     MetricsValuesRetrieveParams,
     PanelQueryCheckRequestApi,
@@ -37,6 +38,7 @@ import type {
     _MetricErrorSpikesResponseApi,
     _MetricNamesResponseApi,
     _MetricPickerNamesResponseApi,
+    _MetricQueryCountsResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
     _MetricSamplesRequestApi,
@@ -535,6 +537,36 @@ export const metricsQueryCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_metricQueryRequestApi),
+    })
+}
+
+export const getMetricsQueryCountsRetrieveUrl = (projectId: string, params?: MetricsQueryCountsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/query_counts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/query_counts/`
+}
+
+/**
+ * How often queries read each metric of the team. A metric that no query reads is not in the list.
+ */
+export const metricsQueryCountsRetrieve = async (
+    projectId: string,
+    params?: MetricsQueryCountsRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricQueryCountsResponseApi> => {
+    return apiMutator<_MetricQueryCountsResponseApi>(getMetricsQueryCountsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

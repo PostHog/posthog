@@ -34,6 +34,7 @@ from posthog.api.oauth.cimd import (
     fetch_cimd_metadata,
     get_or_create_cimd_application,
     is_cimd_client_id,
+    is_throwaway_host,
     refresh_cimd_metadata_task,
     validate_cimd_url,
     validate_fetchable_https_url,
@@ -140,6 +141,28 @@ def _mock_response(metadata: dict | None = None, status_code: int = 200, headers
 )
 def test_is_cimd_client_id(url, expected):
     assert is_cimd_client_id(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://quiet-river-tea.trycloudflare.com/.well-known/client.json", True),
+        ("https://a1b2.ngrok-free.app/metadata.json", True),
+        ("https://abc.run.pinggy-free.link/metadata.json", True),
+        ("https://Quiet-River.TryCloudflare.COM./metadata.json", True),
+        ("https://lhr.life/metadata.json", True),
+        ("https://webhook.site/0b1c2d3e-0000-4000-8000-000000000000", True),
+        ("https://api.jsonbin.io/v3/b/abc123", True),
+        ("https://gist.githubusercontent.com/someone/abc123/raw/client.json", True),
+        ("https://expo.dev/.well-known/posthog-client.json", False),
+        ("https://mytrycloudflare.com/metadata.json", False),
+        ("https://trycloudflare.com.example.com/metadata.json", False),
+        ("test_partner_client_id", False),
+        ("https://[::1/metadata.json", False),
+    ],
+)
+def test_is_throwaway_host(url, expected):
+    assert is_throwaway_host(url) == expected
 
 
 @pytest.mark.parametrize(
@@ -381,6 +404,25 @@ class TestFetchCimdMetadata(SimpleTestCase):
 
 @mock_anti_ssrf_dns_lookup()
 class TestFetchAndUpsertCimdApplication(APIBaseTest):
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_refresh_of_an_existing_client_on_a_throwaway_host_is_refused(self, mock_get, _url_mock):
+        url = "https://quiet-river-tea.trycloudflare.com/.well-known/client.json"
+        OAuthApplication.objects.create(
+            name="Existing client",
+            client_id=url,
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_cimd_client=True,
+        )
+
+        with self.assertRaises(CIMDValidationError):
+            fetch_and_upsert_cimd_application(url)
+
+        mock_get.assert_not_called()
+
     """Tests for fetch_and_upsert_cimd_application — the core fetch+create/update function."""
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
@@ -672,6 +714,16 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
 @mock_anti_ssrf_dns_lookup()
 class TestGetOrCreateCimdApplication(APIBaseTest):
     """Tests for get_or_create_cimd_application — the orchestration layer."""
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_new_client_on_a_throwaway_host_is_refused_before_any_fetch(self, mock_get, _url_mock):
+        url = "https://quiet-river-tea.trycloudflare.com/.well-known/client.json"
+
+        with self.assertRaises(CIMDValidationError):
+            get_or_create_cimd_application(url)
+
+        mock_get.assert_not_called()
+        self.assertFalse(OAuthApplication.objects.filter(client_id=url).exists())
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_returns_existing_when_cache_fresh(self, mock_get, _url_mock):

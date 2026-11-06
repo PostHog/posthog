@@ -21,7 +21,7 @@ class DocsRequest:
     source_url: str
     evidence: str
     change_kind: DocsChangeKind
-    suggested_page_urls: Annotated[tuple[str, ...], Field(max_length=3)]
+    suggested_page_urls: tuple[str, ...]
     trigger_instructions: str
     dedupe_id: DedupeId
     requested_by: str | None = None
@@ -49,6 +49,18 @@ class Adapter(Protocol[RawEvent]):
     instructions: ClassVar[str]
 
     def assess(self, event: RawEvent) -> AdapterVerdict: ...
+
+
+@dataclass(frozen=True, config={"extra": "forbid"})
+class MergeCheckReport:
+    commit_sha: Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
+    commit_url: str
+    title: str
+    needs_docs: bool
+    reason: str
+    change_kind: DocsChangeKind | None = None
+    page_urls: tuple[str, ...] = ()
+    evidence: str = ""
 
 
 @dataclass(frozen=True, config={"extra": "forbid"})

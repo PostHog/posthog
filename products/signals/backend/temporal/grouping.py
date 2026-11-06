@@ -932,7 +932,11 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 report = signal_target_report(report, lock=True)
                 if forks_recurrence(report):
                     parent_report = report
-                    inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
+                    # A failed report often holds only the matcher's first guess, so the fork keeps
+                    # its content only when a research pass completed.
+                    inherit_content = (
+                        parent_report.status != SignalReport.Status.FAILED or _has_completed_research(parent_report)
+                    ) and not _is_safety_suppressed(str(parent_report.id), input.team_id)
                     report = SignalReport.objects.create(
                         team_id=input.team_id,
                         status=SignalReport.Status.POTENTIAL,
@@ -986,6 +990,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
             # Promotion rules by status:
             # - SUPPRESSED: never promoted. Fixed and wrong-repo dismissals spawn a fresh report above.
+            # - FAILED: never promoted. Unless a pull request is open or merged, a new signal spawns a fresh report above.
             # - RESOLVED: terminal — never receives new signals (a recurrence spawns a fresh report above).
             # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
             #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.

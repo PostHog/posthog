@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { LemonDialog } from '@posthog/lemon-ui'
+import * as dashboardsApi from '@posthog/products-dashboards/frontend/generated/api'
 
 import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -3564,10 +3565,30 @@ describe('sqlEditorLogic', () => {
         })
 
         it.each([
-            { name: 'creates the insight on the dashboard when a dashboardId is set', dashboardId: DASHBOARD_ID },
-            { name: 'creates the insight on no dashboard when no dashboardId is set', dashboardId: null },
-        ])('$name', async ({ dashboardId }) => {
-            const createSpy = jest.spyOn(insightsApi, 'create').mockResolvedValue(MOCK_INSIGHT)
+            {
+                name: 'creates the insight on the dashboard when a dashboardId is set',
+                dashboardId: DASHBOARD_ID,
+                tileGroup: null,
+                expectedGroupWrites: [],
+            },
+            {
+                name: 'creates the insight on no dashboard when no dashboardId is set',
+                dashboardId: null,
+                tileGroup: null,
+                expectedGroupWrites: [],
+            },
+            {
+                name: 'creates the insight in the tile group the add started from',
+                dashboardId: DASHBOARD_ID,
+                tileGroup: 'target',
+                expectedGroupWrites: [[DASHBOARD_ID, { tiles: [{ id: 5, group_key: 'target' }] }]],
+            },
+        ])('$name', async ({ dashboardId, tileGroup, expectedGroupWrites }) => {
+            const createSpy = jest.spyOn(insightsApi, 'create').mockResolvedValue({
+                ...MOCK_INSIGHT,
+                dashboard_tiles: dashboardId !== null ? [{ id: 5, dashboard_id: dashboardId }] : [],
+            })
+            const groupWrite = jest.spyOn(dashboardsApi, 'dashboardsPartialUpdate').mockResolvedValue({} as any)
 
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -3580,6 +3601,7 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
             if (dashboardId !== null) {
                 logic.actions.setDashboardId(dashboardId)
+                logic.actions.setDashboardTileGroupKey(tileGroup)
             }
 
             logic.actions.setQueryInput('SELECT 42 AS unrun_edit')
@@ -3595,6 +3617,7 @@ describe('sqlEditorLogic', () => {
             })
             expect(createPayload).not.toHaveProperty('dashboards')
             expect(createSpy.mock.calls[0][1]).toEqual(dashboardId !== null ? [dashboardId] : [])
+            expect(groupWrite.mock.calls.map(([, id, body]) => [id, body])).toEqual(expectedGroupWrites)
         })
 
         it.each([

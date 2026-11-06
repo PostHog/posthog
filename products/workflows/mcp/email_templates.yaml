@@ -167,6 +167,9 @@ tools:
         exclude_params:
             - template_id
             - message_data
+            - cc
+            - bcc
+            - attachments
         param_overrides:
             template_key:
                 required: true

@@ -242,6 +242,67 @@ def build_html_wrap_design(html: str) -> dict:
     }
 
 
+_UNLAYER_BODY_CLASS = re.compile(r"\bu_body\b")
+_UNLAYER_LAYOUT_TAGS = frozenset({"!doctype", "html", "body", "table", "tbody", "tr", "td", "div"})
+_TAG_NAME = re.compile(r"</?\s*([a-z!][a-z0-9]*)")
+_SKIPPED_ELEMENT_ENDS = {"head": "</head>", "style": "</style>"}
+
+
+def _position_after_layout_markup(html: str, position: int) -> int:
+    if html.startswith("<!--", position):
+        end = html.find("-->", position + 4)
+        return -1 if end == -1 else end + 3
+    tag = _TAG_NAME.match(html, position)
+    end = html.find(">", position)
+    if tag is None or end == -1:
+        return -1
+    closing = _SKIPPED_ELEMENT_ENDS.get(tag.group(1))
+    if closing is not None:
+        end = html.find(closing, end)
+        return -1 if end == -1 else end + len(closing)
+    return end + 1 if tag.group(1) in _UNLAYER_LAYOUT_TAGS else -1
+
+
+def _is_only_unlayer_layout(html: str) -> bool:
+    html = html.lower()
+    position = 0
+    while position < len(html):
+        if html[position] == "<":
+            position = _position_after_layout_markup(html, position)
+            if position == -1:
+                return False
+        elif html.startswith("&nbsp;", position):
+            position += 6
+        elif html[position].isspace():
+            position += 1
+        else:
+            return False
+    return True
+
+
+def _is_unlayer_render_of(html: str, block_html: str) -> bool:
+    start = html.find(block_html)
+    if start == -1:
+        return False
+    around_block = html[:start] + html[start + len(block_html) :]
+    return bool(_UNLAYER_BODY_CLASS.search(around_block)) and _is_only_unlayer_layout(around_block)
+
+
+def html_wrap_design_needs_refresh(html: str, design: Any) -> bool:
+    if not design:
+        return True
+    try:
+        wrapped_html = design["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    return (
+        isinstance(wrapped_html, str)
+        and wrapped_html != html
+        and design == build_html_wrap_design(wrapped_html)
+        and not _is_unlayer_render_of(html, wrapped_html)
+    )
+
+
 def register_supported_function(name: str) -> None:
     PRODUCT_ASYNC_FUNCTIONS.add(name)
 
@@ -929,7 +990,11 @@ class InputsItemSerializer(serializers.Serializer):
 
                 _validate_email_sender_override(from_value, self.context)
 
-            if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
+            if (
+                isinstance(value.get("html"), str)
+                and value["html"]
+                and html_wrap_design_needs_refresh(value["html"], value.get("design"))
+            ):
                 # Programmatically authored emails often supply html without a design, which the
                 # visual editor can't open. Wrap it so every stored email has an editable design.
                 value = {**value, "design": build_html_wrap_design(value["html"])}

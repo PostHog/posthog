@@ -191,34 +191,6 @@ describe('hogFlowEditorLogic', () => {
         expect(logic.values.selectedNode).toMatchObject({ id: action.id, data: action })
     })
 
-    it('duplicates a linear step below itself', () => {
-        const delay: HogFlowAction = {
-            id: 'delay',
-            name: 'Delay',
-            description: '',
-            type: 'delay',
-            created_at: 0,
-            updated_at: 0,
-            config: { delay_duration: '1d' },
-        }
-        workflowLogic().actions.setWorkflowInfo({
-            actions: [NEW_WORKFLOW.actions[0], delay, NEW_WORKFLOW.actions[1]],
-            edges: [edge(TRIGGER_NODE_ID, delay.id, 'continue'), edge(delay.id, EXIT_NODE_ID, 'continue')],
-        })
-
-        logic.actions.duplicateNodeBelow(delay.id)
-
-        const duplicatedAction = logic.values.workflow.actions.find(
-            (action) => action.id !== delay.id && action.type === delay.type
-        )
-        expect(duplicatedAction).toMatchObject({ name: delay.name, config: delay.config })
-        expect(logic.values.workflow.edges).toEqual([
-            edge(TRIGGER_NODE_ID, delay.id, 'continue'),
-            edge(delay.id, duplicatedAction!.id, 'continue'),
-            edge(duplicatedAction!.id, EXIT_NODE_ID, 'continue'),
-        ])
-    })
-
     it('keeps edits made while "Save as team default" was saving', () => {
         const email = {
             id: 'email',
@@ -289,7 +261,7 @@ describe('hogFlowEditorLogic', () => {
                 },
             } as HogFlowAction,
         },
-    ])('duplicates $case below itself', ({ step }) => {
+    ])('copies $case onto the edge below it', ({ step }) => {
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
             workflows_config: {
@@ -303,7 +275,13 @@ describe('hogFlowEditorLogic', () => {
             edges: [edge(TRIGGER_NODE_ID, step.id, 'continue'), edge(step.id, EXIT_NODE_ID, 'continue')],
         })
 
-        logic.actions.duplicateNodeBelow(step.id)
+        logic.actions.startCopyingNode({
+            id: step.id,
+            type: step.type,
+            data: step,
+            position: { x: 0, y: 0 },
+        } as HogFlowActionNode)
+        logic.actions.onDrop(undefined, edge(step.id, EXIT_NODE_ID, 'continue'))
 
         const duplicatedAction = logic.values.workflow.actions.find(
             (action) => action.id !== step.id && action.type === step.type
@@ -709,7 +687,6 @@ describe('hogFlowEditorLogic', () => {
             featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
             const editorLogic = hogFlowEditorLogic()
             editorLogic.mount()
-            editorLogic.actions.setEditorLayout('advanced')
             await expectLogic(editorLogic).toFinishAllListeners()
             const layout = jest.spyOn(autolayout, 'getFormattedNodes')
 

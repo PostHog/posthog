@@ -34,6 +34,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.error_tracking.backend.facade.testing import create_issue, create_spike_event
 from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.presentation.api import _MetricQueryBodySerializer
+from products.metrics.backend.query_counts import record_metric_queries
 from products.metrics.backend.variable_options import (
     _shared_options,
     apply_regex,
@@ -698,6 +699,27 @@ class TestMetricsErrorSpikesApi(APIBaseTest):
         assert response.status_code == expected_status
         if expected_status == status.HTTP_403_FORBIDDEN:
             assert response.json()["detail"] == "API key missing required scope 'error_tracking:read'"
+
+
+class TestMetricsQueryCountsApi(APIBaseTest):
+    def test_lists_query_counts_with_the_most_queried_metric_first(self) -> None:
+        record_metric_queries(self.team, ["cpu"])
+        record_metric_queries(self.team, ["http_requests", "cpu"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/metrics/query_counts/", {"days": 7})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [(row["metric_name"], row["query_count"]) for row in response.json()["results"]] == [
+            ("cpu", 2),
+            ("http_requests", 1),
+        ]
+
+    @parameterized.expand([("zero", "0"), ("over_max", "91"), ("not_an_integer", "abc")])
+    def test_invalid_days_is_rejected_with_400(self, _name: str, days: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/metrics/query_counts/", {"days": days})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "days"
 
 
 class TestMetricsFeatureFlagGate(APIBaseTest):

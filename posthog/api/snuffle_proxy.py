@@ -184,6 +184,9 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return []
         return super().get_throttles()
 
+    def before_forward(self, request: Request, path: str) -> None:
+        """Runs once for each request that the proxy forwards upstream. Subclasses override it."""
+
     @extend_schema(exclude=True)
     @action(detail=False, methods=["GET", "POST"], url_path=r"api/v1/(?P<path>[A-Za-z0-9_./-]+)")
     def proxy(self, request: Request, path: str, **kwargs) -> HttpResponse:
@@ -210,6 +213,7 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             response["Retry-After"] = str(budget_status.retry_after_seconds)
             return response
 
+        self.before_forward(request, path)
         method = request.method or "GET"
         body = _forwardable(request.data) if method == "POST" and isinstance(request.data, QueryDict) else None
 

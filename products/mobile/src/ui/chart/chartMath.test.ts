@@ -1,3 +1,5 @@
+import { getCalendars } from 'expo-localization'
+
 import { barPageSize, barSegments, barWindow } from './barLayout'
 import { barSpan, yPosition } from './chartGeometry'
 import {
@@ -14,6 +16,10 @@ import {
 import type { ChartInterval, ChartKind, ChartSeries } from './types'
 
 describe('chartMath', () => {
+    afterEach(() => {
+        jest.mocked(getCalendars).mockReturnValue([{ ...getCalendars()[0], uses24hourClock: false }])
+    })
+
     test.each(['grouped', 'stacked'] as const)('bar windows cover every bucket at a readable width: %s', (layout) => {
         const size = barPageSize(300, 6, layout)
         const indices: number[] = []
@@ -104,7 +110,7 @@ describe('chartMath', () => {
     })
 
     test.each<[ChartInterval, string, string, string]>([
-        ['hour', '09:05', 'Tue, Oct 13, 09:05', 'Oct 13, 09:05'],
+        ['hour', '9:05 AM', 'Tue, Oct 13, 9:05 AM', 'Oct 13, 9:05 AM'],
         ['day', 'Oct 13', 'Tue, Oct 13, 2026', 'Oct 13'],
         ['week', 'Oct 13', 'Oct 13 – 19, 2026', 'Oct 13'],
         ['month', 'Oct 2026', 'Oct 2026', 'Oct 2026'],
@@ -113,6 +119,18 @@ describe('chartMath', () => {
         expect(formatAxisDate(at, interval)).toBe(axis)
         expect(formatTooltipDate(at, interval)).toBe(tooltip)
         expect(formatPagerDate(at, interval)).toBe(pager)
+    })
+
+    test.each([
+        [false, '4:07 PM'],
+        [true, '16:07'],
+    ])('hourly chart labels follow the 24-hour preference %s', (uses24hourClock, clock) => {
+        jest.mocked(getCalendars).mockReturnValue([{ ...getCalendars()[0], uses24hourClock }])
+        const at = new Date(2026, 9, 13, 16, 7).getTime()
+        expect(formatPagerDate(at, 'hour')).toBe(`Oct 13, ${clock}`)
+        expect(formatAxisDate(at, 'hour')).toBe(clock)
+        expect(formatTooltipDate(at, 'hour', true)).toBe(clock)
+        expect(formatTooltipDate(at, 'hour')).toBe(`Tue, Oct 13, ${clock}`)
     })
 
     test.each<[string, Date, boolean, string]>([

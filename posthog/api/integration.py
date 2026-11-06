@@ -146,6 +146,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
+    DenyWorkloadAccessToken,
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
@@ -1602,6 +1603,23 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
 
+_GITHUB_LINKING_ACTIONS = frozenset(
+    {"github_available_installations", "github_link_existing", "github_oauth_authorize"}
+)
+
+
+class DenyWorkloadTokenGitHubLinking(DenyWorkloadAccessToken):
+    """Linking reuses a GitHub installation from another project, or one the creator's personal GitHub
+    access can see. A workload token is confined to one project and has no personal access to lend."""
+
+    message = "Workload tokens can't link GitHub installations."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if getattr(view, "action", None) not in _GITHUB_LINKING_ACTIONS:
+            return True
+        return super().has_permission(request, view)
+
+
 class IntegrationFilterSet(filters.FilterSet):
     kind = filters.ChoiceFilter(choices=PUBLIC_INTEGRATION_KIND_CHOICES)
 
@@ -1660,7 +1678,11 @@ class IntegrationViewSet(
         "request_access",
         "push_tokens",
     ]
-    permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
+    permission_classes = [
+        IntegrationManagementPermission,
+        PersonalConnectionRecentAuthPermission,
+        DenyWorkloadTokenGitHubLinking,
+    ]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
     # page boundary. Clients page this list to find one kind, so a dropped row reads as
     # "not configured". Order oldest-first: several clients take the first row of a kind as their
@@ -1701,6 +1723,7 @@ class IntegrationViewSet(
             AccessControlPermission(),
             TeamMemberAccessPermission(),
             PersonalConnectionRecentAuthPermission(),
+            DenyWorkloadTokenGitHubLinking(),
         ]
         # Adding an integration only requires project membership. Every edit and removal uses the
         # viewset permission class, including the creator exception for Google account removal.

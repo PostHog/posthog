@@ -2,6 +2,7 @@
 per send, so sends get the workflow's metrics, run history and versions."""
 
 import re
+import json
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -26,6 +27,8 @@ from products.messaging.backend.facade.contracts import (
     CodeEmail,
     ContentTooLarge,
     DeliveryUnavailable,
+    EmailAttachment,
+    FieldNotAccepted,
     IdempotencyKeyInFlight,
     IdempotencyKeyReused,
     InvalidIdempotencyKey,
@@ -514,7 +517,7 @@ def send_code_email(
     distinct_id: str | None,
     idempotency_key: str | None = None,
 ) -> QueuedEmail:
-    _check_send_request(to, idempotency_key)
+    _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
     with transactional_email_stage("workflow_lookup"):
         accepted_send = _accepted_send(team.id, email)
         hog_flow_id = _code_email_workflow_id(team.id, email.key)
@@ -522,7 +525,7 @@ def send_code_email(
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
 
 
-def _check_send_request(to: str, idempotency_key: str | None) -> None:
+def _check_send_request(to: str, idempotency_key: str | None, copies: tuple[str, ...] = ()) -> None:
     if idempotency_key is not None and not IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key):
         raise InvalidIdempotencyKey(
             "The Idempotency-Key header must be 1 to 255 visible ASCII characters, with no spaces."
@@ -530,6 +533,8 @@ def _check_send_request(to: str, idempotency_key: str | None) -> None:
     # Defense in depth: the workflow reads the recipient from an event property, which Liquid outputs as typed.
     if "{" in to or "}" in to:
         raise InvalidRecipient("The recipient address can't contain { or }.")
+    if any("{" in address or "}" in address for address in copies):
+        raise InvalidRecipient("A `cc` or `bcc` address can't contain { or }.")
 
 
 def _send_payload(
@@ -557,7 +562,24 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
     }
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
+    if email.cc:
+        accepted["cc"] = list(email.cc)
+    if email.bcc:
+        accepted["bcc"] = list(email.bcc)
+    if email.attachments:
+        accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
     return accepted
+
+
+def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
+    return _without_empty(
+        {
+            "filename": attachment.filename,
+            "content": attachment.content,
+            "contentType": attachment.content_type,
+            "contentId": attachment.content_id,
+        }
+    )
 
 
 def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
@@ -609,6 +631,15 @@ def _queue(
         )
     if response.status_code != 202:
         refusal_code = _refusal_code(response)
+        unknown_field = _send_field_an_older_pipeline_refused(refusal_code) if response.status_code == 400 else None
+        if unknown_field is not None:
+            logger.warning(
+                "transactional_email_field_not_accepted",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+                field=unknown_field,
+            )
+            raise FieldNotAccepted(unknown_field)
         refusal = PIPELINE_REFUSALS.get(refusal_code or "")
         if refusal is None and response.status_code == 400:
             refusal = PIPELINE_REFUSALS["invalid_request"]
@@ -627,6 +658,19 @@ def _queue(
 
     body = response.json()
     return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+
+
+def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
+    try:
+        issues = json.loads(error or "")
+    except ValueError:
+        return None
+    for issue in issues if isinstance(issues, list) else []:
+        if isinstance(issue, dict) and issue.get("code") == "unrecognized_keys" and issue.get("path") == ["send"]:
+            keys = issue.get("keys")
+            if isinstance(keys, list) and keys and isinstance(keys[0], str):
+                return keys[0]
+    return None
 
 
 def _refusal_code(response: requests.Response) -> str | None:

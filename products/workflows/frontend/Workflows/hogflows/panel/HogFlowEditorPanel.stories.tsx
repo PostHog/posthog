@@ -164,7 +164,6 @@ const PANEL_WORKFLOW: HogFlow = {
 type PanelStoryProps = {
     mode: HogFlowEditorMode
     selectedNodeId: string | null
-    layout?: 'floating' | 'panel'
 }
 
 const meta: Meta<typeof HogFlowEditorPanel> = {
@@ -212,7 +211,7 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
 }
 export default meta
 
-function PanelStory({ mode, selectedNodeId, layout = 'floating' }: PanelStoryProps): JSX.Element {
+function PanelStory({ mode, selectedNodeId }: PanelStoryProps): JSX.Element {
     const { originalWorkflow } = useValues(workflowLogic(LOGIC_PROPS))
     const { nodes } = useValues(hogFlowEditorLogic(LOGIC_PROPS))
     const { setWorkflowValues } = useActions(workflowLogic(LOGIC_PROPS))
@@ -235,18 +234,9 @@ function PanelStory({ mode, selectedNodeId, layout = 'floating' }: PanelStoryPro
         <ReactFlowProvider>
             <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
                 <BindLogic logic={hogFlowEditorLogic} props={LOGIC_PROPS}>
-                    {layout === 'panel' ? (
-                        // Mirrors the tree view's host: a full-height row where the panel sits
-                        // beside the tree, so the panel is as tall as the editor
-                        <div className="@container/workflow-editor relative flex h-screen overflow-hidden @max-[48rem]/workflow-editor:flex-col @max-[48rem]/workflow-editor:overflow-y-auto">
-                            <div className="min-w-0 flex-1 bg-background" />
-                            <HogFlowEditorPanel layout="panel" />
-                        </div>
-                    ) : (
-                        <div className="relative h-screen w-[37rem] overflow-hidden bg-surface-primary">
-                            <HogFlowEditorPanel />
-                        </div>
-                    )}
+                    <div className="relative h-screen w-[37rem] overflow-hidden bg-surface-primary">
+                        <HogFlowEditorPanel />
+                    </div>
                 </BindLogic>
             </BindLogic>
         </ReactFlowProvider>
@@ -269,9 +259,6 @@ Webhook.args = { mode: 'build', selectedNodeId: 'webhook' }
 
 export const Email: StoryFn<PanelStoryProps> = Template.bind({})
 Email.args = { mode: 'build', selectedNodeId: 'email' }
-
-export const EmailInSidePanel: StoryFn<PanelStoryProps> = Template.bind({})
-EmailInSidePanel.args = { mode: 'build', selectedNodeId: 'email', layout: 'panel' }
 
 export const ConditionalBranch: StoryFn<PanelStoryProps> = Template.bind({})
 ConditionalBranch.args = { mode: 'build', selectedNodeId: 'conditional' }

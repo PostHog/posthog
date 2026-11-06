@@ -78,13 +78,18 @@ class TestWorkflowTasksAPI(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token or _token(self.team.id, str(self.hog_flow.id))}",
         )
 
-    def _seed_workflow_task(self, run_status: str) -> Task:
+    def _flow_columns(self, hog_flow_id: UUID | str, *, source_columns: bool) -> dict:
+        if source_columns:
+            return {"source_kind": "hog_flow", "source_id": str(hog_flow_id)}
+        return {"hog_flow_id": hog_flow_id}
+
+    def _seed_workflow_task(self, run_status: str, *, source_columns: bool = False) -> Task:
         task = Task.objects.create(
             team=self.team,
             title="existing",
             description="existing",
             origin_product=Task.OriginProduct.WORKFLOW,
-            hog_flow_id=self.hog_flow.id,
+            **self._flow_columns(self.hog_flow.id, source_columns=source_columns),
         )
         TaskRun.objects.create(task=task, team=self.team, status=run_status)
         return task
@@ -96,6 +101,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         hog_flow_id: UUID | None,
         origin_product: str = Task.OriginProduct.WORKFLOW,
         created_at: datetime | None = None,
+        source_columns: bool = False,
     ) -> None:
         # No TaskRun rows: the daily caps count Task rows only, and runless tasks keep the
         # in-flight count at 0, so a cap test cannot pass via the in-flight 409 instead.
@@ -106,7 +112,11 @@ class TestWorkflowTasksAPI(APIBaseTest):
                     title=f"seed-{i}",
                     description="seed",
                     origin_product=origin_product,
-                    hog_flow_id=hog_flow_id,
+                    **(
+                        self._flow_columns(hog_flow_id, source_columns=source_columns)
+                        if hog_flow_id is not None
+                        else {}
+                    ),
                     **({"created_at": created_at} if created_at is not None else {}),
                 )
                 for i in range(count)
@@ -368,14 +378,15 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert not Task.objects.filter(hog_flow_id=flow.id).exists()
         usage_limit_response_mock.assert_not_called()
 
-    def test_skips_creation_at_the_in_flight_limit(self) -> None:
+    @parameterized.expand([("old_columns", False), ("new_columns", True)])
+    def test_skips_creation_at_the_in_flight_limit(self, _name: str, source_columns: bool) -> None:
         for _ in range(2):
-            self._seed_workflow_task(TaskRun.Status.IN_PROGRESS)
+            self._seed_workflow_task(TaskRun.Status.IN_PROGRESS, source_columns=source_columns)
 
         response = self._post({"max_parallel_tasks": 2})
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
-        assert Task.objects.filter(hog_flow_id=self.hog_flow.id).count() == 2
+        assert Task.objects.count() == 2
 
     def test_finished_runs_free_up_the_limit(self) -> None:
         self._seed_workflow_task(TaskRun.Status.COMPLETED)
@@ -384,11 +395,13 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    @parameterized.expand(["per_workflow", "team_wide"])
+    @parameterized.expand([("per_workflow", False), ("per_workflow_new_columns", True), ("team_wide", False)])
     @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
-    def test_skips_creation_at_the_daily_cap(self, scope: str, usage_limit_response_mock) -> None:
-        if scope == "per_workflow":
-            self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=UUID(self.hog_flow.id))
+    def test_skips_creation_at_the_daily_cap(self, scope: str, source_columns: bool, usage_limit_response_mock) -> None:
+        if scope.startswith("per_workflow"):
+            self._seed_created_tasks(
+                WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=UUID(self.hog_flow.id), source_columns=source_columns
+            )
             expected_fragment = "This workflow reached its daily limit"
         else:
             # Two other workflows fill the team budget; this workflow is far under its own cap.
@@ -518,14 +531,22 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert replay.status_code == status.HTTP_200_OK, replay.json()
         assert replay.json()["id"] == first.json()["id"]
 
-    def test_rejects_an_idempotency_key_used_by_another_workflow(self) -> None:
+    @parameterized.expand(
+        [
+            ("old_columns", {"origin_key": "invocation-1"}, False),
+            ("new_columns", {"idempotency_key": "invocation-1"}, True),
+        ]
+    )
+    def test_rejects_an_idempotency_key_used_by_another_workflow(
+        self, _name: str, key_columns: dict, source_columns: bool
+    ) -> None:
         Task.objects.create(
             team=self.team,
             title="other",
             description="other",
             origin_product=Task.OriginProduct.WORKFLOW,
-            hog_flow_id=uuid4(),
-            origin_key="invocation-1",
+            **self._flow_columns(uuid4(), source_columns=source_columns),
+            **key_columns,
         )
 
         response = self._post({"idempotency_key": "invocation-1"})

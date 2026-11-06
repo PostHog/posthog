@@ -17,7 +17,7 @@ import { SearchField } from '@/ui/SearchField'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout } from '@/ui/tokens'
-import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 
 import { toChatError } from '../chat/chatErrors'
 import type { ChatSheetEntry } from '../chat/chatSheetEvents'
@@ -59,6 +59,7 @@ export function ChatsScreen(): ReactElement {
     const styles = useStyles()
     const router = useRouter()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     const now = useNow()
     const query = useChatList()
     const scope = useProjectScope()
@@ -215,14 +216,11 @@ export function ChatsScreen(): ReactElement {
                 renderItem={renderItem}
                 renderSectionHeader={renderSectionHeader}
                 stickySectionHeadersEnabled={false}
-                ListHeaderComponent={listHeader}
-                ListEmptyComponent={empty}
+                ListHeaderComponent={listHeader ?? undefined}
+                ListEmptyComponent={empty ?? undefined}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
-                contentContainerStyle={[
-                    styles.content,
-                    { paddingTop: contentTop, paddingBottom: bottomOffset(insets, 120) },
-                ]}
+                contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: tabBottom }]}
                 refreshControl={
                     <RefreshControl
                         refreshing={query.isRefetching}

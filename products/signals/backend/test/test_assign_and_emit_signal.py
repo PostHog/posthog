@@ -11,11 +11,12 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
+from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Dismissal, RelatedTo, ReportLink
+from products.signals.backend.artefact_schemas import Dismissal, PullRequestLink, RelatedTo, ReportLink
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
@@ -23,6 +24,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportMonitoringAttempt,
+    SignalReportPullRequest,
     SignalSpend,
 )
 from products.signals.backend.quota import SelfDrivingQuotaGate
@@ -587,6 +589,82 @@ async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(
     refreshed_resolved = await database_sync_to_async(SignalReport.objects.get)(id=resolved.id)
     assert refreshed_resolved.status == report_status
     assert refreshed_resolved.signal_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("signals_researched", "pr_state", "forks", "inherits"),
+    [
+        (None, None, True, False),
+        (2, None, True, True),
+        (None, SignalReportPullRequest.State.CLOSED, True, False),
+        (None, SignalReportPullRequest.State.OPEN, False, False),
+    ],
+)
+async def test_failed_match_spawns_one_fork_that_later_signals_join(
+    ateam: Team, signals_researched: int | None, pr_state: str | None, forks: bool, inherits: bool
+) -> None:
+    failed = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.FAILED,
+        total_weight=1.5,
+        signal_count=2,
+        signals_at_run=2 if signals_researched else 0,
+        signals_researched=signals_researched,
+        title="original title",
+        summary="original summary",
+    )
+    if pr_state is not None:
+
+        def _attach_pr() -> None:
+            with team_scope(ateam.id):
+                pr = SignalReportPullRequest.objects.create(
+                    team_id=ateam.id,
+                    repository="owner/repo",
+                    number=7,
+                    url="https://github.com/owner/repo/pull/7",
+                    state=pr_state,
+                )
+                link = SignalReportArtefact.add_log(
+                    team_id=ateam.id,
+                    report_id=str(failed.id),
+                    content=PullRequestLink(url=pr.url),
+                    attribution=ArtefactAttribution.system(),
+                )
+                link.pull_request = pr
+                link.save(update_fields=["pull_request"])
+
+        await database_sync_to_async(_attach_pr)()
+
+    first = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(failed.id)), weight=WEIGHT_THRESHOLD * 0.5)
+    )
+    second = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(failed.id)), weight=WEIGHT_THRESHOLD * 0.5)
+    )
+
+    refreshed_failed = await database_sync_to_async(SignalReport.objects.get)(id=failed.id)
+    assert refreshed_failed.status == SignalReport.Status.FAILED
+    if not forks:
+        assert first.report_id == second.report_id == str(failed.id)
+        assert second.promoted is False
+        assert refreshed_failed.signal_count == 4
+        return
+
+    assert first.report_id == second.report_id != str(failed.id)
+    assert refreshed_failed.signal_count == 2
+    fork = await database_sync_to_async(SignalReport.objects.get)(id=first.report_id)
+    assert fork.signal_count == 2
+    assert second.promoted is True
+    assert fork.status == SignalReport.Status.CANDIDATE
+    assert (fork.title, fork.summary) == (("original title", "original summary") if inherits else ("", ""))
+    link = await database_sync_to_async(
+        lambda: SignalReportArtefact.objects.get(report=fork, type=SignalReportArtefact.ArtefactType.REPORT_LINK)
+    )()
+    assert ReportLink.model_validate_json(link.content) == ReportLink(
+        kind=ReportLinkKind.RECURRENCE_OF, report_id=str(failed.id)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1322,12 +1400,11 @@ async def test_potential_promotes_past_last_bucket_for_first_research(ateam):
     [
         SignalReport.Status.IN_PROGRESS,
         SignalReport.Status.PENDING_INPUT,
-        SignalReport.Status.FAILED,
         SignalReport.Status.SUPPRESSED,
     ],
 )
 async def test_non_promoting_states_increment_counters_but_do_not_promote(ateam, starting_status):
-    """For IN_PROGRESS / PENDING_INPUT / FAILED / SUPPRESSED:
+    """For IN_PROGRESS / PENDING_INPUT / SUPPRESSED:
     - weight + signal_count still update
     - status is unchanged
     - promoted=False so no workflow spawn attempt

@@ -79,6 +79,16 @@ export function countHealthChecks(checks: HealthPanelCheck[], status: HealthPane
     return checks.filter((check) => check.status === status).length
 }
 
+export function healthChecksVerdict(checks: HealthPanelCheck[], issueCount: number): string {
+    const passedCount = countHealthChecks(checks, 'passed')
+    if (issueCount > 0) {
+        return `${pluralize(issueCount, 'issue')} found`
+    }
+    return passedCount > 0
+        ? `No problems found by ${pluralize(passedCount, 'check')}`
+        : 'No checks apply to this experiment yet'
+}
+
 export function healthChipState(
     findings: HealthPanelFinding[] | null,
     checks: HealthPanelCheck[] | null,

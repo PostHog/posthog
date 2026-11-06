@@ -35,7 +35,10 @@ Pick the role by **which cluster owns the object**, not by its type alone:
   tables in front of sharded or satellite tables, views, dictionaries. A non-sharded replicated table on
   `DATA` keeps a full copy on every main-cluster node, so it is the wrong home for a product rollup or
   pre-aggregate (see below).
-- `[NodeRole.INGESTION_SMALL]`: writable tables, Kafka tables, materialized views on the ingestion layer
+- `[NodeRole.INGESTION_SMALL]`, `[NodeRole.INGESTION_MEDIUM]`, `[NodeRole.INGESTION_EVENTS]`: writable tables, Kafka tables, materialized views on the ingestion layer.
+  `INGESTION_EVENTS` is for consumers of all of `clickhouse_events_json`.
+  For other topics, check where comparable consumers run in each environment, and use `INGESTION_SMALL` or `INGESTION_MEDIUM` to match.
+  Use `INGESTION_SMALL` when you can't tell.
 - `[NodeRole.APM]`: the `ingestion-apm` nodes, the metrics ingestion layer. Kafka tables, `Null` input
   tables, materialized views and writable `Distributed` tables that write into storage on `LOGS`.
   Stateless like the other ingestion nodes, so storage tables never go here.
@@ -86,11 +89,13 @@ SETTINGS kafka_skip_broken_messages = 100,
          kafka_num_consumers = {kafka_num_consumers(1)},
          kafka_thread_per_consumer = 1,
          kafka_poll_timeout_ms = 10000,
+         kafka_flush_interval_ms = 7500,
          kafka_max_block_size = 100000
 ```
 
 - `kafka_skip_broken_messages` defaults to 0, where one malformed message stops the consumer for good.
 - `kafka_poll_timeout_ms` is 10000 for WarpStream, which does not support `fetch.min.bytes`.
+- `kafka_flush_interval_ms` matches the default of 7500. Set it so the table shows its flush interval.
 - `kafka_max_block_size` defaults to about a million rows, so 100000 is a reduction; lower for wide
   rows, not below ~1000.
 - `kafka_num_consumers` is per node, so the role's node count multiplies it; the total must not

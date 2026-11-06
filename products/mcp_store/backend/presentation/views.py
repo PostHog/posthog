@@ -36,7 +36,7 @@ from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.permissions import DenyMCPBuiltInAgentOAuth
+from posthog.permissions import DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
     MCPOAuthRedirectBurstThrottle,
@@ -748,7 +748,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     queryset = MCPServerInstallation.objects.all()
     serializer_class = MCPServerInstallationSerializer
     lookup_field = "id"
-    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken]
 
     # Installations are user-scoped or shared (safely_get_queryset returns both),
     # so write actions don't need project admin access.

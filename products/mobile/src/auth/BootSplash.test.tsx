@@ -12,6 +12,9 @@ jest.mock('expo-router', () => {
     const { View } = jest.requireActual<typeof import('react-native')>('react-native')
     const segments = ['(tabs)', 'inbox']
     return {
+        DarkTheme: jest.requireActual('expo-router').DarkTheme,
+        DefaultTheme: jest.requireActual('expo-router').DefaultTheme,
+        ThemeProvider: jest.requireActual('expo-router').ThemeProvider,
         Stack: Object.assign(() => createElement(View, { testID: 'app-screens' }), { Screen: () => null }),
         useSegments: () => segments,
     }

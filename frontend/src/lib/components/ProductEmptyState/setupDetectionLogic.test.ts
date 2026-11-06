@@ -50,13 +50,29 @@ describe('createSetupDetectionLogic', () => {
         expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(expected)
     })
 
-    // An outage or a 403 answers null instead of failing, so it does not file an error
-    // tracking issue per product. Other failures still reach the failure path.
+    // An outage, a 403, a route a deploy has not rolled out yet, or a bodiless 4xx answers null
+    // instead of failing, so it does not file an error tracking issue per product. Other failures
+    // still reach the failure path.
     it.each([
         ['a 500', new ApiError('A server error occurred.', 500), 'detectStatusSuccess'],
         ['a 403', new ApiError('You do not have permission.', 403), 'detectStatusSuccess'],
         ['a dropped connection', new TypeError('Failed to fetch'), 'detectStatusSuccess'],
-        ['a 400', new ApiError('Bad request', 400), 'detectStatusFailure'],
+        [
+            'a 404 for a route not yet deployed',
+            new ApiError('Not found.', 404, undefined, { detail: 'Not found.' }),
+            'detectStatusSuccess',
+        ],
+        ['a 400 with an empty body', new ApiError(undefined, 400, undefined, null), 'detectStatusSuccess'],
+        [
+            'a 400 with a detail',
+            new ApiError('Bad request', 400, undefined, { detail: 'Bad request' }),
+            'detectStatusFailure',
+        ],
+        [
+            'a 404 for a deleted project',
+            new ApiError('Project not found.', 404, undefined, { detail: 'Project not found.' }),
+            'detectStatusFailure',
+        ],
         ['an application bug', new Error('x is not a function'), 'detectStatusFailure'],
     ] as const)('fails open to unknown when detection hits %s before any answer', async (_, error, outcome) => {
         const logic = buildLogic(jest.fn().mockRejectedValue(error))

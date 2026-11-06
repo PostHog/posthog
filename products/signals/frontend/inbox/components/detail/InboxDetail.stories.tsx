@@ -24,9 +24,11 @@ import {
 } from '../../__mocks__/inboxMocks'
 import { reportMetricQueryHandler, reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
-import { SignalReport, SignalReportStatus } from '../../types'
+import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
+import { ArtefactLogList } from './ArtefactLogList'
 import { ReportDetail } from './ReportDetail'
+import { ReportNotesSection } from './ReportNotesSection'
 import { ReportStatusSection } from './ReportStatusSection'
 
 const mixedPrChecks = {
@@ -324,6 +326,110 @@ export const ReportClaimedByTeammate: Story = {
                     },
                 }}
             />
+        </Frame>
+    ),
+}
+
+const NOTES_REPORT_ID = reportTabReports[0].id
+
+// The active note is still listed; the retired one is gone from the list, so its entry reads inactive.
+const reportNotesMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/scout/notes/': () => [
+            200,
+            [
+                {
+                    id: 'note-active',
+                    skill_name: 'signals-scout-checkout',
+                    content: `Note on inbox report \`${NOTES_REPORT_ID}\`:\n\nThe checkout flow is being rebuilt next month.`,
+                    created_at: '2026-06-10T09:00:00Z',
+                    expires_at: null,
+                    created_by_name: 'Octo Cat',
+                    origin: 'human',
+                },
+            ],
+        ],
+        '/api/projects/:id/signals/scout/configs/': () => [
+            200,
+            [{ id: 'config-checkout', skill_name: 'signals-scout-checkout', display_name: 'Checkout watcher' }],
+        ],
+    },
+})
+
+const NOTE_AUTHOR = { id: 1, uuid: 'u-1', distinct_id: 'u-1', email: 'octo@example.com', first_name: 'Octo' }
+
+const noteArtefacts: SignalReportArtefact[] = [
+    {
+        id: 'artefact-scout-note-active',
+        type: 'scout_note_left',
+        content: {
+            note: 'The checkout flow is being rebuilt next month. Focus on the new flow instead.',
+            skill_name: 'signals-scout-checkout',
+            scout_note_id: 'note-active',
+        },
+        created_at: '2026-06-10T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-scout-note-retired',
+        type: 'scout_note_left',
+        content: { note: 'Anything under /legacy is out of scope.', skill_name: '', scout_note_id: 'note-retired' },
+        created_at: '2026-06-09T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-note',
+        type: 'note',
+        content: { note: 'Support confirmed two more customers hit this on Monday.' },
+        created_at: '2026-06-08T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-agent-note',
+        type: 'note',
+        content: { note: 'Confirmed the validation gap reproduces on an empty recipient row.' },
+        created_at: '2026-06-07T09:00:00Z',
+        task_id: 'task-research',
+        actor_kind: 'task',
+    },
+]
+
+// The notes under the report body. The agent's note stays out of the list, and the retired note reads inactive.
+export const ReportNotes: Story = {
+    decorators: [
+        reportNotesMocks,
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports/:reportId/artefacts': () => [
+                    200,
+                    { results: noteArtefacts, count: noteArtefacts.length },
+                ],
+            },
+        }),
+    ],
+    render: () => (
+        <Frame>
+            <div className="w-full max-w-[44rem] border border-primary bg-surface-primary p-5">
+                <ReportNotesSection report={{ ...reportTabReports[0], scout_name: 'signals-scout-checkout' }} />
+            </div>
+        </Frame>
+    ),
+}
+
+// The activity log alone at rail width: in the full detail it sits collapsed below the snapshot's fold.
+export const ActivityNotes: Story = {
+    decorators: [reportNotesMocks],
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SIGNALS_REPORT_NOTES]: true },
+    },
+    render: () => (
+        <Frame>
+            <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                <ArtefactLogList reportId={NOTES_REPORT_ID} artefacts={noteArtefacts} />
+            </div>
         </Frame>
     ),
 }

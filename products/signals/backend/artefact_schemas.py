@@ -368,6 +368,8 @@ class ReviewerProposal(BaseModel):
     source: str = "automatic"
     outcome: Literal["selected", "no_suitable_owner", "lookup_failed"] = "selected"
     retry_reason: str | None = Field(default=None, max_length=500)
+    # Why a scout edit found no suitable owner. Required before that outcome may clear a non-empty list.
+    outcome_reason: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
     def validate_outcome(self) -> ReviewerProposal:
@@ -832,6 +834,20 @@ class NoteArtefact(BaseModel):
 class CheckAuthoringStatus(BaseModel):
     status: Literal["succeeded", "failed"]
     reason: str = Field(min_length=1)
+
+
+class ScoutNoteLeft(BaseModel):
+    """Content schema for a `scout_note_left` artefact: a person left a scout note from this report.
+
+    Appended by the notes API in the same transaction as the note, so the report keeps a record of
+    the steering after the note itself is retired. Never written through the generic artefact API.
+    """
+
+    note: str = Field(description="The note text as its author wrote it, without the report reference.")
+    skill_name: str = Field(
+        default="", description="The scout the note was addressed to, or blank for every scout on the project."
+    )
+    scout_note_id: str = Field(description="The id of the scout note this entry records.")
 
 
 class TitleChange(BaseModel):
@@ -1322,6 +1338,7 @@ LogArtefactContent = (
     | Commit
     | TaskRunArtefact
     | NoteArtefact
+    | ScoutNoteLeft
     | TitleChange
     | SummaryChange
     | CodeReview
@@ -1362,6 +1379,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "task_run": TaskRunArtefact,
     "note": NoteArtefact,
     "check_authoring": CheckAuthoringStatus,
+    "scout_note_left": ScoutNoteLeft,
     "title_change": TitleChange,
     "summary_change": SummaryChange,
     "code_review": CodeReview,
@@ -1415,6 +1433,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "video_segment",
         "title_change",
         "summary_change",
+        "scout_note_left",
         "code_review",
         "work_claim",
         "work_release",

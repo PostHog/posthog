@@ -2,6 +2,8 @@
 
 The inbox includes Closed reports in All statuses. The Closed filter appears when the project has closed reports, or when it is selected.
 
+Monitoring reports show an eye icon below their priority in the inbox list, aligned with the repository and source metadata. When Monitoring is enabled, the Monitoring option in the statuses dropdown filters by `status=monitoring`; disabled projects hide that option and skip its list and count requests. Review and merge continues to show reports with an open implementation PR.
+
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR completes implementation: applicable follow-up checks enter Monitoring when enabled; otherwise the report resolves directly. All closed PRs without a merge suppress it.
 
@@ -86,7 +88,9 @@ Research writes measurable outcome goals as `metric_threshold` report checks and
 
 Reports awaiting human input retain their generated checks for a later Monitoring period. Outside Monitoring, open checks display as paused in the Follow-up checks sidebar. Expected impact retains proposed or approved measurement labels before Monitoring, and shows paused checks on resolved or archived reports, including when the rollout is disabled. Stored schedules do not advertise future runs or active scouts. Historical verdicts and legacy schedule fields remain readable; remaining-run counts authorize post-resolution execution only for flag-off agent checks. Metric replacements require access to the query they schedule and preserve the remaining recurring runs and soak duration, including zero minutes. Replacement cannot override the soak. Creation and replacement share full schedule validation against the 90-day horizon. A replacement rejects a check moved by a concurrent report merge; reload the report and retry on the survivor. Units cannot contain null characters or unpaired Unicode surrogates. The Expected impact section shows finished verdicts and refreshes after agent tasks change checks.
 
-The `inbox-report-checks-replace` MCP tool requires `inbox:write` and `query:read`. Query-specific event, action, and cohort permissions still apply. The `signals-report-checks-replace` rollout flag hides the tool unless enabled. Keep it disabled until the replacement API is deployed in every region. This gate is separate from the Expected impact display flag.
+Open follow-up check cards expand on hover or keyboard focus to show **Suggest a better metric** and **Cancel this check**. The cards stay compact otherwise, with both actions always visible on touch devices. Suggesting a metric opens the report's AI sidebar with an editable prompt referencing the selected check by ID. Opening a task for another report clears the unsent suggestion. Submitting asks AI to investigate and replace only that check, preserving unrelated checks and the report state. The existing check remains live if AI cannot establish a credible metric or the replacement is invalid. Cancellation confirms first and preserves recorded results.
+
+The `inbox-report-checks-replace` MCP tool can replace an open agent or metric check with a metric check. It requires `inbox:write` and `query:read`. Query-specific event, action, and cohort permissions still apply. The `signals-report-checks-replace` rollout flag hides the tool unless enabled. Keep it disabled until the replacement API is deployed in every region. This gate is separate from the Expected impact display flag.
 
 Approval advances the check's update timestamp so older list responses cannot undo it on screen. Retries preserve the original approval and timestamp. Research captures the open checks' versions before starting. If any check changes before its result is stored, that pass leaves the checks alone. A subsequent pass that sees the current checks can revise or retire them, including approved checks. Older activity results without this snapshot preserve person-selected and approved checks.
 

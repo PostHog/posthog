@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
+from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.db import connection
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
@@ -519,6 +520,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         # Reset back to initial team/org for each test
         self.user.current_team = self.team
         self.user.current_organization = self.organization
+        # The page load reads a content type through Django's per-process cache. Without a reset, the query
+        # counts depend on whether an earlier test in the same process already filled that cache.
+        ContentType.objects.clear_cache()
 
     def app_context(self, response) -> dict:
         return response.context["posthog_app_context"]

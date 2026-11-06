@@ -538,7 +538,7 @@ def _get_signing_key() -> str:
     return key
 
 
-def _construct_access_token(payload: dict[str, Any]) -> str:
+def _construct_access_token(payload: dict[str, Any], token_type: str = ACCESS_TOKEN_TYPE) -> str:
     signing_key = _get_signing_key()
     # `kid` matches the thumbprint published in `/.well-known/jwks.json`, so a
     # resource server can pick the right key once a rotation publishes more than one.
@@ -546,14 +546,15 @@ def _construct_access_token(payload: dict[str, Any]) -> str:
         payload,
         signing_key,
         algorithm="RS256",
-        headers={"typ": ACCESS_TOKEN_TYPE, "kid": jwk_from_pem(signing_key).thumbprint()},
+        headers={"typ": token_type, "kid": jwk_from_pem(signing_key).thumbprint()},
     )
 
 
-def sign_access_token(payload: dict[str, Any]) -> str:
-    """Sign an `at+jwt` access token with the OIDC key. Shared by the ID-JAG token endpoint and
-    the billing token PostHog mints server-side, so both verify against the same JWKS."""
-    return _construct_access_token(payload)
+def sign_access_token(payload: dict[str, Any], token_type: str = ACCESS_TOKEN_TYPE) -> str:
+    """Sign an access token with the OIDC key. Shared by the ID-JAG token endpoint, the billing
+    token PostHog mints server-side and the workload token exchange, so all verify against the same JWKS.
+    A token type other than `at+jwt` keeps a token from being accepted where an ID-JAG one is."""
+    return _construct_access_token(payload, token_type)
 
 
 def _parse_scope_list(value: str | list[str] | None) -> list[str]:

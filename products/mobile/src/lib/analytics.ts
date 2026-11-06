@@ -24,6 +24,7 @@ export type AnalyticsEvent =
     | 'mobile_splash_hidden'
     | 'mobile_create_account_opened'
     | 'mobile_legal_link_opened'
+    | 'mobile_status_opened'
     | 'mobile_inbox_opened'
     | 'mobile_inbox_report_menu_opened'
     | 'mobile_inbox_report_menu_action'

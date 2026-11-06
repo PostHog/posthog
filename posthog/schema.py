@@ -10547,6 +10547,13 @@ class AssistantDataVisualizationChartSettings(BaseModel):
             " `display` is `ScatterPlot`."
         ),
     )
+    showAnnotations: bool | None = Field(
+        default=None,
+        description=(
+            "Show annotations on the chart. Only applies to line, area, bar, and"
+            " stacked bar charts whose X axis is a date or datetime column."
+        ),
+    )
     showLegend: bool | None = Field(default=None, description="Show the chart legend.")
     showNullsAsZero: bool | None = Field(default=None, description="Replace null aggregation results with zero.")
     showTotalRow: bool | None = Field(

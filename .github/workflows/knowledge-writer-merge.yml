@@ -1,0 +1,30 @@
+name: Knowledge writer merge doorbell
+
+on:
+    push:
+        branches:
+            - master
+
+permissions: {}
+
+jobs:
+    ring:
+        name: Tell PostHog about the merge
+        runs-on: ubuntu-24.04
+        timeout-minutes: 2
+        if: github.repository == 'PostHog/posthog' && vars.KNOWLEDGE_WRITER_MERGE_PUSHES_URL != ''
+        steps:
+            - name: Post every merged commit sha
+              env:
+                  KNOWLEDGE_WRITER_API_TOKEN: ${{ secrets.KNOWLEDGE_WRITER_API_TOKEN }}
+                  KNOWLEDGE_WRITER_MERGE_PUSHES_URL: ${{ vars.KNOWLEDGE_WRITER_MERGE_PUSHES_URL }}
+              run: |
+                  set -euo pipefail
+                  failed_commit_shas=()
+                  for commit_sha in $(jq -r '.commits[].id' "$GITHUB_EVENT_PATH"); do
+                      curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --max-time 10 \
+                          -H "Authorization: Bearer $KNOWLEDGE_WRITER_API_TOKEN" -H "Content-Type: application/json" \
+                          --data "{\"commit_sha\": \"$commit_sha\"}" "$KNOWLEDGE_WRITER_MERGE_PUSHES_URL" \
+                          || failed_commit_shas+=("$commit_sha")
+                  done
+                  [ ${#failed_commit_shas[@]} -eq 0 ] || echo "::warning::Knowledge writer merge check not delivered for: ${failed_commit_shas[*]}"

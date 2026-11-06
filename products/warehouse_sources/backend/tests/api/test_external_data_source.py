@@ -109,6 +109,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccount,
     IntegrationAccountListingError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
+    stored_field_kinds,
+    stored_reference_options,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     CredentialAccountsMixin,
@@ -408,6 +412,15 @@ class _PluginOnlySource(SimpleSource[_PluginOnlySourceConfig]):
 
 
 class TestExternalDataSource(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Tests here patch `SourceRegistry.get_source` on the class, so the job input classification
+        # would read a MagicMock source. Its results are cached per source type, so filling the
+        # cache from the real registry before a test's patch starts keeps it on the real declarations.
+        for source_type in SourceRegistry.get_all_sources():
+            stored_field_kinds(source_type)
+            stored_reference_options(source_type)
+
     def _create_external_data_source(self, created_via: str = ExternalDataSource.CreatedVia.WEB) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team_id=self.team.pk,

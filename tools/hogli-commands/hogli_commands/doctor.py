@@ -27,6 +27,8 @@ import click
 from hogli.manifest import REPO_ROOT, get_manifest
 
 from . import hints
+from .cargo_targets import unused_legacy_cargo_target
+from .processes import process_cwds
 
 MAX_SAMPLE_PATHS = 8
 
@@ -37,6 +39,8 @@ MAX_SAMPLE_PATHS = 8
 # budget so churn alone can't balloon the directory.
 FLOX_LOG_MAX_AGE_DAYS = 7
 FLOX_LOG_MAX_TOTAL_BYTES = 512 * 1024 * 1024  # 512 MiB of recent logs is plenty for debugging
+
+STALE_RUST_TARGET_DAYS = 7
 
 PYTHON_CACHE_PATTERNS = ("__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache")
 NODE_ARTIFACT_PATTERNS = (
@@ -143,6 +147,7 @@ class CleanupResult:
             "dagster",
             "node-artifacts",
             "rust",
+            "legacy-cargo-target",
             "sccache",
             "uv-cache",
             "pnpm-store",
@@ -170,6 +175,7 @@ def doctor_disk(
     - Dagster background job storage
     - pnpm/Vite/Tailwind/Storybook/Playwright build artifacts
     - Rust workspaces built with Cargo, plus the sccache compilation cache
+    - The old shared Cargo target at ~/.cargo/target
     - The uv and pnpm package caches shared across every worktree
 
     Several of these caches live outside the repository because the Flox env
@@ -289,6 +295,18 @@ def doctor_disk(
             include_in_total=False,
             skip_if_empty=False,
             dry_run_message="Would run: cargo clean in all Rust workspaces",
+        ),
+        CleanupCategory(
+            id="legacy_cargo_target",
+            title="🦀 Old shared Cargo target (~/.cargo/target)",
+            description=[
+                "Cargo built here while the Flox env set CARGO_TARGET_DIR to this directory.",
+                f"Deleted only when CARGO_TARGET_DIR is not set and no build used it in {STALE_RUST_TARGET_DAYS} days.",
+            ],
+            estimate=_estimate_legacy_cargo_target,
+            cleanup=_cleanup_legacy_cargo_target,
+            confirmation_prompt="Delete the old shared Cargo target?",
+            default_confirm=False,
         ),
         CleanupCategory(
             id="sccache",
@@ -1411,6 +1429,27 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
     return items
 
 
+def _estimate_legacy_cargo_target(_repo_root: Path) -> CleanupEstimate:
+    pointer = f"   For the rust/target of other worktrees, run: hogli worktrees:clean --before {STALE_RUST_TARGET_DAYS}d --mode deps"
+    target = unused_legacy_cargo_target(time.time() - STALE_RUST_TARGET_DAYS * 24 * 60 * 60)
+    if target is None:
+        return CleanupEstimate(total_size=0.0, items=[], details=["   Nothing to delete.", pointer])
+
+    size, _ = _get_dir_size(target)
+    return CleanupEstimate(
+        total_size=size,
+        items=[CleanupItem(target, size, is_dir=True)],
+        details=[f"   {target} ({_format_size(size)})", pointer],
+    )
+
+
+def _cleanup_legacy_cargo_target(estimate: CleanupEstimate, repo_root: Path) -> CleanupStats:
+    if unused_legacy_cargo_target(time.time() - STALE_RUST_TARGET_DAYS * 24 * 60 * 60) is None:
+        click.echo("   A build used it while the prompt waited, so it is kept.")
+        return CleanupStats()
+    return _cleanup_items(estimate, repo_root)
+
+
 def _find_cargo_workspaces(repo_root: Path) -> list[Path]:
     """Find all Cargo workspace roots in the repository.
 
@@ -1718,7 +1757,7 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
             candidates.append((entry, False))
             cwd_pids.append(pid)
 
-    cwd_by_pid = _get_process_cwds(cwd_pids)
+    cwd_by_pid = process_cwds(cwd_pids)
 
     processes: list[DevProcess] = []
     for entry, repo_match in candidates:
@@ -1891,41 +1930,6 @@ def _has_known_executable(args: str) -> bool:
     known = ("python", "node", "celery", "granian", "uvicorn", "dagster", "cargo", "air", "tsx", "esbuild", "pnpm")
     first_word = args.split()[0].rsplit("/", 1)[-1] if args else ""
     return first_word in known
-
-
-def _get_process_cwds(pids: Sequence[int]) -> dict[int, str]:
-    """Map each pid to its working directory via a single lsof call.
-
-    ``-a`` ANDs the ``-p`` (pid set) and ``-d cwd`` (fd) selectors; without it
-    lsof ORs them and reports *every* process's cwd — slow (a full-system scan
-    per pid) and wrong (attributing the first process's cwd to the queried pid).
-    ``-Fpn`` emits pid/name fields so each cwd attributes back to its pid; with
-    ``-d cwd`` each process yields exactly one name line.
-    """
-    if not pids:
-        return {}
-
-    try:
-        result = subprocess.run(
-            ["lsof", "-a", "-p", ",".join(str(pid) for pid in pids), "-d", "cwd", "-Fpn"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except FileNotFoundError:
-        return {}
-
-    # lsof exits non-zero when any queried pid has vanished, but still emits valid
-    # records for the survivors — parse whatever stdout we got.
-    cwds: dict[int, str] = {}
-    current: int | None = None
-    for line in result.stdout.splitlines():
-        tag, value = line[:1], line[1:]
-        if tag == "p":
-            current = int(value) if value.isdigit() else None
-        elif tag == "n" and current is not None:
-            cwds[current] = value
-    return cwds
 
 
 def _extract_process_name(args: str) -> str:
