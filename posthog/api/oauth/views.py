@@ -2233,7 +2233,9 @@ class OAuthTokenView(TokenView):
             )
 
         try:
-            issued_access_token = id_jag.issue_access_token(assertion, request.POST.get("scope"), client.client_id)
+            issued_access_token = id_jag.issue_access_token(
+                assertion, request.POST.get("scope"), client.client_id, request.POST.get("resource")
+            )
         except id_jag.IdJagError as e:
             logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)
             self._capture_token_rejected(id_jag.JWT_BEARER_GRANT_TYPE, client.client_id, e.error_code)
