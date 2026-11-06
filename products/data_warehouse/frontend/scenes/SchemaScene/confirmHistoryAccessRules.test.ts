@@ -1,17 +1,83 @@
+import api from 'lib/api'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+
 import { ExternalDataSourceSchema } from '~/types'
 
-import { turnsHistoryOn } from './confirmHistoryAccessRules'
+import { confirmHistoryAccessRules, turnsHistoryOn } from './confirmHistoryAccessRules'
+
+jest.mock('products/data_warehouse/frontend/generated/api', () => ({
+    warehouseTablesHistoryTableRetrieve: jest.fn(),
+}))
+
+const dwApi = jest.requireMock('products/data_warehouse/frontend/generated/api')
 
 type Mode = ExternalDataSourceSchema['cdc_table_mode']
 
-describe('turnsHistoryOn', () => {
+describe('confirmHistoryAccessRules', () => {
+    let dialog: jest.SpyInstance
+    let save: jest.Mock
+    let cancel: jest.Mock
+
+    const ask = async ({
+        ownRules = true,
+        historyTable = null as { user_can_manage_access: boolean } | null,
+    } = {}): Promise<void> => {
+        jest.spyOn(api, 'get').mockResolvedValue({
+            access_controls: ownRules ? [{ access_level: 'none' }] : [],
+            user_can_edit_access_levels: true,
+        })
+        dwApi.warehouseTablesHistoryTableRetrieve.mockResolvedValue({ history_table: historyTable })
+        await confirmHistoryAccessRules(1, 'table-1', save, cancel)
+    }
+
+    const close = (button?: 'primaryButton' | 'secondaryButton'): void => {
+        const props = dialog.mock.calls[0][0]
+        if (button) {
+            props[button].onClick()
+        }
+        props.onAfterClose()
+    }
+
+    beforeEach(() => {
+        dialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => () => {})
+        save = jest.fn()
+        cancel = jest.fn()
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
+    it.each([
+        ['accepts', 'primaryButton' as const, [[true]], 0],
+        ['declines', 'secondaryButton' as const, [[false]], 0],
+        ['closes the dialog', undefined, [], 1],
+    ])('saves with the answer when the user %s', async (_name, button, saves, cancels) => {
+        await ask()
+
+        close(button)
+
+        expect(save.mock.calls).toEqual(saves)
+        expect(cancel).toHaveBeenCalledTimes(cancels)
+    })
+
+    it.each([
+        ['the table has no rules of its own', { ownRules: false }],
+        ['the user cannot manage the history table', { historyTable: { user_can_manage_access: false } }],
+    ])('saves without asking when %s', async (_name, options) => {
+        await ask(options)
+
+        expect(dialog).not.toHaveBeenCalled()
+        expect(save.mock.calls).toEqual([[false]])
+    })
+
     it.each<[string, ExternalDataSourceSchema['sync_type'], Mode, Mode, boolean]>([
         ['consolidated to both', 'cdc', 'consolidated', 'both', true],
         ['consolidated to cdc_only', 'cdc', 'consolidated', 'cdc_only', true],
         ['incremental to cdc with history', 'incremental', undefined, 'both', true],
         ['cdc_only to both', 'cdc', 'cdc_only', 'both', false],
         ['both to consolidated', 'cdc', 'both', 'consolidated', false],
-    ])('%s', (_name, savedSyncType, savedMode, newMode, expected) => {
+    ])('turnsHistoryOn: %s', (_name, savedSyncType, savedMode, newMode, expected) => {
         expect(turnsHistoryOn({ sync_type: savedSyncType, cdc_table_mode: savedMode }, 'cdc', newMode)).toBe(expected)
     })
 })

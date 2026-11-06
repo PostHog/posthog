@@ -4,6 +4,8 @@ import { captureAccessControlEvent } from 'lib/utils/accessControlUtils'
 
 import { AccessControlResponseType, ExternalDataSourceSchema } from '~/types'
 
+import { warehouseTablesHistoryTableRetrieve } from 'products/data_warehouse/frontend/generated/api'
+
 type CdcTableMode = NonNullable<ExternalDataSourceSchema['cdc_table_mode']>
 
 const HISTORY_MODES: CdcTableMode[] = ['cdc_only', 'both']
@@ -30,18 +32,35 @@ async function tableHasOwnRulesYouCanCopy(projectId: number | string, tableId: s
     }
 }
 
-/** Ask whether the history table should start with the table's access rules, then save with the answer. */
+async function historyTableYouCannotManage(projectId: number | string, tableId: string): Promise<boolean> {
+    try {
+        const { history_table } = await warehouseTablesHistoryTableRetrieve(String(projectId), tableId)
+        return !!history_table && !history_table.user_can_manage_access
+    } catch {
+        return true
+    }
+}
+
+/** Ask whether the history table should start with the table's access rules, then save with the answer.
+ * `cancel` runs when the user closes the dialog without answering, so nothing saves. */
 export async function confirmHistoryAccessRules(
     projectId: number | string,
     tableId: string,
-    save: (copyAccessRules: boolean) => void
+    save: (copyAccessRules: boolean) => void,
+    cancel: () => void
 ): Promise<void> {
-    if (!(await tableHasOwnRulesYouCanCopy(projectId, tableId))) {
+    const [hasRules, cannotManageHistory] = await Promise.all([
+        tableHasOwnRulesYouCanCopy(projectId, tableId),
+        historyTableYouCannotManage(projectId, tableId),
+    ])
+    if (!hasRules || cannotManageHistory) {
         save(false)
         return
     }
     captureAccessControlEvent('history table access rules offered', { trigger: 'history_turned_on' })
+    let answered = false
     const answer = (accepted: boolean): void => {
+        answered = true
         captureAccessControlEvent('history table access rules answered', { trigger: 'history_turned_on', accepted })
         save(accepted)
     }
@@ -60,6 +79,11 @@ export async function confirmHistoryAccessRules(
             type: 'secondary',
             onClick: () => answer(false),
             'data-attr': 'history-access-rules-skip',
+        },
+        onAfterClose: () => {
+            if (!answered) {
+                cancel()
+            }
         },
     })
 }

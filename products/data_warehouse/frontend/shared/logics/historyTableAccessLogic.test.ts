@@ -1,30 +1,27 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { accessControlLogic } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlLogic'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { historyTableAccessLogic } from './historyTableAccessLogic'
 
 jest.mock('products/data_warehouse/frontend/generated/api', () => ({
     warehouseTablesHistoryTableRetrieve: jest.fn(),
+    warehouseTablesCopyAccessRulesToHistoryTableCreate: jest.fn(),
 }))
 
 const dwApi = jest.requireMock('products/data_warehouse/frontend/generated/api')
 
-const HISTORY_ENDPOINT = 'warehouse_tables/history-1/access_controls'
+const HISTORY_TABLE = { id: 'history-1', name: 'postgres.orders_history', user_can_manage_access: true }
 
 describe('historyTableAccessLogic', () => {
     let logic: ReturnType<typeof historyTableAccessLogic.build>
-    let put: jest.SpyInstance
     let dialog: jest.SpyInstance
 
-    const mount = async (flagOn: boolean, historyTable: { id: string; name: string } | null): Promise<void> => {
+    const mount = async (flagOn: boolean, historyTable: typeof HISTORY_TABLE | null): Promise<void> => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_HISTORY_ACCESS_RULES]: flagOn })
         dwApi.warehouseTablesHistoryTableRetrieve.mockResolvedValue({ history_table: historyTable })
@@ -33,55 +30,39 @@ describe('historyTableAccessLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     }
 
-    const changeDefaultRule = async (): Promise<void> => {
-        const tableLogic = accessControlLogic({
-            resource: AccessControlResourceType.WarehouseTable,
-            resource_id: 'table-1',
-            title: '',
-            description: '',
-        })
-        await expectLogic(tableLogic, () =>
-            tableLogic.actions.updateAccessControlDefault(AccessControlLevel.None)
-        ).toFinishAllListeners()
-        await expectLogic(logic).toFinishAllListeners()
-    }
-
-    const historyTablePuts = (): unknown[] =>
-        put.mock.calls.filter(([url]) => String(url).endsWith(HISTORY_ENDPOINT)).map(([, body]) => body)
-
     beforeEach(() => {
         initKeaTests()
-        put = jest.spyOn(api, 'put').mockResolvedValue({})
+        dwApi.warehouseTablesCopyAccessRulesToHistoryTableCreate.mockResolvedValue({ history_table: HISTORY_TABLE })
         dialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => () => {})
     })
 
     afterEach(() => {
         logic?.unmount()
+        jest.clearAllMocks()
         jest.restoreAllMocks()
     })
 
-    it('repeats the rule change on the history table when the user accepts', async () => {
-        await mount(true, { id: 'history-1', name: 'postgres.orders_history' })
+    it.each([
+        ['the flag is on and the user can manage the history table', true, HISTORY_TABLE, true],
+        ['the flag is off', false, HISTORY_TABLE, false],
+        ['the user cannot manage the history table', true, { ...HISTORY_TABLE, user_can_manage_access: false }, false],
+        ['the table has no history table', true, null, false],
+    ])('offers the copy only when %s', async (_name, flagOn, historyTable, expected) => {
+        await mount(flagOn, historyTable)
 
-        await changeDefaultRule()
-
-        expect(dialog).toHaveBeenCalledTimes(1)
-        expect(historyTablePuts()).toEqual([])
-        dialog.mock.calls[0][0].primaryButton.onClick()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(historyTablePuts()).toEqual([{ access_level: AccessControlLevel.None }])
+        expect(logic.values.canCopyToHistoryTable).toBe(expected)
     })
 
     it.each([
-        ['the table has no history table', true, null],
-        ['the flag is off', false, { id: 'history-1', name: 'postgres.orders_history' }],
-    ])('asks nothing when %s', async (_name, flagOn, historyTable) => {
-        await mount(flagOn, historyTable)
+        ['confirms', 'primaryButton', 1],
+        ['cancels', 'secondaryButton', 0],
+    ])('copies the rules only when the user %s', async (_name, button, copies) => {
+        await mount(true, HISTORY_TABLE)
 
-        await changeDefaultRule()
+        logic.actions.confirmCopyToHistoryTable()
+        dialog.mock.calls[0][0][button].onClick()
+        await expectLogic(logic).toFinishAllListeners()
 
-        expect(dialog).not.toHaveBeenCalled()
-        expect(historyTablePuts()).toEqual([])
+        expect(dwApi.warehouseTablesCopyAccessRulesToHistoryTableCreate).toHaveBeenCalledTimes(copies)
     })
 })

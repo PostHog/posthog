@@ -52527,6 +52527,8 @@ export namespace Schemas {
       id: string;
       /** Name the history table is queried by in HogQL. */
       name: string;
+      /** Whether you can change who can access the history table. */
+      user_can_manage_access: boolean;
     }
 
     /**
@@ -110088,7 +110090,7 @@ export namespace Schemas {
     }
 
     export interface TableHistoryTable {
-      /** The table's history table, which keeps every past version of its rows. `null` when the table has none, or when you can't manage access to it. */
+      /** The table's history table, which keeps every past version of its rows. `null` when the table has none. */
       history_table: HistoryTableRef | null;
     }
 

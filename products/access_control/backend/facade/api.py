@@ -514,38 +514,63 @@ def replace_object_access_rules(
                 )
 
 
-def copy_object_access_rules(*, team_id: int, resource: str, from_resource_id: str, to_resource_id: str) -> None:
-    """Make the rules on one object the same as the rules on another object of the same resource.
-
-    Replaces every rule the target has, through `replace_object_access_rules`, so each change goes
-    into the activity log. Rules naming a member or role of another organization never apply, so
-    they are not copied. The caller decides whether the change is allowed.
-    """
+def _copyable_object_rules(team_id: int, resource: str, resource_id: str) -> list[contracts.ObjectAccessRuleInput]:
+    # Rules naming a member or role of another organization never apply, so they are not copied.
     team = Team.objects.only("id", "organization_id").get(id=team_id)
-    rules = [
+    return [
         contracts.ObjectAccessRuleInput(
             access_level=rule.access_level,
             organization_member_id=rule.organization_member_id,
             role_id=rule.role_id,
         )
-        for rule in AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=from_resource_id)
+        for rule in AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=resource_id)
         .filter(Q(organization_member__isnull=True) | Q(organization_member__organization_id=team.organization_id))
         .filter(Q(role__isnull=True) | Q(role__organization_id=team.organization_id))
     ]
-    # The same cap the rule endpoint applies when a rule is first set on an object.
+
+
+def check_object_access_rules_copy(
+    *, team_id: int, resource: str, from_resource_id: str, to_resource_id: str | None
+) -> None:
+    """Raise `InvalidObjectAccessControlError` when copying the rules of one object to another would pass
+    the cap the rule endpoint applies when a rule is first set on an object.
+
+    `to_resource_id` is None for an object that doesn't exist yet, which has no rules.
+    """
+    if not AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=from_resource_id).exists():
+        return
     if (
-        rules
-        and not AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=to_resource_id).exists()
-        and AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id__isnull=False)
+        to_resource_id is not None
+        and AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=to_resource_id).exists()
+    ):
+        return
+    objects_with_rules = (
+        AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id__isnull=False)
         .values("resource_id")
         .distinct()
         .count()
-        >= ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE
-    ):
+    )
+    if objects_with_rules >= ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE:
         raise InvalidObjectAccessControlError(
             f"Reached the limit of {ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE} {resource}s with access control overrides."
         )
-    replace_object_access_rules(team_id=team_id, resource=resource, resource_id=to_resource_id, rules=rules)
+
+
+def copy_object_access_rules(*, team_id: int, resource: str, from_resource_id: str, to_resource_id: str) -> None:
+    """Make the rules on one object the same as the rules on another object of the same resource.
+
+    Replaces every rule the target has, through `replace_object_access_rules`, so each change goes
+    into the activity log. The caller decides whether the change is allowed.
+    """
+    check_object_access_rules_copy(
+        team_id=team_id, resource=resource, from_resource_id=from_resource_id, to_resource_id=to_resource_id
+    )
+    replace_object_access_rules(
+        team_id=team_id,
+        resource=resource,
+        resource_id=to_resource_id,
+        rules=_copyable_object_rules(team_id, resource, from_resource_id),
+    )
 
 
 def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) -> bool:

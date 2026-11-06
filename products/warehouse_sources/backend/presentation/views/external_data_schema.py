@@ -21,7 +21,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
-from posthog.permissions import AccessControlPermission, is_service_auth
+from posthog.permissions import AccessControlPermission, is_service_auth, scopes_caller_lacks
 from posthog.utils import str_to_bool
 
 from products.access_control.backend.facade.api import InvalidObjectAccessControlError
@@ -88,6 +88,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     ambiguous_masked_columns,
     check_access_rules_copy,
     collision_alias_masked_columns,
+    drop_pending_access_rules_copy,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     fold_column_name,
     get_cdc_adapter,
@@ -1436,10 +1437,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # Checked before the save, so a refused copy leaves the schema unchanged.
             if request is None or not isinstance(request.user, User):
                 raise PermissionDenied(HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE)
+            # The copy writes access rules, which a token may only do with the scope the rules endpoint requires.
+            if scopes_caller_lacks(request, ["access_control:write"]):
+                raise PermissionDenied("Copying access rules requires the access_control:write scope.")
             try:
                 check_access_rules_copy(instance, request.user)
             except HistoryAccessRulesNotAllowedError as e:
                 raise PermissionDenied(str(e))
+            except InvalidObjectAccessControlError as e:
+                raise ValidationError({"copy_access_rules_to_history": str(e)})
 
         enabled_columns_changed = "enabled_columns" in validated_data and (
             validated_data["enabled_columns"] != instance.enabled_columns
@@ -2157,6 +2163,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 request_access_rules_copy(updated_instance, cast(User, request.user))
             except InvalidObjectAccessControlError as e:
                 raise ValidationError({"copy_access_rules_to_history": str(e)})
+        elif not updated_instance.keeps_history or "cdc_table_mode" in data:
+            # Turning history off, or choosing a mode again without the copy, withdraws an earlier request.
+            drop_pending_access_rules_copy(updated_instance)
 
         return updated_instance
 

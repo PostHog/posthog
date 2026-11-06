@@ -521,7 +521,14 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                 featureFlags[FEATURE_FLAGS.WAREHOUSE_HISTORY_ACCESS_RULES] &&
                 turnsHistoryOn(schema, syncType, cdcTableMode)
             ) {
-                await confirmHistoryAccessRules(currentProjectId, table.id, (copy) => void applyUpdate(copy))
+                // Disables Save through the lookup and the dialog, so a second click can't send another update.
+                setSaving(true)
+                await confirmHistoryAccessRules(
+                    currentProjectId,
+                    table.id,
+                    (copy) => void applyUpdate(copy),
+                    () => setSaving(false)
+                )
                 return
             }
             await applyUpdate()

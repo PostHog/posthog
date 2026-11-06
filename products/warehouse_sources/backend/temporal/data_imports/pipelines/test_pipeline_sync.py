@@ -12,8 +12,9 @@ from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team, User
 
+from products.access_control.backend.facade.api import access_rules
 from products.access_control.backend.facade.testing import create_access_control
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -29,6 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
     HistoryTableNameTakenError,
     history_naming,
+)
+from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import (
+    PENDING_COPY_KEY,
+    request_access_rules_copy,
 )
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
@@ -415,6 +420,66 @@ class TestRegisterCdcCompanionTableStamp:
             )
 
         assert history_naming(ExternalDataSchema.objects.get(id=schema.id)) == expected
+
+    @pytest.mark.parametrize("mode", ["both", "cdc_only"])
+    def test_registering_the_history_table_runs_a_copy_of_access_rules_that_waits(self, team, mode):
+        organization_admin = User.objects.create_and_join(
+            team.organization, "admin@example.com", "testtest", level=OrganizationMembership.Level.ADMIN
+        )
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        table = DataWarehouseTable.objects.create(
+            team=team,
+            name="postgres_orders",
+            format="DeltaS3Wrapper",
+            url_pattern="s3://b/o",
+            external_data_source=source,
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team=team,
+            source=source,
+            table=table,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_table_mode": mode},
+        )
+        create_access_control(
+            team_id=team.pk, resource="warehouse_table", resource_id=str(table.id), access_level="none"
+        )
+        request_access_rules_copy(schema, organization_admin)
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=100),
+        ):
+            async_to_sync(register_cdc_companion_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                resource_name="orders_history",
+                row_count=100,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders_history__query_a",
+                table_schema_dict={
+                    "id": "Int64",
+                    HISTORY_NAMING.valid_from: "DateTime",
+                    HISTORY_NAMING.valid_to: "DateTime",
+                },
+                set_as_schema_table=mode == "cdc_only",
+            )
+
+        history = DataWarehouseTable.objects.get(team=team, name=build_table_name(source, "orders_history"))
+        history_rules = {
+            (rule.access_level, rule.organization_member_id)
+            for rule in access_rules(team_id=team.pk, resources=["warehouse_table"])
+            if rule.resource_id == str(history.id)
+        }
+        assert history_rules == {("none", None)}
+        assert PENDING_COPY_KEY not in (ExternalDataSchema.objects.get(id=schema.id).sync_type_config or {})
 
     def test_does_not_take_the_record_of_a_source_table_with_the_history_name(self, team):
         source = ExternalDataSource.objects.create(
