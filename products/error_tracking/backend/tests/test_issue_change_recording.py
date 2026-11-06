@@ -2,15 +2,23 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from queue import Queue
 from time import monotonic
+from uuid import uuid4
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
-from django.db import close_old_connections, connection, transaction
+from django.db import IntegrityError, close_old_connections, connection, transaction
 
+from parameterized import parameterized
+
+from posthog.models.activity_logging.activity_log import ActivityLog
+
+from products.error_tracking.backend.logic.issue_changes import ChangeOperation
 from products.error_tracking.backend.logic.issue_mutations import (
+    IssueActor,
     assign_issue,
     bulk_update_issues,
+    change_issue_statuses,
     merge_issues,
     split_issue,
     update_issue,
@@ -132,6 +140,60 @@ class TestIssueChangeRecording(BaseTest):
             ({"previous": None}, assigned),
             ({"previous": assigned}, None),
         ]
+
+    def test_system_operation_is_none_when_the_flag_is_off(self, flag) -> None:
+        flag.return_value = False
+
+        assert ChangeOperation.for_system(self.team.id, bulk=True) is None
+
+    @parameterized.expand([("user_id", {"actor_user_id": 1}), ("automation_id", {"actor_automation_id": uuid4()})])
+    def test_system_rows_with_an_actor_id_are_rejected(self, _flag, _name, actor_ids) -> None:
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            ErrorTrackingIssueChange.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                issue_id=uuid4(),
+                kind="status_changed",
+                operation_id=uuid4(),
+                actor_type="system",
+                **actor_ids,
+            )
+
+    @parameterized.expand([(True,), (False,)])
+    def test_system_status_change_writes_outward_records_only_when_asked(self, _flag, outward_records) -> None:
+        issue = self._create_issue({"fp": EARLY})
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as produce,
+            self.captureOnCommitCallbacks(execute=True),
+            transaction.atomic(),
+        ):
+            changed = change_issue_statuses(
+                list(
+                    ErrorTrackingIssue.objects.select_for_update()
+                    .select_related("team__organization")
+                    .filter(id=issue.id)
+                ),
+                ErrorTrackingIssue.Status.RESOLVED,
+                team_id=self.team.id,
+                actor=IssueActor.for_system(self.team.id, bulk=True),
+                outward_records=outward_records,
+            )
+
+        issue.refresh_from_db()
+        assert changed == [issue.id]
+        assert issue.status == "resolved"
+        assert issue.state_updated_at is not None
+        [entry] = ActivityLog.objects.filter(team_id=self.team.id, scope="ErrorTrackingIssue", item_id=str(issue.id))
+        assert entry.detail is not None
+        assert (entry.user, entry.detail["changes"][0]["after"]) == (None, "resolved")
+        if outward_records:
+            [change] = self._changes()
+            assert (change.actor_type, change.actor_user_id, change.data) == ("system", None, {"previous": "active"})
+            [call] = produce.call_args_list
+            assert (call.kwargs["event"].event, call.kwargs["person"]) == ("$error_tracking_issue_resolved", None)
+        else:
+            assert self._changes() == []
+            produce.assert_not_called()
 
     def test_writes_nothing_when_the_flag_is_off(self, flag) -> None:
         flag.return_value = False

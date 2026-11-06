@@ -1112,6 +1112,8 @@ class ErrorTrackingIssueChange(TeamScopedRootMixin, UUIDModel):
         INGESTION = "ingestion", "Ingestion"
         USER = "user", "User"
         AUTOMATION = "automation", "Automation"
+        # A change PostHog makes on its own schedule, with no user or automation behind it.
+        SYSTEM = "system", "System"
 
     # db_constraint=False keeps inserts lock-free on posthog_team (a hot table);
     # team scoping is enforced at the ORM layer via TeamScopedRootMixin.
@@ -1124,7 +1126,7 @@ class ErrorTrackingIssueChange(TeamScopedRootMixin, UUIDModel):
     kind = models.TextField(choices=Kind)
     data = models.JSONField(default=dict, db_default={})
     snapshot = models.JSONField(default=dict, db_default={})
-    # One id per user action, ingestion transaction or automation run. Rows of one
+    # One id per user action, ingestion transaction, automation run or system run. Rows of one
     # operation are delivered together, e.g. a resolve and an assign in one request.
     operation_id = models.UUIDField()
     bulk = models.BooleanField(default=False, db_default=False)
@@ -1150,6 +1152,7 @@ class ErrorTrackingIssueChange(TeamScopedRootMixin, UUIDModel):
                     models.Q(actor_type="ingestion", actor_user_id__isnull=True, actor_automation_id__isnull=True)
                     | models.Q(actor_type="user", actor_user_id__isnull=False, actor_automation_id__isnull=True)
                     | models.Q(actor_type="automation", actor_user_id__isnull=True, actor_automation_id__isnull=False)
+                    | models.Q(actor_type="system", actor_user_id__isnull=True, actor_automation_id__isnull=True)
                 ),
                 name="et_issue_change_actor_matches_type",
             ),

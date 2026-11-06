@@ -5,6 +5,7 @@ assignment side effects that previously lived in the presentation layer, so the 
 can stay thin (parse -> facade -> serialize).
 """
 
+from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
@@ -403,6 +404,100 @@ def assign_issue(
     return transition is not None
 
 
+@frozen
+class IssueActor:
+    """Who changes issues: a user, or the system when no user is involved.
+
+    Build it before the mutation opens its transaction, so the change log flag check never holds row locks.
+    """
+
+    user: User | None
+    was_impersonated: bool
+    # None when the change log is off for the team.
+    operation: ChangeOperation | None
+
+    @classmethod
+    def for_user(cls, team_id: int, user: User, *, was_impersonated: bool, bulk: bool = False) -> "IssueActor":
+        return cls(
+            user=user,
+            was_impersonated=was_impersonated,
+            operation=ChangeOperation.for_user(team_id, user, bulk=bulk),
+        )
+
+    @classmethod
+    def for_system(cls, team_id: int, *, bulk: bool = False) -> "IssueActor":
+        return cls(user=None, was_impersonated=False, operation=ChangeOperation.for_system(team_id, bulk=bulk))
+
+
+def change_issue_statuses(
+    issues: Sequence[ErrorTrackingIssue],
+    new_status: ErrorTrackingIssue.Status,
+    *,
+    team_id: int,
+    actor: IssueActor,
+    outward_records: bool = True,
+) -> list[UUID]:
+    """Set the status of row-locked issues and return the ids of the issues that changed.
+
+    Call it inside the transaction that holds the row locks, with the issues loaded with
+    `select_related("team__organization")` to avoid a query per issue. Each changed issue gets an activity
+    log entry and a state stamp. With `outward_records`, it also gets a lifecycle event and a
+    change log row. The caller syncs the returned ids to ClickHouse after the commit.
+    """
+    changed_issue_ids: list[UUID] = []
+    issue_changes: list[IssueChange] = []
+    transitions: list[PendingLifecycleEvent] = []
+    for issue in issues:
+        if issue.status == new_status:
+            continue
+        changed_issue_ids.append(issue.id)
+        log_activity(
+            organization_id=issue.team.organization_id,
+            team_id=team_id,
+            user=actor.user,
+            was_impersonated=actor.was_impersonated,
+            item_id=issue.id,
+            scope="ErrorTrackingIssue",
+            activity="updated",
+            detail=Detail(
+                name=issue.name,
+                changes=[
+                    Change(
+                        type="ErrorTrackingIssue",
+                        action="changed",
+                        field="status",
+                        before=issue.status,
+                        after=new_status,
+                    )
+                ],
+            ),
+        )
+        if outward_records and new_status in STATUS_CHANGE_EVENTS:
+            transitions.append(
+                prepare_issue_lifecycle_event(
+                    event=STATUS_CHANGE_EVENTS[new_status],
+                    issue=issue,
+                    user=actor.user,
+                    status=new_status,
+                    extra_properties={"previous_status": status_label(issue.status)},
+                    opener_allowed=False,
+                )
+            )
+        previous_status = Status(issue.status)
+        # The queryset update below writes the same status; the snapshot reads it from this instance.
+        issue.status = new_status
+        issue_changes.append(IssueChange(issue=issue, data=StatusChanged(previous=previous_status)))
+    if not changed_issue_ids:
+        return changed_issue_ids
+    ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=changed_issue_ids).update(
+        status=new_status, state_updated_at=timezone.now()
+    )
+    if outward_records:
+        produce_issue_lifecycle_events_on_commit(transitions)
+        record_issue_changes(actor.operation, issue_changes)
+    return changed_issue_ids
+
+
 def bulk_update_issues(
     team_id: int,
     issue_ids: list[str],
@@ -414,8 +509,7 @@ def bulk_update_issues(
     was_impersonated: bool,
 ) -> int:
     changed_issue_ids: list[UUID] = []
-    issue_changes: list[IssueChange] = []
-    operation = ChangeOperation.for_user(team_id, user, bulk=True)
+    actor = IssueActor.for_user(team_id, user, was_impersonated=was_impersonated, bulk=True)
 
     with transaction.atomic():
         issues = _lock_issues(team_id, issue_ids, select_related=("team__organization",))
@@ -423,54 +517,10 @@ def bulk_update_issues(
             new_status = _status_from_string(status) if status is not None else None
             if new_status is None:
                 raise InvalidIssueStatusError
-            transitions = []
-            for issue in issues:
-                if issue.status == new_status:
-                    continue
-                changed_issue_ids.append(issue.id)
-                log_activity(
-                    organization_id=issue.team.organization_id,
-                    team_id=team_id,
-                    user=user,
-                    was_impersonated=was_impersonated,
-                    item_id=issue.id,
-                    scope="ErrorTrackingIssue",
-                    activity="updated",
-                    detail=Detail(
-                        name=issue.name,
-                        changes=[
-                            Change(
-                                type="ErrorTrackingIssue",
-                                action="changed",
-                                field="status",
-                                before=issue.status,
-                                after=new_status,
-                            )
-                        ],
-                    ),
-                )
-                if new_status in STATUS_CHANGE_EVENTS:
-                    transitions.append(
-                        prepare_issue_lifecycle_event(
-                            event=STATUS_CHANGE_EVENTS[new_status],
-                            issue=issue,
-                            user=user,
-                            status=new_status,
-                            extra_properties={"previous_status": status_label(issue.status)},
-                            opener_allowed=False,
-                        )
-                    )
-                previous_status = Status(issue.status)
-                # The queryset update below writes the same status; the snapshot reads it from this instance.
-                issue.status = new_status
-                issue_changes.append(IssueChange(issue=issue, data=StatusChanged(previous=previous_status)))
-            produce_issue_lifecycle_events_on_commit(transitions)
-            if changed_issue_ids:
-                ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=changed_issue_ids).update(
-                    status=new_status, state_updated_at=timezone.now()
-                )
+            changed_issue_ids = change_issue_statuses(issues, new_status, team_id=team_id, actor=actor)
         elif action == "assign":
             transitions = []
+            issue_changes: list[IssueChange] = []
             for issue in issues:
                 outcome = _assign_one(
                     issue, assignee, issue.team.organization, user, team_id, was_impersonated, opener_allowed=False
@@ -481,7 +531,7 @@ def bulk_update_issues(
                     changed_issue_ids.append(issue.id)
             produce_issue_lifecycle_events_on_commit(transitions)
             _stamp_issue_state(team_id=team_id, issue_ids=changed_issue_ids)
-        record_issue_changes(operation, issue_changes)
+            record_issue_changes(actor.operation, issue_changes)
 
     sync_issues_to_clickhouse(issue_ids=changed_issue_ids, team_id=team_id)
     return len(changed_issue_ids)

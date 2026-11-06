@@ -232,7 +232,7 @@ def issue_change_log_enabled(team_id: int) -> bool:
 
 @frozen
 class ChangeOperation:
-    """One user action, ingestion transaction or automation run. Its rows share `operation_id`."""
+    """One user action, ingestion transaction, automation run or system run. Its rows share `operation_id`."""
 
     id: UUID
     team_id: int
@@ -253,6 +253,19 @@ class ChangeOperation:
             team_id=team_id,
             actor_type=ErrorTrackingIssueChange.ActorType.USER,
             actor_user_id=user.id,
+            bulk=bulk,
+        )
+
+    @classmethod
+    def for_system(cls, team_id: int, *, bulk: bool = False) -> "ChangeOperation | None":
+        """Like `for_user`, for a change that no user or automation caused."""
+        if not issue_change_log_enabled(team_id):
+            return None
+        return cls(
+            id=uuid7(),
+            team_id=team_id,
+            actor_type=ErrorTrackingIssueChange.ActorType.SYSTEM,
+            actor_user_id=None,
             bulk=bulk,
         )
 
