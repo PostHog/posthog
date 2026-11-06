@@ -63,6 +63,7 @@ FIELD_MEANINGS: dict[str, FieldMeaning] = {
     "category": "label",
 }
 CAMEL_CASE_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
+SAFE_FIELD_PATH = re.compile(r"^[A-Za-z0-9_]{1,40}(\[\])?(\.[A-Za-z0-9_]{1,40}(\[\])?){0,3}$")
 ENUM_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$")
 
 
@@ -380,7 +381,9 @@ def _enum_fields(outputs: Sequence[StructuredOutput]) -> dict[str, FieldMeaning]
     fields = {
         field: meaning
         for field, counts in totals.items()
-        if (meaning := field_meaning(field)) is not None
+        # The field path goes into a judge prompt, so only plain identifiers qualify, never free text from an output.
+        if SAFE_FIELD_PATH.match(field)
+        and (meaning := field_meaning(field)) is not None
         and sum(counts.values()) >= MIN_GAP_ITEMS
         and 2 <= len(counts) <= MAX_ENUM_VALUES
         and all(ENUM_VALUE.match(value) for value in counts)

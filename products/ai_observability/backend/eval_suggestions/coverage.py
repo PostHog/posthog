@@ -27,6 +27,7 @@ from . import catalog
 from .queries import run_query
 
 DEAD_LOOKBACK = timedelta(days=30)
+MAX_SILENT_EVALUATIONS = 10
 # A young evaluation, or one edited in the last days, has not had the chance to match anything yet.
 MIN_EVALUATION_AGE = timedelta(days=7)
 MIN_QUIET_AFTER_EDIT = timedelta(days=2)
@@ -196,8 +197,12 @@ def covers(existing: ExistingEval, target: str, filters: Sequence[Mapping[str, A
     """
     if not existing.enabled or existing.target != target:
         return False
+    # A condition set at 0% rollout matches but never runs, so it covers nothing.
     return any(
-        all(any(_same_or_wider(prop, candidate) for candidate in filters) for prop in condition.get("properties") or [])
+        (condition.get("rollout_percentage") or 0) > 0
+        and all(
+            any(_same_or_wider(prop, candidate) for candidate in filters) for prop in condition.get("properties") or []
+        )
         for condition in existing.conditions
     )
 
@@ -372,11 +377,20 @@ def find_fixes(
     }
     fixes: list[EvalFix] = []
     values_by_key: dict[str, dict[str, int]] = {}
-    for evaluation_id, existing in enabled.items():
-        if evaluation_id in runs:
-            continue
-        if now - existing.created_at < MIN_EVALUATION_AGE or now - existing.updated_at < MIN_QUIET_AFTER_EDIT:
-            continue
+    # Each candidate costs a count and possibly repair probes, so a team with many silent evaluations pays for
+    # the most recently edited few.
+    silent = sorted(
+        (
+            (evaluation_id, existing)
+            for evaluation_id, existing in enabled.items()
+            if evaluation_id not in runs
+            and now - existing.created_at >= MIN_EVALUATION_AGE
+            and now - existing.updated_at >= MIN_QUIET_AFTER_EDIT
+        ),
+        key=lambda item: item[1].updated_at,
+        reverse=True,
+    )[:MAX_SILENT_EVALUATIONS]
+    for evaluation_id, existing in silent:
         # Conditions that match traffic mean the evaluation stopped for another reason, such as its key.
         if _count_matching(team, _clean_conditions(existing.conditions), window_start, window_end) > 0:
             continue

@@ -6,7 +6,7 @@ from posthog.schema import LLMTrace
 
 from products.ai_observability.backend.eval_suggestions import adapters, ranking
 from products.ai_observability.backend.eval_suggestions.measure import Measurement, Outcome, SampledTrace, TraceSample
-from products.ai_observability.backend.eval_suggestions.profile import TeamProfile
+from products.ai_observability.backend.eval_suggestions.profile import StructuredGap, TeamProfile
 
 
 def _sampled(trace_id: str, product: str, held_out: bool = False, earlier: tuple[str, ...] = ()) -> SampledTrace:
@@ -237,3 +237,34 @@ def test_judge_tokens_per_run(_name: str, target: str, trace_tokens: list[float]
     traces = [replace(_sampled(f"t{i}", "chat"), input_tokens=tokens) for i, tokens in enumerate(trace_tokens)]
     # PROFILE holds 1,000 traces in 100 sessions, 10 traces each.
     assert ranking.mean_unit_tokens(target, PROFILE, TraceSample(main=traces, held_out=[])) == expected
+
+
+def test_a_long_dedupe_key_is_bounded_and_stable() -> None:
+    key = "gap:" + "segment_" * 40 + "=value:findings[].priority"
+    bounded = ranking.bounded_key(key)
+    assert len(bounded) <= ranking.MAX_DEDUPE_KEY
+    assert bounded == ranking.bounded_key(key) != ranking.bounded_key(key + "x")
+    assert ranking.bounded_key("gap:lens=security:findings[].priority") == "gap:lens=security:findings[].priority"
+
+
+@parameterized.expand([("urgency", "deserves that level"), ("status", "in that state"), ("label", "fits that label")])
+def test_a_gap_judge_checks_what_the_field_means(meaning: str, phrase: str) -> None:
+    gap = StructuredGap(
+        field="findings[].priority",
+        meaning=meaning,
+        values=("P0",),
+        segment_key="ai_product",
+        segment_value="chat",
+        segment_rate=0.5,
+        other_rate=0.05,
+        segment_items=40,
+        other_items=40,
+        examples=(),
+    )
+    sample = TraceSample(main=[_sampled("t1", "chat")], held_out=[])
+
+    proposal = ranking.gap_proposal(
+        gap, sample, PROFILE, judge_model=ranking.DEFAULT_JUDGE_MODEL, similar_evaluation_id=None
+    )
+
+    assert phrase in proposal.draft["evaluation_config"]["prompt"]
