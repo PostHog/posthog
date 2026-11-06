@@ -51,11 +51,17 @@ export function MyHoglakeCredentials(): JSX.Element | null {
     return (
         <div className="border rounded p-4 space-y-3">
             <div>
-                <h3 className="mb-1">Your hoglake credentials</h3>
+                <h3 className="mb-1 flex items-center gap-2">
+                    Your hoglake credentials <LemonTag type="highlight">Preview</LemonTag>
+                </h3>
+                <p className="text-muted text-xs mb-1">
+                    Your own OAuth client credentials for this organization's hoglake catalog. Each reaches only the
+                    projects you choose, with the access you have on them now: if you lose access to a project, its next
+                    token leaves it out.
+                </p>
                 <p className="text-muted text-xs mb-0">
-                    Your own OAuth client credentials for reading this organization's hoglake catalog directly, e.g.
-                    from Spark, DuckDB or PyIceberg. Each reaches only the projects you choose, with the access you have
-                    on them now: if you lose access to a project, its next token leaves it out.
+                    For now these reach only the catalog metadata of your projects' namespaces. Reading table data needs
+                    S3 access, which personal credentials don't get yet.
                 </p>
             </div>
 
