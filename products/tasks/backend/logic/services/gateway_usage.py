@@ -288,9 +288,12 @@ def get_task_run_token_usage(*, run_id: UUID, team_id: int) -> TaskRunTokenUsage
     return _token_usage(TaskRun.objects.get(id=run_id, team_id=team_id))
 
 
-def _run_spend(run: TaskRun, *, queued: bool | None = None) -> TaskRunSpend:
+def _run_spend(
+    run: TaskRun, *, queued: bool | None = None, sessions: list[SandboxSession] | None = None
+) -> TaskRunSpend:
     usage = _token_usage(run, queued=queued)
-    sessions = list(SandboxSession.objects.for_team(run.team_id).filter(task_run=run))
+    if sessions is None:
+        sessions = list(SandboxSession.objects.for_team(run.team_id).filter(task_run=run))
     compute = _compute_cost_source(run, sessions=sessions, include_unattributed=True) if sessions else Decimal(0)
     compute_complete = compute is not None and (
         not run.is_terminal
@@ -322,8 +325,13 @@ def locked_task_run_spend(*, team_id: int, run_id: UUID) -> Iterator[TaskRunSpen
 
 def get_task_runs_spend(*, team_id: int, run_ids: Iterable[UUID]) -> list[TaskRunSpend]:
     runs = list(TaskRun.objects.filter(team_id=team_id, id__in=run_ids))
+    if not runs:
+        return []
     queued = _runs_with_queued_requests(team_id, [run.id for run in runs])
-    return [_run_spend(run, queued=run.id in queued) for run in runs]
+    sessions_by_run: dict[UUID, list[SandboxSession]] = {}
+    for session in SandboxSession.objects.for_team(team_id).filter(task_run__in=runs):
+        sessions_by_run.setdefault(session.task_run_id, []).append(session)
+    return [_run_spend(run, queued=run.id in queued, sessions=sessions_by_run.get(run.id, [])) for run in runs]
 
 
 def _token_cost_microusd(run: TaskRun, *, queued: bool | None = None) -> int | None:
