@@ -65,14 +65,6 @@ jobs:
                       nodejs:
                           - 'nodejs/**'
 
-            # rust_services matches any rust/** change except the migration directories
-            # the ! patterns carve out.
-            - uses: ./.github/actions/paths-filter
-              id: rust-filter
-              if: steps.skip-label.outputs.skip != 'true'
-              with:
-                  token: ${{ steps.app-token.outputs.token || github.token }}
-                  filters: |
                       rust_services:
                           - 'rust/**'
                           - '!rust/persons_migrations/**'
@@ -86,7 +78,7 @@ jobs:
                   MIGRATIONS_CHANGED: ${{ steps.filter.outputs.migrations }}
                   NODEJS_CHANGED: ${{ steps.filter.outputs.nodejs }}
                   SQLX_MIGRATIONS_CHANGED: ${{ steps.filter.outputs.sqlx_migrations }}
-                  RUST_SERVICES_CHANGED: ${{ steps.rust-filter.outputs.rust_services }}
+                  RUST_SERVICES_CHANGED: ${{ steps.filter.outputs.rust_services }}
               run: |
                   has_error=false
                   error_messages=""

@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { ReactNode } from 'react'
+import { Fragment, ReactNode } from 'react'
 
-import { Tabs, TabsList, TabsTrigger } from '@posthog/quill'
+import { Separator, Tabs, TabsList, TabsTrigger } from '@posthog/quill'
 
 export interface PaneTab<K extends string> {
     key: K
@@ -9,6 +9,7 @@ export interface PaneTab<K extends string> {
     icon?: ReactNode
     dataAttr: string
     disabledReason?: string
+    dividerBefore?: boolean
 }
 
 export function PaneTabBar<K extends string>({
@@ -35,16 +36,18 @@ export function PaneTabBar<K extends string>({
         >
             <TabsList variant="line" className="w-full justify-start rounded-none bg-muted">
                 {tabs.map((tab) => (
-                    <TabsTrigger
-                        key={tab.key}
-                        value={tab.key}
-                        disabled={!!tab.disabledReason}
-                        className={clsx('text-xs', fullWidth && 'flex-auto')}
-                        data-attr={tab.dataAttr}
-                    >
-                        {tab.icon}
-                        {tab.label}
-                    </TabsTrigger>
+                    <Fragment key={tab.key}>
+                        {tab.dividerBefore && <Separator orientation="vertical" className="h-4 self-center mx-1" />}
+                        <TabsTrigger
+                            value={tab.key}
+                            disabled={!!tab.disabledReason}
+                            className={clsx('text-xs', fullWidth ? 'flex-auto' : 'flex-none')}
+                            data-attr={tab.dataAttr}
+                        >
+                            {tab.icon}
+                            {tab.label}
+                        </TabsTrigger>
+                    </Fragment>
                 ))}
                 {!fullWidth && <div className="flex-1" />}
                 {children}

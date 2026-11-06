@@ -1,3 +1,4 @@
+import type { DisplayRect } from '@/ui/displayRegions'
 /** A row's frame in window coordinates, from `measureInWindow`. */
 export interface RowAnchor {
     x: number
@@ -27,6 +28,38 @@ export interface ContextMenuPlacement {
 }
 
 export const CONTEXT_MENU_GAP = 8
+
+export function placeAnchoredMenu({
+    anchor,
+    frame,
+    pane,
+    width,
+    height,
+    gutter = 14,
+}: {
+    anchor: RowAnchor
+    frame: DisplayRect
+    pane: DisplayRect
+    width: number
+    height: number
+    gutter?: number
+}): { left: number; top: number; width: number; maxHeight: number; side: ContextMenuSide } {
+    const fittedWidth = Math.min(width, Math.max(0, pane.width - gutter * 2))
+    const maxHeight = Math.max(0, pane.height - gutter * 2)
+    const placement = placeContextMenu({
+        rowTop: anchor.y - frame.y,
+        rowBottom: anchor.y - frame.y + anchor.height,
+        menuHeight: Math.min(height, maxHeight),
+        topLimit: pane.y + gutter,
+        bottomLimit: pane.y + pane.height - gutter,
+    })
+    return {
+        ...placement,
+        left: Math.max(pane.x + gutter, Math.min(anchor.x - frame.x, pane.x + pane.width - gutter - fittedWidth)),
+        width: fittedWidth,
+        maxHeight,
+    }
+}
 
 export function placeContextMenu({
     rowTop,

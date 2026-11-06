@@ -4,6 +4,7 @@ from . import (
     email_sending_tiers,
     hog_flows,
     people_import,
+    push_token_import,
     ses_account_reputation,
     ses_events_dlq,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "email_sending_tiers",
     "hog_flows",
     "people_import",
+    "push_token_import",
     "ses_account_reputation",
     "ses_events_dlq",
 ]

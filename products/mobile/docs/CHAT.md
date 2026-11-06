@@ -1,15 +1,42 @@
 # Chat
 
-The chat screen talks to PostHog AI on the task runtime, as the web app's side-panel chat does.
-Every chat is a task with interactive runs in a sandbox.
+## Choosing the chat version
+
+New general chats use the Tasks agent only in project 2 on `https://us.posthog.com`.
+Every other project uses classic PostHog AI through the existing `conversations/` API.
+This temporary routing rule is local to the mobile app. It does not evaluate rollout flags
+or request an AI access field from the server. Organization approval and personal consent
+still apply before sending messages.
+
+Saved conversation links read their runtime from the existing conversation detail response.
+Report discussions and existing task links keep the Tasks path and its report-specific access
+exemptions. **New chat** starts the version selected for the current project. Demo mode keeps
+its local Tasks fixtures.
+
+Classic chat supports streamed responses, saved history, follow-up messages, stopping a reply,
+and approving or rejecting a requested change. Generated charts and insights link to the web.
+Its composer omits the model and permission controls that only the Tasks runtime supports.
+The Chats list combines unlinked conversations and tasks. Conversations with a linked task use the task row. Classic
+conversation links use `conversationId`; Tasks links continue to use `taskId` and `runId`.
+Only task rows offer Archive, because classic conversations have no reversible archive API.
+
+The Tasks chat screen talks to PostHog AI on the task runtime.
+Each Tasks chat has interactive runs in a sandbox.
 A new chat creates the task on its first message; the Chats list reopens one by its task id.
 New and existing chats open as full-screen stack pages. Back returns to the previous screen or the
-configured default page for a direct link. The title-free header uses the shared blur and fading edge;
-New chat and the ellipsis share the Inbox's pill control. The composer clears the keyboard and safe area.
+configured default page for a direct link. The title-free header uses the shared blur and fading edge.
+The labeled Back chip matches Settings in style and position.
+Saved chats show New chat and the ellipsis in a matching bordered pill; unsaved chats show only Back.
+The composer clears the keyboard and safe area and receives focus after the page finishes its opening transition.
+
+An active incident affecting PostHog AI in the selected cloud region appears below the header in new and existing chats.
+The notice shows the published incident title and phase. Tap it to read the update. For other services, open **PostHog status** below the project name in the
+main tabs’ ellipsis menu. An indicator on that menu signals a regional incident or in-progress maintenance. The menu shows the highest current impact and the number of concurrent incidents. The status row has a green dot for a healthy region, yellow for degraded performance or maintenance, and red for partial or major outages. Chat warnings use the impact on the regional AI component.
 
 The ellipsis menu offers **Copy link to chat** and **Archive chat**. Copy uses the current project's
 web URL. Archive returns to the previous page after success and keeps the chat open for retry on failure.
-The menu is disabled for an unsaved new chat. Model, Mode, and attachment options still open as overlays.
+Unsaved new chats hide both right-side controls until the first message creates a task.
+Model, Mode, and attachment options still open as overlays.
 The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteractionLogic.ts` and `runStreamLogic.ts` in `products/posthog_ai/frontend`.
 
 ## Files
@@ -51,6 +78,15 @@ The same approval rules cover Chat, Create PR/task handoff, and replay summariza
 - Demo mode skips approval and sends no live requests.
 
 These client checks supplement existing server scopes, resource RBAC and product checks. They do not grant an organization role or replace server authorization. Revocation after a check must still be enforced by the backend; mobile cannot stop an agent that is already running on the server.
+
+Classic chat refreshes history whenever it opens, even while the cached response is fresh, and reuses that download.
+An accepted message leaves draft recovery as soon as the server accepts it, while the reply continues streaming.
+If its stream disconnects or times out, classic chat checks the saved conversation automatically without sending the message again.
+Completed replies and pending decisions load from that saved state. If recovery still needs a connection, received messages stay visible with Reconnect.
+Linked conversations stay visible when their task is absent from the list.
+Opening a linked chat checks its conversation runtime before continuing.
+If one chat history source fails, Chats keeps the loaded rows and offers a retry for the remaining history.
+Classic chat shows draft save failures with a retry action, and checks AI approval before each message or approval response.
 
 ## Composer drafts
 
@@ -96,7 +132,7 @@ A tap on an object link, an insight card, a SQL card or a markdown link opens it
 `object_kind` (the registry kind, null for a markdown link) and `app_link` (a markdown link that was an app path).
 
 Insight summaries need the `insight:read` OAuth scope. Existing sessions need a new sign-in,
-and the server's mobile OAuth application must allow the scope; see [AUTH.md](AUTH.md).
+and the server's mobile OAuth application must allow the scope.
 
 ## Starting a chat
 
@@ -334,7 +370,12 @@ The answer goes as a `permission_response` command and shows in the thread as th
 
 ## Errors
 
-- A send, answer or stop that fails shows one notice line above the composer.
+`ChatErrorNotice` owns the message surface, screen-reader alert, optional recovery actions and 44pt Dismiss button.
+`SessionDecisionPanel` supplies the message and callbacks. Recovery actions wrap below the message on narrow screens.
+New-chat suggestions scroll above the notice and composer. Tap empty space or drag the suggestions area to dismiss the keyboard.
+Tapping a suggestion still fills the draft in one tap.
+
+- A send, answer or stop that fails shows a bordered notice above the composer, wrapping to fit its full text.
   A failed send also sets `unsentText`; the sheet puts it back into an empty input once.
 - **PostHog Desktop gate.** `run/` and `user_message` answer 403 `code_access_required` for a user the gate refuses.
   The message is under `error`, and the app shows it as is, because it names the reason (Startup plan, prepaid credits).
@@ -390,7 +431,13 @@ New chat drops it.
 - Assistant text renders as markdown with `react-native-markdown-display`, styled from `src/ui/tokens.ts`.
   `html: false`; images are dropped. Relative links open on the signed-in host; only http(s) links open.
 - The status line shows the current stage or tool, "Thinking…", or "Reconnecting…".
+- Compacting and clearing each show one active spinner, even when the stream repeats the start.
+  Completion removes that spinner, so a later compaction or clear can show a new one.
 - Thoughts and tool calls fold into activity rows. Every row starts closed, also while it runs. `mobile_chat_activity_expanded` is captured with `running` and `tool_count` when the person opens one.
+- Background-task notices (including checkmarked completion summaries) align left and show at most two lines by default.
+  Notices that wrap beyond two lines offer Show more to read the full text and Show less to return to the preview.
+  Expanding or collapsing a notice pauses automatic scrolling so it stays in view.
+  Scrolling back also pauses automatic scrolling; scroll to the bottom to follow new messages again.
 - Known PRs remain available while execution is active, idle or terminal. Their state is separate
   from execution; a discovered URL starts unknown until the report supplies authoritative state.
 - Report task status opens that implementation task, including idle and completed runs that can
@@ -399,7 +446,7 @@ New chat drops it.
 
 ## New chat
 
-The compose button stays available in the header.
+The compose button is available in a saved chat's header.
 It drops the open task (or the one the first send created), clears the text and attached reports, and resets the options to Default and Auto.
 The header has no chat title.
 The empty state with suggested prompts shows while there is no task and no message.
@@ -418,6 +465,10 @@ does not prevent a later notification from reopening the previous conversation.
 
 Changing the selected account, host or project closes an open chat and aborts its scoped work. Callbacks captured in the old scope cannot send to the newly selected project.
 A send waiting for encrypted draft storage is cancelled by New chat or closing the sheet, and its text remains recoverable in the original draft.
+
+Chat pauses streams while offline. Task and history reads resume when the connection returns. When the connection returns or the app enters the foreground, chat resumes the same run with its saved cursor and transcript. The Reconnect button also restarts streams after the retry limit. Authentication, permission and missing-run errors prevent automatic recovery. Recovery does not resend messages, answers or run creation requests.
+
+A connected device can still fail to reach PostHog. Stream retries and the idle timeout handle these failures. Repeated connected events do not reset the retry limit.
 
 The page opens from the bottom bar's compose button, a report's Chat button, a report's task status, an inbox row's menu and the Chats tab.
 The route takes an optional `entry` param; `chatSheetSource` falls back on `report` with a `reportId`, `task` with only a `taskId`, else `compose`.
@@ -445,13 +496,14 @@ The route takes an optional `entry` param; `chatSheetSource` falls back on `repo
 - A long press (or the screen reader's "Show actions") opens the row menu (`ChatRowMenu`) with Archive.
   `useArchiveChat()` hides the row at once and sends `PATCH tasks/{id}/` with `{ "archived": true }`; the server stamps `archived_at`
   and leaves the task out of every later list. The toast offers Undo, which puts the row back and sends `{ "archived": false }` after any pending archive request finishes.
+  Archive and Undo update linked conversations in the cached history too, so they cannot recreate a hidden task row.
   Repeated archive submissions share the pending request. A failed archive puts the row back and shows "Couldn't archive this chat. Try again."
   A failed Undo hides the row again and shows "Couldn't restore this chat. Try again."
   There is no archived list in the app: the web app and PostHog Desktop show archived tasks.
 - `mobile_chat_row_menu_opened`, `mobile_chat_archived` and `mobile_chat_archive_undone` carry the row's `origin` and `status`;
   `mobile_chat_archive_failed` carries `action` (`archive` or `restore`) and `code` (the `ChatError` kind).
 - Regaining focus (closing the sheet) invalidates the list, so a new chat appears with its title.
-- Legacy LangGraph conversations are not listed. The web's new side panel does not list them either.
+- Classic conversations are listed once; their mirrored tasks are omitted.
 
 ## Demo mode
 

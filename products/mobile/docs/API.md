@@ -1,10 +1,27 @@
 # API
 
 Every request goes through `src/api/client.ts`: it prefixes the host, adds the bearer token,
-sets `X-PostHog-Client-Platform: mobile`, refreshes the token once on a 401, and throws
-`ApiError` with the server's `code` and `detail` on any other failure.
+sets `X-PostHog-Client-Platform: mobile`, refreshes the token once on a 401, and represents HTTP failures
+as `ApiError` with the server's `code` and `detail`.
 `projectPath('signals/reports/')` builds `/api/projects/{projectId}/signals/reports/`.
 Streams use `apiStream` (expo's fetch, so the body streams on native) and `src/api/sse.ts`.
+
+Ordinary API requests have a 30-second deadline across token refresh and body reads. Caller cancellation stays distinct
+from a deadline, and neither a timeout nor a lost connection automatically retries a write. A write can reach the server
+before its response is lost, so a timeout does not mean it failed on the server. Long-lived task streams use their own
+idle watchdog and reconnect policy. Transport failures have a dedicated error type; unrelated programming errors are
+not reported as connectivity failures.
+
+The classic conversation transport uses a 30-second connection deadline and a 60-second inactivity deadline.
+Each received chunk, including a heartbeat, resets the inactivity deadline.
+An interrupted accepted reply offers reconnection; the app does not resend it automatically.
+History reconciliation retains streamed generation failures.
+Pending approvals and clarification forms pause reconnection until the person responds.
+The classic chat hook exposes form questions from both streamed replies and history, with submit and dismiss methods.
+Form responses send no new chat message; they resume the conversation with the selected answers or a dismissal.
+Notebook artifacts retain their Markdown and chart blocks, with links to saved notebooks and a web fallback for other content.
+Reply links without a project prefix use the conversation's project; explicit project links and external links keep their destination.
+Canceling a classic reply requires `conversation:write` for OAuth and personal API tokens.
 
 Most existing types are written by hand per module and name the Django serializer they mirror.
 PR checks use `PullRequestChecksResponseApi` from the Signals generated schemas. New API
@@ -17,11 +34,12 @@ the request while previously loaded pages remain visible. The load-more retry re
 
 | Domain                           | Module                                                                   | Endpoints                                                                                                                                                                                                                                                                                                                                                                         | Notes                                                                             |
 | -------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Account                          | `src/api/users.ts`                                                       | `GET /api/users/@me/`, `GET /api/organizations/{id}/`                                                                                                                                                                                                                                                                                                                             | [AUTH.md](AUTH.md)                                                                |
+| Account                          | `src/api/users.ts`                                                       | `GET /api/users/@me/`, `GET /api/organizations/{id}/`                                                                                                                                                                                                                                                                                                                             | Account and organization membership                                               |
 | OAuth                            | `src/auth/oauth.ts`                                                      | `/oauth/authorize`, `/oauth/token`, `/oauth/revoke`                                                                                                                                                                                                                                                                                                                               | PKCE public client                                                                |
 | Inbox and reports                | `src/api/reports.ts`                                                     | `signals/reports/?view=for_you&sort=priority`, `.../{id}/`, `.../signals/`, `.../artefacts/`, `read_state/`, `.../state/`, `.../reviewers/`, `available_reviewers/`                                                                                                                                                                                                               | [DATA.md](DATA.md)                                                                |
 | Today                            | `src/api/today.ts`                                                       | `today/reports/{id}/page/`                                                                                                                                                                                                                                                                                                                                                        | 403 or 404 means the project lacks Today; the report screen shows signals instead |
 | Tasks                            | `src/api/tasks.ts`                                                       | `tasks/`, `tasks/{id}/` (`PATCH { archived }` archives a chat), `tasks/{id}/run/` (a chat's resume adds `resume_from_run_id` and `pending_user_message`; `pending_user_artifact_ids` carries staged files), `.../runs/{runId}/`, `.../logs/`, `.../stream/`, `.../command/` (`user_message`, with `artifact_ids` for files; `set_config_option`, `permission_response`, `cancel`) | [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT.md)                                      |
+| Classic AI                       | `src/api/conversations.ts`                                               | `GET conversations/`, `GET conversations/{id}/`, `POST conversations/` (SSE), `PATCH conversations/{id}/cancel/`                                                                                                                                                                                                                                                                  | [CHAT.md](CHAT.md)                                                                |
 | Chat attachments                 | `src/api/tasks.ts`, `src/features/chat/attachments/uploadAttachments.ts` | `tasks/{id}/staged_artifacts/prepare_upload/`, `tasks/{id}/staged_artifacts/finalize_upload/`, `.../runs/{runId}/artifacts/prepare_upload/`, `.../runs/{runId}/artifacts/finalize_upload/`, all `task:write`; then a presigned S3 `POST` with no PostHog auth                                                                                                                     | [CHAT.md](CHAT.md#attachments)                                                    |
 | Push                             | `src/api/pushTokens.ts`                                                  | `/api/users/@me/push_tokens/`, `.../unregister/`                                                                                                                                                                                                                                                                                                                                  | [PUSH.md](PUSH.md)                                                                |
 | Views pins                       | `src/api/shortcuts.ts`                                                   | `file_system_shortcut/`, `.../{id}/`                                                                                                                                                                                                                                                                                                                                              | [VIEWS.md](VIEWS.md)                                                              |
@@ -36,7 +54,7 @@ the request while previously loaded pages remain visible. The load-more retry re
 time, the request is canceled and the caller gets a timeout error. Reviewer edits load artefact pages until the latest
 reviewer assignment is found before sending the replacement list, so GitHub-only reviewers remain assigned.
 
-OAuth scopes the app requests: `OAUTH_SCOPES` in `src/auth/oauth.ts`, listed in [AUTH.md](AUTH.md#scopes).
+OAuth scopes the app requests: `OAUTH_SCOPES` in `src/auth/oauth.ts`.
 
 ### Error tracking and replay scopes
 
@@ -52,7 +70,7 @@ The app asks for five more scopes for the Errors and Sessions screens. Views, th
 
 `session_recording:write` is never requested: the phone does not change or delete recordings.
 `ERRORS_SCOPES` and `REPLAY_SCOPES` in `src/api/scopeErrors.ts` hold the same lists, and `useFeatureAccess('errors' | 'replay')` reads them.
-A server that drops a scope (the OAuth application's ceiling, see [AUTH.md](AUTH.md#server-side-ceiling)) gets the feature's "isn't available yet" state, not a broken screen.
+A server that drops a scope (the OAuth application's ceiling) gets the feature's "isn't available yet" state, not a broken screen.
 
 ## Error tracking
 

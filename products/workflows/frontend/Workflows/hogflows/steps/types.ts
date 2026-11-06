@@ -1,18 +1,9 @@
-import { Handle, NodeProps } from '@xyflow/react'
 import { z } from 'zod'
 
-import { Optional } from 'lib/utils/types'
 import { LogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
 
 import { HogFlowAction } from '../types'
 import { isDuration, isSignedDuration } from './durations'
-
-export type HogFlowStepNodeProps = NodeProps & {
-    data: HogFlowAction
-    type: HogFlowAction['type']
-}
-
-export type StepViewNodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'> & { label?: string }
 
 const ActionFiltersSchema = z.object({
     events: z.array(z.any()).optional(),
@@ -105,6 +96,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_repository',
         'task_mcp_installations',
         'signals_scout',
+        'posthog_survey',
         'replay_vision_scan',
         'task_skills',
     ]),

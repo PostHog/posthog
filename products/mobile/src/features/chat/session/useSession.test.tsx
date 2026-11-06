@@ -3,10 +3,13 @@ import { AppState } from 'react-native'
 import { ApiError } from '@/api/client'
 import type { TaskApi, TaskCreateResponseApi, TaskRunApi } from '@/api/tasks'
 import * as tasks from '@/api/tasks'
+import { TransportError } from '@/api/transport'
 import { useAuthStore } from '@/auth/authStore'
 import { getSessionTokens, setSessionTokens } from '@/auth/tokens'
 import { useAiApproval } from '@/features/ai/aiApproval'
+import { RECONNECT_ATTEMPTS_PER_DROP } from '@/features/handoff/runStream'
 import { setAnalyticsClient } from '@/lib/analytics'
+import { useConnectivity } from '@/lib/connectivity'
 
 import type { PendingAttachment } from '../attachments/types'
 import { AttachmentUploadError, uploadAttachments } from '../attachments/uploadAttachments'
@@ -153,7 +156,9 @@ const LIVE_TOOL_CALL = logLine({
 describe('useSession', () => {
     const originalAppState = AppState.currentState
     beforeEach(() => {
+        jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() })
         AppState.currentState = 'active'
+        useConnectivity.setState({ status: 'unknown' })
         jest.mocked(useAiApproval).mockReturnValue({
             request: jest.fn(async () => true),
             pending: false,
@@ -169,6 +174,231 @@ describe('useSession', () => {
     afterEach(() => {
         AppState.currentState = originalAppState
         jest.clearAllMocks()
+    })
+
+    test.each(['offline', 'failed-read', 'pending-read'] as const)(
+        'session bootstrap resumes after %s when the link returns',
+        async (initial) => {
+            if (initial === 'offline') useConnectivity.setState({ status: 'offline' })
+            else if (initial === 'failed-read') mocked.getTask.mockRejectedValueOnce(new TransportError())
+            else
+                mocked.getTask.mockImplementationOnce(
+                    (_id, signal) =>
+                        new Promise((_resolve, reject) => {
+                            signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+                        })
+                )
+            mocked.getTask.mockResolvedValue(task(run({ status: 'in_progress' })))
+            const { result, unmount } = renderHook(() => useSession({ taskId: TASK_ID }))
+            try {
+                await act(async () => {})
+                expect(mocked.getTask).toHaveBeenCalledTimes(initial === 'offline' ? 0 : 1)
+                if (initial === 'offline')
+                    expect(result.current.history).toMatchObject({ status: 'error', error: { kind: 'network' } })
+                await act(async () => {
+                    useConnectivity.setState({ status: 'offline' })
+                })
+                expect(result.current.history).toMatchObject({ status: 'error', error: { kind: 'network' } })
+                const stream = liveStream(false)
+                mocked.openTaskRunStream.mockResolvedValueOnce(stream.response)
+                await act(async () => {
+                    useConnectivity.setState({ status: 'connected' })
+                })
+                expect(result.current.history.status).toBe('loading')
+                await act(async () => stream.push({}, undefined, 'keepalive'))
+                expect(result.current.history.status).toBe('idle')
+                expect(mocked.getTask).toHaveBeenCalledTimes(initial === 'offline' ? 1 : 2)
+                expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
+            } finally {
+                unmount()
+            }
+        }
+    )
+
+    test('interrupted initial hydration shows offline feedback until the stream resumes', async () => {
+        const first = liveStream(false)
+        const second = liveStream(false)
+        mocked.getTask.mockResolvedValue(task(run({ status: 'in_progress' })))
+        mocked.openTaskRunStream.mockResolvedValueOnce(first.response).mockResolvedValueOnce(second.response)
+        const { result, unmount } = renderHook(() => useSession({ taskId: TASK_ID }))
+        try {
+            await act(async () => {})
+            expect(result.current.history.status).toBe('loading')
+            await act(async () => useConnectivity.setState({ status: 'offline' }))
+            expect(result.current.history).toMatchObject({ status: 'error', error: { kind: 'network' } })
+            expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(1)
+            await act(async () => useConnectivity.setState({ status: 'connected' }))
+            expect(result.current.history.status).toBe('loading')
+            expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(2)
+            await act(async () => second.push({}, undefined, 'keepalive'))
+            expect(result.current.history.status).toBe('idle')
+            expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
+            expect(mocked.startTaskRun).not.toHaveBeenCalled()
+        } finally {
+            unmount()
+        }
+    })
+
+    test('a completed stream stays ended when the link returns', async () => {
+        const stream = liveStream()
+        mocked.getTask.mockResolvedValue(task(run({ status: 'in_progress' })))
+        mocked.getTaskRun.mockResolvedValue(run({ status: 'completed' }))
+        mocked.openTaskRunStream.mockResolvedValueOnce(stream.response)
+        const { result, unmount } = renderHook(() => useSession({ taskId: TASK_ID }))
+        try {
+            await act(async () => {})
+            await act(async () => {
+                stream.push({}, undefined, 'stream-end')
+            })
+            expect(result.current.runStatus).toBe('completed')
+            await act(async () => {
+                useConnectivity.setState({ status: 'offline' })
+            })
+            await act(async () => {
+                useConnectivity.setState({ status: 'connected' })
+            })
+            expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(1)
+            expect(result.current.reconnect).toBeUndefined()
+        } finally {
+            unmount()
+        }
+    })
+
+    test.each(['network', 'foreground'] as const)(
+        'a %s recovery retains the transcript and cursor without sending commands',
+        async (trigger) => {
+            let changeAppState: (state: 'active' | 'background') => void = () => undefined
+            const appListener = jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, listener) => {
+                changeAppState = listener
+                return { remove: jest.fn() }
+            })
+            const first = liveStream()
+            const second = liveStream(false)
+            const saved = {
+                ...logLine({ sessionUpdate: 'agent_message_chunk', content: { text: 'Saved reply.' } }),
+                event_id: 'saved-reply',
+            }
+            mocked.openTaskRunStream.mockResolvedValueOnce(first.response).mockResolvedValueOnce(second.response)
+            mocked.getTask.mockResolvedValue(task(run({ status: 'in_progress' })))
+            const { result, unmount } = renderHook(() => useSession({ taskId: TASK_ID }))
+            try {
+                await act(async () => {})
+                await act(async () => {
+                    first.push(saved, '100-0')
+                })
+                expect(result.current.items).toEqual([
+                    expect.objectContaining({ kind: 'assistant', text: 'Saved reply.' }),
+                ])
+                await act(async () => {
+                    if (trigger === 'network') useConnectivity.setState({ status: 'offline' })
+                    else changeAppState('background')
+                })
+                expect(mocked.openTaskRunStream.mock.calls[0]?.[2]?.signal?.aborted).toBe(true)
+                expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(1)
+                await act(async () => {
+                    if (trigger === 'network') useConnectivity.setState({ status: 'connected' })
+                    else changeAppState('active')
+                })
+                expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(2)
+                expect(mocked.openTaskRunStream.mock.calls[1]?.[2]?.lastEventId).toBe('100-0')
+                await act(async () => {
+                    second.push(saved, '100-0')
+                    second.push({}, undefined, 'keepalive')
+                })
+                expect(result.current.items).toEqual([
+                    expect.objectContaining({ kind: 'assistant', text: 'Saved reply.' }),
+                ])
+                expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
+                expect(mocked.startTaskRun).not.toHaveBeenCalled()
+            } finally {
+                unmount()
+                appListener.mockRestore()
+            }
+        }
+    )
+
+    test.each(['network', 'foreground', 'manual'] as const)(
+        'exhausted retries rearm once after %s recovery',
+        async (trigger) => {
+            jest.useFakeTimers()
+            let changeAppState: (state: 'active' | 'background') => void = () => undefined
+            const appListener = jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, listener) => {
+                changeAppState = listener
+                return { remove: jest.fn() }
+            })
+            mocked.getTask.mockResolvedValue(task(run({ status: 'in_progress' })))
+            mocked.getTaskRun.mockResolvedValue(run({ status: 'in_progress' }))
+            mocked.openTaskRunStream.mockRejectedValue(new TypeError('Network request failed'))
+            const { result, unmount } = renderHook(() => useSession({ taskId: TASK_ID }))
+            try {
+                await act(async () => {})
+                for (let retry = 0; retry < RECONNECT_ATTEMPTS_PER_DROP; retry++) {
+                    await act(async () => {
+                        jest.advanceTimersByTime(30_000)
+                    })
+                }
+                expect(result.current.reconnect).toBeDefined()
+                expect(result.current.history.status).toBe('error')
+                const attempts = mocked.openTaskRunStream.mock.calls.length
+                await act(async () => {
+                    useConnectivity.setState({ status: 'connected' })
+                    jest.advanceTimersByTime(60_000)
+                })
+                expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(attempts)
+                const restored = liveStream()
+                let connect: (response: Response) => void = () => undefined
+                mocked.openTaskRunStream.mockImplementationOnce(
+                    () =>
+                        new Promise((resolve) => {
+                            connect = resolve
+                        })
+                )
+                await act(async () => {
+                    if (trigger === 'manual') {
+                        const reconnect = result.current.reconnect
+                        reconnect?.()
+                        reconnect?.()
+                    } else if (trigger === 'network') useConnectivity.setState({ status: 'offline' })
+                    else changeAppState('background')
+                })
+                if (trigger !== 'manual')
+                    await act(async () => {
+                        if (trigger === 'network') useConnectivity.setState({ status: 'connected' })
+                        else changeAppState('active')
+                    })
+                expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(attempts + 1)
+                expect(result.current.reconnect).toBeUndefined()
+                expect(result.current.notice).toBeUndefined()
+                expect(result.current.history.status).toBe('loading')
+                await act(async () => connect(restored.response))
+                expect(result.current.history.status).toBe('idle')
+                expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
+                expect(mocked.createTask).not.toHaveBeenCalled()
+            } finally {
+                unmount()
+                appListener.mockRestore()
+                jest.useRealTimers()
+            }
+        }
+    )
+
+    test.each([401, 403, 404])('connectivity recovery does not retry a fatal stream %s', async (status) => {
+        mocked.getTask.mockResolvedValue(task(run({ status: 'in_progress' })))
+        mocked.openTaskRunStream.mockRejectedValueOnce(new ApiError(status, undefined))
+        const { result, unmount } = renderHook(() => useSession({ taskId: TASK_ID }))
+        try {
+            await act(async () => {})
+            expect(result.current.reconnect).toBeUndefined()
+            await act(async () => {
+                useConnectivity.setState({ status: 'offline' })
+            })
+            await act(async () => {
+                useConnectivity.setState({ status: 'connected' })
+            })
+            expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(1)
+        } finally {
+            unmount()
+        }
     })
 
     test.each([false, true])(

@@ -29,6 +29,7 @@ MAX_FIRST_CSV_RECORD_BYTES = 1024 * 1024
 MAX_UNPACKED_PARQUET_BYTES = 2 * 1024 * 1024 * 1024
 PARQUET_BATCH_ROWS = 10_000
 DELTA_BATCH_ROWS = 16_384
+DELTA_MISSING_RETRY_DELAYS_SECONDS: tuple[float, ...] = (5.0, 10.0, 20.0)
 
 # Arrow batches from wide files can be large, so the pipeline's batcher flushes before this many bytes.
 CHUNK_SIZE_BYTES = 100 * 1024 * 1024

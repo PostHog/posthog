@@ -145,6 +145,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
     "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES", ""
 )
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
+GATEWAY_COMPUTE_DEBIT_ENABLED: bool = get_from_env("GATEWAY_COMPUTE_DEBIT_ENABLED", False, type_cast=str_to_bool)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
 # OTLP destinations for agent-server run telemetry (PostHog Logs/APM).
@@ -333,8 +334,7 @@ DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS: float = get_from_env(
     "DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS", 300.0, type_cast=float
 )
 # At a worker shutdown an import that has not yet committed a resume cursor or staged a carry-over
-# value keeps the worker, up to a deadline below the graceful shutdown timeout. The
-# `warehouse-import-ride-out` flag turns this on per schema. This is the longest such an import holds
+# value keeps the worker, up to a deadline below the graceful shutdown timeout. This is the longest such an import holds
 # the worker when it could have handed off sooner; a run that restarts from scratch either way keeps
 # the grace period minus a margin instead. The gate reads GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS, so set the grace through this
 # variable rather than the worker's command-line flag.
