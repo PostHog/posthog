@@ -258,8 +258,7 @@ export class InstructionsBuilder {
 
     private getExecLearnCapabilities(state: ExecToolState): { guidesEnabled: boolean; skillsEnabled: boolean } {
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
-        // The plugin and PostHog Code bundle their own skills, so learn never serves skills to them.
-        // The plugin still gets the built-in guides, which carry server guidance rather than skills.
+        // The plugin and PostHog Code bundle their own skills, so learn serves them none; the plugin still gets the built-in guides.
         if (isPostHogCodeConsumer(clientContext.mcpConsumer)) {
             return { guidesEnabled: false, skillsEnabled: false }
         }

@@ -212,7 +212,6 @@ describe('InstructionsFormatter prompt snapshots', () => {
                 'inbox-reports-claim',
             ].map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
-            // Every flag that can add a section to the capped command reference is on.
             toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true, [MCP_INBOX_FIRST_FLAG]: true },
             renderUiEnabled: true,
             requestContext: { mcpConsumer: undefined },

@@ -378,10 +378,7 @@ export class ToolExecutor {
         )
     }
 
-    // execute-sql is the one tool whose advertised description is formatted per
-    // request (the schema-discovery splice and the client's HogQL reference variant are
-    // assembled at render time) instead of served from the catalog, on both the native
-    // tools/list path and exec's `info` output.
+    // execute-sql's advertised description is formatted per request rather than served from the catalog.
     // trackToolCall stamps the catalog text by default, so it needs the served text
     // for this tool or $mcp_tool_description records words the agent never saw.
     private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {

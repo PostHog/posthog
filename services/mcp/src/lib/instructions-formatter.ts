@@ -87,9 +87,7 @@ export interface InstructionsContext {
     /** Whether the Replay Vision scan tools are advertised to this client. Same reason
      *  as `docsSearchEnabled`: the line names three tools, and the reference drops `tools`. */
     replayVisionEnabled?: boolean | undefined
-    /** The cli learn layout: query-tool routing rides inline in the command reference, and SQL catalog
-     *  guidance moves from `analytics` to its own `sql` guide, so the guide agents load for almost every
-     *  task does not steer typed-runner questions toward SQL. */
+    /** Moves SQL catalog guidance from `analytics` to a `sql` guide, so the guide loaded on most tasks does not steer typed-runner questions toward SQL. */
     cliLearnLayout?: boolean | undefined
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
     /** Set only when the experiment flag is on and the report list and retrieve tools are advertised. */
