@@ -974,6 +974,44 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         if owner == PlatformAlertOwner.PLATFORM:
             assert len(self.deliveries) == (0 if held else 1)
 
+    @parameterized.expand(
+        [
+            ("a statistical detector renotifies", {"type": "zscore", "threshold": 0.95, "window": 30}, True),
+            ("the ai detector announces the firing once", {"type": "llm"}, False),
+        ]
+    )
+    def test_a_firing_that_stays_breached_renotifies_only_for_a_statistical_detector(
+        self, _name: str, detector_config: dict[str, Any], renotifies: bool
+    ) -> None:
+        alert = self._alert(
+            detector_config=detector_config,
+            investigation_agent_enabled=True,
+            investigation_gates_notifications=True,
+        )
+        configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
+        uses_llm_detector = detector_config["type"] == "llm"
+        result = AlertEvaluationResult(value=150.0, breaches=["above 100"])
+
+        with patch(f"{_MODULE}.render_alert_insight_chart"):
+            first, _ = self._evaluate(configuration, result=result, uses_llm_detector=uses_llm_detector)
+            assert first is not None
+            assert first.groups[0].kind == AlertEventKind.FIRING
+            assert requested_investigation(first) is not None
+            assert first.held_delivery is not None
+            record_outcomes(self.team.id, (first,), CUTOFF)
+            with team_scope(self.team.id):
+                platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
+
+            second, _ = self._evaluate(configuration, result=result, uses_llm_detector=uses_llm_detector)
+
+        assert second is not None
+        assert second.groups[0].new_state == "firing"
+        assert (second.groups[0].kind == AlertEventKind.FIRING) is renotifies
+        assert (requested_investigation(second) is not None) is renotifies
+        if not renotifies:
+            assert second.held_delivery is None
+            assert self.deliveries == ()
+
     def test_a_firing_past_its_budget_is_muted_by_the_firing_last_verdict(self) -> None:
         alert, configuration = self._investigated_alert(investigation_gates_notifications=True)
         for index, verdict in enumerate(["true_positive", "true_positive", "false_positive"]):
