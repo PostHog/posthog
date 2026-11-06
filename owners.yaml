@@ -255,6 +255,7 @@ rules:
           - '/frontend/src/queries/nodes/HogQLX/*.test.*'
       owners: team-data-tools
     - match:
+          - '/.depot/actions/paths-filter/__tests__/*.test.*'
           - '/common/esbuilder/*.test.*'
           - '/frontend/src/mocks/*.test.*'
           - '/frontend/src/test/*.test.*'
@@ -269,6 +270,7 @@ rules:
           - '/common/ingestion/acceptance_tests/test_*.py'
       owners: team-ingestion
     - match:
+          - '/frontend/src/layout/navigation-3000/sidepanel/panels/access_control/*.test.*'
           - '/frontend/src/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2/*.test.*'
           - '/frontend/src/layout/navigation-3000/sidepanel/panels/activity/*.test.*'
           - '/frontend/src/layout/navigation/ImpersonationNotice/*.test.*'
@@ -276,6 +278,7 @@ rules:
     - match:
           - '/frontend/src/exporter/ExportedInsight/*.test.*'
           - '/frontend/src/exporter/scenes/*.test.*'
+          - '/frontend/src/lib/insights/*.test.*'
           - '/frontend/src/queries/nodes/DataTable/*.test.*'
           - '/frontend/src/queries/nodes/DataTable/ColumnConfigurator/*.test.*'
           - '/frontend/src/queries/nodes/DataTable/TableView/*.test.*'
@@ -298,6 +301,10 @@ rules:
     - match:
           - '/frontend/src/lib/signals/*.test.*'
       owners: team-self-driving
+    - match:
+          - '/services/credentials-service/tests/integration/*.test.*'
+          - '/services/credentials-service/tests/unit/*.test.*'
+      owners: team-warehouse-sources
     - match:
           - '/frontend/src/layout/navigation-3000/sidepanel/panels/max/*.test.*'
       owners: team-surfaces
