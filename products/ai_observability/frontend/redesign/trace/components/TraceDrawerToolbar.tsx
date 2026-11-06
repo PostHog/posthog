@@ -9,6 +9,8 @@ export interface TraceDrawerToolbarProps {
     showNavigation?: boolean
     /** Null when the open trace is not in the list. */
     position: TraceDrawerPosition | null
+    /** Why the open trace is in the list, when the list says. */
+    label?: string | null
     onPrevious: (() => void) | null
     onNext: (() => void) | null
     fullPageHref: string
@@ -20,6 +22,7 @@ const NOT_IN_LIST_REASON = "This trace isn't in the list"
 export function TraceDrawerToolbar({
     showNavigation = true,
     position,
+    label,
     onPrevious,
     onNext,
     fullPageHref,
@@ -62,6 +65,15 @@ export function TraceDrawerToolbar({
                     {position ? (
                         <span className="ml-1 whitespace-nowrap text-xs text-secondary" aria-live="polite">
                             {`${position.index + 1} of ${position.total}`}
+                        </span>
+                    ) : null}
+                    {label ? (
+                        <span
+                            className="ml-2 min-w-0 truncate text-xs"
+                            title={label}
+                            data-attr="trace-drawer-row-label"
+                        >
+                            {label}
                         </span>
                     ) : null}
                 </>
