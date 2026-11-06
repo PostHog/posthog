@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from uuid import UUID
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import transaction
@@ -68,6 +69,39 @@ def latest_report_priorities(team_id: int, report_ids: Sequence[str]) -> dict[st
         if priority is not None:
             latest[report_id] = priority
     return latest
+
+
+def refresh_report_priority_rank(*, team_id: int, report_id: UUID | str) -> bool:
+    with transaction.atomic():
+        report = (
+            SignalReport.objects.select_for_update(no_key=True)
+            .filter(team_id=team_id, id=report_id)
+            .only("priority_sort_rank")
+            .first()
+        )
+        if report is None:
+            return False
+        content = (
+            SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                content__startswith="{",
+            )
+            .order_by("-created_at", "-id")
+            .values_list("content", flat=True)
+            .first()
+        )
+        priority = priority_from_judgment(content)
+        rank = (
+            AutonomyPriority.values.index(priority)
+            if priority in AutonomyPriority.values
+            else len(AutonomyPriority.values)
+        )
+        if report.priority_sort_rank == rank:
+            return False
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(priority_sort_rank=rank)
+        return True
 
 
 def latest_priority_rank() -> Coalesce:

@@ -124,6 +124,7 @@ from products.growth.backend.temporal.signup_enrichment.schedule import (
     create_harmonic_status_poll_schedule,
     create_icp_reenrichment_sweep_schedule,
 )
+from products.knowledge_writer.backend.facade.temporal import create_knowledge_writer_merge_reconcile_schedule
 from products.logs.backend.facade.temporal import disable_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.metrics.backend.facade.temporal import create_suggested_dashboards_discovery_schedule
@@ -1041,6 +1042,7 @@ schedules = [
     create_replay_vision_highlight_rebuild_schedule,
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
+    create_knowledge_writer_merge_reconcile_schedule,
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,
     create_reconcile_metric_schedules_schedule,

@@ -15,10 +15,11 @@ from posthog.ownership.github_files import OwnershipUnavailable
 
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.tasks import route_pull_request_reviewers
+from products.stamphog.backend.logic.routing.claims import CLAIM_STALE_AFTER
 from products.stamphog.backend.logic.routing.comment import ROUTING_COMMENT_MARKER
 from products.stamphog.backend.logic.routing.cut import CUT_MODEL
-from products.stamphog.backend.logic.routing.service import CLAIM_STALE_AFTER, RoutingBusy
-from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.logic.routing.service import RoutingBusy
+from products.stamphog.backend.models import PullRequest, ReviewRun, RoutingRun, RoutingRunOwner, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
     ROUTING_BUSY_RETRY_SECONDS,
     ROUTING_SAFETY_NET_SECONDS,
@@ -46,6 +47,18 @@ _OWNERS_FILES = {
 }
 _CUT_BETA = {"cuts": [{"owner": "team-beta", "reason": "Only renames an import."}]}
 SAFETY_NET_SCHEDULE = "products.stamphog.backend.tasks.tasks.route_reviewers_safety_net.apply_async"
+_RECORD_ROUTING_RUN = "products.stamphog.backend.logic.routing.service.record_routing_run"
+# team-alpha owns a new directory, so it is pinned. The run log says why each owner was or was not asked.
+_LOG_ONE_CUT = {
+    "team-alpha": ("requested", "new_path", ""),
+    "team-beta": ("cut", "model_cut", "Only renames an import."),
+    "@carol": ("requested", "model_kept", ""),
+}
+_LOG_CUT_SKIPPED = {
+    "team-alpha": ("requested", "new_path", ""),
+    "team-beta": ("requested", "cut_skipped", ""),
+    "@carol": ("requested", "cut_skipped", ""),
+}
 
 
 def _file(path: str, status: str = "modified", lines: int = 10) -> dict[str, Any]:
@@ -142,6 +155,18 @@ def _stored(team_id: int) -> dict[str, Any]:
         record = PullRequest.objects.for_team(team_id).get(pr_number=PR_NUMBER).routing
     assert isinstance(record, dict)
     return record
+
+
+def _run_log(team_id: int) -> dict[str, tuple[str, str, str]]:
+    with team_scope(team_id):
+        rows = RoutingRunOwner.objects.for_team(team_id).all()
+        return {row.owner: (row.outcome, row.reason, row.model_reason) for row in rows}
+
+
+def _run_log_sources(team_id: int) -> dict[str, dict[str, str | None]]:
+    with team_scope(team_id):
+        rows = RoutingRunOwner.objects.for_team(team_id).all()
+        return {row.owner: {file["path"]: file["owners_source"] for file in row.files} for row in rows}
 
 
 def _seed_routing_comment(chain: RoutingChain, repo_config: StamphogRepoConfig) -> None:
@@ -251,6 +276,19 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
     assert record["comment_posted"] is bool(expected_cut)
     assert record["additions_resolved"] is True
     assert {candidate["owner"] for candidate in record["candidates"]} == {"team-alpha", "team-beta", "@carol"}
+    assert _run_log(team.id) == (_LOG_ONE_CUT if expected_cut else _LOG_CUT_SKIPPED)
+    assert _run_log_sources(team.id) == {
+        "team-alpha": {
+            "products/alpha/a.py": "products/alpha/owners.yaml",
+            "products/alpha/new/b.py": "products/alpha/owners.yaml",
+        },
+        "team-beta": {"products/beta/b.py": "products/beta/owners.yaml"},
+        "@carol": {"products/gamma/c.py": "products/gamma/owners.yaml"},
+    }
+    assert all("files" not in candidate for candidate in record["candidates"])
+    assert record["owners_sha"]
+    with team_scope(team.id):
+        assert RoutingRun.objects.for_team(team.id).get().owners_sha == record["owners_sha"]
     edits = _writes(routing_chain, "issue_comment_edit")
     deletes = _writes(routing_chain, "delete_comment")
     if expected_cut:
@@ -265,28 +303,33 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
 
 
 @pytest.mark.parametrize(
-    "name,label_failures",
+    "name,label_failures,labels_refused,alpha_outcome",
     [
-        ("labels_added", 0),
-        ("server_error_retries", 1),
+        ("labels_added", 0, False, "labeled"),
+        ("server_error_retries", 1, False, "labeled"),
+        ("label_refused", 0, True, "refused"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_fork_skips_the_model_and_labels_the_teams_with_a_fork_label(
-    name: str, label_failures: int, team, user, routing_chain
+    name: str, label_failures: int, labels_refused: bool, alpha_outcome: str, team, user, routing_chain
 ) -> None:
     # The label name comes from the config as written, with no naming rule applied to the slug.
     _setup(routing_chain, team, user, head_repo="outsider/widgets", fork_labels={"team-alpha": "area: alpha"})
     routing_chain.cut_model.answer = _CUT_BETA
     routing_chain.recorder.label_request_failures = label_failures
+    routing_chain.recorder.labels_refused = labels_refused
 
     assert _run_event_task(MagicMock(), throw=False).successful()
 
     assert routing_chain.cut_model.calls == []
     assert len(_writes(routing_chain, "request_reviewers")) == 1
     assert _requested(routing_chain) == ({"carol"}, {"team-beta"})
-    assert [write["body"] for write in _writes(routing_chain, "add_labels")] == [{"labels": ["area: alpha"]}]
+    assert [write["body"] for write in _writes(routing_chain, "add_labels")] == (
+        [] if labels_refused else [{"labels": ["area: alpha"]}]
+    )
     assert _stored(team.id)["llm_skipped"] == "fork"
+    assert _run_log(team.id)["team-alpha"][0] == alpha_outcome
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -299,18 +342,44 @@ def test_a_refused_bulk_request_falls_back_to_single_requests(team, user, routin
 
     assert _requested(routing_chain) == (set(), {"team-alpha", "team-beta"})
     assert _stored(team.id)["refused"] == ["@carol"]
+    assert _run_log(team.id)["@carol"][0] == "refused"
 
 
+@pytest.mark.parametrize(
+    "second_action",
+    [
+        "opened",
+        # A draft marked ready before the `opened` task ran routes on `opened`, then its ready delivery arrives.
+        "ready_for_review",
+    ],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_a_retry_for_the_same_head_requests_nobody_twice(team, user, routing_chain) -> None:
+def test_a_second_delivery_for_the_same_head_requests_nobody_twice(
+    second_action: str, team, user, routing_chain
+) -> None:
     _setup(routing_chain, team, user)
     routing_chain.cut_model.answer = _CUT_BETA
 
     _route()
-    _route()
+    _route(second_action)
 
     assert len(_writes(routing_chain, "request_reviewers")) == 1
     assert len(routing_chain.cut_model.calls) == 1
+    with team_scope(team.id):
+        assert RoutingRun.objects.for_team(team.id).count() == 1
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_failed_run_log_write_keeps_the_requests(team, user, routing_chain) -> None:
+    # The log is written after the requests are saved, so its failure must not make a retry request again.
+    _setup(routing_chain, team, user)
+
+    with patch(_RECORD_ROUTING_RUN, side_effect=RuntimeError("log write failed")):
+        _route()
+        _route()
+
+    assert len(_writes(routing_chain, "request_reviewers")) == 1
+    assert _stored(team.id)["status"] == "done"
 
 
 @pytest.fixture
@@ -387,6 +456,10 @@ def test_fallback_approval_requests_only_pinned_owners(
     assert _requested(routing_chain) == (set(), expected_teams)
     record = _stored(team.id)
     assert (record["trigger"], record["status"]) == ("verdict:approved", "done")
+    # The owners the approval does not ask are logged as such, so they can tell why nobody asked them.
+    not_asked = ("not_requested", "stamphog_approved", "")
+    pinned = {"team-alpha": ("requested", "new_path", "")} if with_addition else {}
+    assert _run_log(team.id) == {"team-alpha": not_asked, "team-beta": not_asked, "@carol": not_asked, **pinned}
     edits = _writes(routing_chain, "issue_comment_edit")
     deletes = _writes(routing_chain, "delete_comment")
     if expect_comment:

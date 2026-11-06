@@ -13,6 +13,7 @@ from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
+    AlertDestinationData,
     DestinationSend,
     HandbackRefusal,
     HeldDeliveryAddress,
@@ -36,7 +37,7 @@ from products.alerts_platform.backend.facade.contracts import (
     StoredAlertDestination,
     VerdictChange,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.logic import (
     alert_destinations,
     delivery_holds,
@@ -138,12 +139,14 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
     return platform_lifecycle.upsert_configuration(upsert, revive=revive)
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admit_new_teams: bool = False) -> None:
     """Copy one configuration in only when its team already runs that source here.
 
     `revive` says the source alert was just created or turned back on, so the copy starts clean.
+    `admit_new_teams` also admits a team with no enabled copy while the source runs elsewhere and
+    no operator switched that team off.
     """
-    platform_lifecycle.upsert_if_running(upsert, revive=revive)
+    platform_lifecycle.upsert_if_running(upsert, revive=revive, admit_new_teams=admit_new_teams)
 
 
 def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
@@ -201,6 +204,34 @@ def list_configurations(
         legacy_configuration_id=legacy_configuration_id,
         configuration_ids=configuration_ids,
     )
+
+
+def count_configurations(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    native_only: bool = False,
+    enabled_only: bool = False,
+    check_interval_minutes: int | None = None,
+) -> int:
+    """How many alerts of a kind a team has on the platform. For a source's admission.
+
+    A source that keeps rows counts them and adds `native_only`. A copy stands for a row the source
+    already counts, and a copy left by a delete from before copies went with their row counts nothing.
+    """
+    return platform_reads.count_configurations(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        native_only=native_only,
+        enabled_only=enabled_only,
+        check_interval_minutes=check_interval_minutes,
+    )
+
+
+def hold_cap_lock(*, team_id: int, source_kind: SourceKind) -> None:
+    """The lock the platform holds while a source checks its caps, for a source creating an alert
+    outside the platform. Call it inside the create's transaction."""
+    platform_writes.hold_cap_lock(team_id, source_kind)
 
 
 def get_configuration(
@@ -380,8 +411,23 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
     )
 
 
-def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
-    platform_writes.delete_owned_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+def delete_copy(*, team_id: int, legacy_configuration_id: UUID, owner: PlatformAlertOwner | None = None) -> None:
+    """Deletes the copy of a source alert with the source row, in its transaction or after it
+    commits. With `owner`, only a copy that stack owns."""
+    platform_writes.delete_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id, owner=owner)
+
+
+def delete_orphaned_shadow_copies(
+    *,
+    source_kind: SourceKind,
+    existing_source_ids: Callable[[Collection[UUID]], Collection[UUID]],
+    dry_run: bool,
+) -> int:
+    """Deletes the shadow copies of `source_kind` whose source row is gone, and returns the count.
+    `existing_source_ids` returns which of the given source row ids still exist."""
+    return platform_writes.delete_orphaned_shadow_copies(
+        source_kind=source_kind, existing_source_ids=existing_source_ids, dry_run=dry_run
+    )
 
 
 def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> None:
@@ -401,6 +447,11 @@ def create_alert_destinations(
 
 def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
     return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+
+
+def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
+    """A destination's configuration without the parts that are a credential, for showing it."""
+    return alert_destinations.redact_destination_data(data)
 
 
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:

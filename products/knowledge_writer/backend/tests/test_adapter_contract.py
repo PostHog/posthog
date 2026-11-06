@@ -10,6 +10,7 @@ from products.knowledge_writer.backend.facade.contracts import (
     DocsCommandRequest,
     DocsRequest,
     InvalidAdapterVerdict,
+    MergeCheckReport,
 )
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource
 from products.knowledge_writer.backend.logic import intake
@@ -23,6 +24,15 @@ SAMPLE_EVENTS: dict[DocsRequestSource, Any] = {
         note="Document the new retention option.",
         requested_by="@octo",
         requested_by_user_id=42,
+    ),
+    DocsRequestSource.REPO_MERGE: MergeCheckReport(
+        commit_sha="a" * 40,
+        commit_url=f"https://github.com/PostHog/posthog/commit/{'a' * 40}",
+        title="Add a retention option to session replay",
+        needs_docs=True,
+        reason="mapped_section_changed",
+        change_kind=DocsChangeKind.UPDATE,
+        page_urls=("https://posthog.com/docs/session-replay/data-retention",),
     ),
 }
 
@@ -90,9 +100,6 @@ def test_docs_requests_for_one_pull_request_share_a_dedupe_id_across_repository_
         pytest.param(_valid_verdict(needs_docs=False), id="request_without_needs_docs"),
         pytest.param(_valid_verdict(source="repo_merge"), id="request_from_another_source"),
         pytest.param(_valid_verdict(request=_valid_request(dedupe_id="anything")), id="bad_dedupe_id"),
-        pytest.param(
-            _valid_verdict(request=_valid_request(suggested_page_urls=["/a", "/b", "/c", "/d"])), id="four_pages"
-        ),
         pytest.param(_valid_verdict(request=_valid_request(change_kind="rewrite")), id="unknown_change_kind"),
         pytest.param(
             dataclasses.asdict(SAMPLE_EVENTS[DocsRequestSource.COMMAND_TAG]), id="raw_event_instead_of_verdict"
