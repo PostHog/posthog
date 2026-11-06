@@ -71,12 +71,12 @@ export function ReplayListColumn({
                     }}
                     className="mb-2 shrink-0"
                 >
-                    <TabsList className="w-full">
+                    <TabsList className="w-full [--quill-tabs-active-bg:var(--primary)]">
                         {options.map((option) => (
                             <TabsTrigger
                                 key={option.value}
                                 value={option.value}
-                                className="text-xs"
+                                className="text-xs data-active:text-(--primary-foreground)"
                                 data-attr={option.dataAttr}
                             >
                                 {option.label}

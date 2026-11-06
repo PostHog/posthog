@@ -20,12 +20,13 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, PropertyDefinition, Team
+from posthog.models import Organization, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.event_definitions.backend.models import PropertyDefinition
 from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckResult, Dismissal, NoteArtefact

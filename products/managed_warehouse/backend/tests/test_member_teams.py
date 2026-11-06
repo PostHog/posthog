@@ -10,9 +10,10 @@ from django.test import override_settings
 import requests
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 
 from products.access_control.backend.facade import testing as access_testing
+from products.event_definitions.backend.models import PropertyDefinition
 from products.managed_warehouse.backend import member_teams, signals
 from products.managed_warehouse.backend.models import DuckgresServer
 

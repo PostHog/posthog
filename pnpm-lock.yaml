@@ -2015,6 +2015,8 @@ importers:
 
   packages/owners-yaml: {}
 
+  packages/personhog-proto: {}
+
   packages/quill:
     devDependencies:
       tailwindcss-scroll-mask:

@@ -214,7 +214,9 @@ export async function startPool(
         // A worker that dies takes any in-flight job with it, so fail that request rather than let it
         // hang until the consumer's timeout. Replacement is unconditional: a worker that dies while
         // idle carries no job to fail, and leaving it would shrink the pool with nothing to show it.
-        worker.on('error', (error) => retireAndReplace(index, slot, error))
+        worker.on('error', (error) =>
+            retireAndReplace(index, slot, error instanceof Error ? error : new Error(String(error)))
+        )
         worker.on('exit', (code) => retireAndReplace(index, slot, new Error(`scrub worker exited with code ${code}`)))
         slot.readyAt = performance.now()
         slot.usable = true
