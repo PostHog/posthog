@@ -360,8 +360,9 @@ export interface EmailTemplaterLogicProps {
 /** What switching to the sandbox sender drops, because it sends with a fixed identity. */
 function sandboxSwitchLosses(emailTemplate: EmailTemplate): string[] {
     const from = senderFrom(emailTemplate)
+    const customFrom = [from.email ? 'address' : '', from.name ? 'name' : ''].filter(Boolean)
     return [
-        from.email || from.name ? 'your custom From address and name' : '',
+        customFrom.length > 0 ? `your custom From ${humanList(customFrom)}` : '',
         emailTemplate?.replyTo ? 'your Reply-To' : '',
     ].filter(Boolean)
 }
