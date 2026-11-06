@@ -27,7 +27,12 @@ const TRACING_SQUASH: DjangoRequirement = {
     replaces: ['0001_initial', '0002_span_kind'],
 }
 
-const CYCLOTRON: SqlxRequirement = { kind: 'sqlx', database: 'cyclotron-node', version: 20260201000001 }
+const CYCLOTRON: SqlxRequirement = {
+    kind: 'sqlx',
+    database: 'cyclotron-node',
+    versions: [20260101000001, 20260201000001],
+}
+const PERSONS: SqlxRequirement = { kind: 'sqlx', database: 'persons', versions: [20250101000001] }
 
 class FakeSqlxMigrationStore implements SqlxMigrationStore {
     constructor(private readonly rows: SqlxMigrationRow[]) {}
@@ -77,8 +82,16 @@ describe('schema check', () => {
 
     describe('evaluateSqlxRows', () => {
         it.each<[string, SqlxMigrationRow[], string]>([
-            ['version applied', [{ version: 20260201000001, success: true }], 'satisfied'],
-            ['version not applied', [], 'missing'],
+            [
+                'every version applied',
+                [
+                    { version: 20260101000001, success: true },
+                    { version: 20260201000001, success: true },
+                ],
+                'satisfied',
+            ],
+            ['a lower version merged late is not applied', [{ version: 20260201000001, success: true }], 'missing'],
+            ['no version applied', [], 'missing'],
             [
                 'a failed migration on the database',
                 [
@@ -137,6 +150,14 @@ describe('schema check', () => {
                 'of an unknown kind',
                 JSON.stringify({ schema_version: 1, digest: 'x', requirements: [{ ...WORKFLOWS, kind: 'flyway' }] }),
             ],
+            [
+                'a sqlx entry without versions',
+                JSON.stringify({
+                    schema_version: 1,
+                    digest: 'x',
+                    requirements: [WORKFLOWS, { ...CYCLOTRON, versions: [] }],
+                }),
+            ],
         ])('exits with an error when the manifest is %s', async (_case, content) => {
             const manifestPath = content === null ? path.join(dir, 'absent.json') : writeManifest(content)
             const store = new FakeMigrationStore([[]])
@@ -166,8 +187,9 @@ describe('schema check', () => {
                 'cyclotron-node dirty',
             ],
             ['not configured for this app', {}, [], 'cyclotron-node skipped'],
+            ['replica-only', { PERSONS_READONLY_DATABASE_URL: 'postgres://p' }, [], 'persons missing'],
         ])('logs a %s sqlx database and still exits 0', async (_case, extraEnv, sqlxRows, expectedLog) => {
-            const manifestPath = writeManifest(JSON.stringify(buildManifest([WORKFLOWS, CYCLOTRON], null)))
+            const manifestPath = writeManifest(JSON.stringify(buildManifest([WORKFLOWS, CYCLOTRON, PERSONS], null)))
             const store = new FakeMigrationStore([[{ app: 'workflows', name: '0040_frequency_cap_hold' }]])
 
             const code = await runCli(
