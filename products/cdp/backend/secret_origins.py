@@ -679,8 +679,7 @@ class _Analysis:
             return frozenset({(node.value, True)}) if isinstance(node.value, str) else _UNKNOWN
         config_field = _config_field(node)
         if config_field is not None:
-            key, name = config_field
-            field = self.integration_configs.get(key, {}).get(name)
+            field = self.integration_configs.get(config_field.key, {}).get(config_field.name)
             return frozenset({(field, True)}) if isinstance(field, str) else _UNKNOWN
         input_key = _input_key(node)
         if input_key is not None:
@@ -717,7 +716,7 @@ class _Analysis:
                 return frozenset()
             return frozenset({node.value}) & self.secret_keys
         config_field = _config_field(node)
-        if config_field is not None and config_field[1] in self.integration_configs.get(config_field[0], {}):
+        if config_field is not None and config_field.name in self.integration_configs.get(config_field.key, {}):
             # A field from the public config holds none of the connection's credentials.
             return frozenset()
         input_key = _input_key(node)
@@ -766,10 +765,16 @@ def _calls_back_inline(call: ast.Call) -> bool:
     return call.name in _ELEMENT_CALLBACK_CALLS and bool(call.args) and isinstance(call.args[0], ast.Lambda)
 
 
-def _config_field(node: ast.AST) -> tuple[str, str] | None:
+@frozen
+class _ConfigField:
+    key: str
+    name: str
+
+
+def _config_field(node: ast.AST) -> _ConfigField | None:
     """The input key and field name of `inputs.<key>.<field>` or `inputs.<key>['<field>']`."""
     if isinstance(node, ast.Field) and len(node.chain) == 3 and node.chain[0] == "inputs":
-        return str(node.chain[1]), str(node.chain[2])
+        return _ConfigField(key=str(node.chain[1]), name=str(node.chain[2]))
     if (
         isinstance(node, ast.ArrayAccess)
         and isinstance(node.array, ast.Field)
@@ -778,7 +783,7 @@ def _config_field(node: ast.AST) -> tuple[str, str] | None:
         and isinstance(node.property, ast.Constant)
         and isinstance(node.property.value, str)
     ):
-        return str(node.array.chain[1]), node.property.value
+        return _ConfigField(key=str(node.array.chain[1]), name=node.property.value)
     return None
 
 
