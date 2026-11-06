@@ -369,6 +369,8 @@ export interface AccountNoteApi {
     readonly account_name: string
     /** User who created the note, if known. */
     readonly created_by: UserBasicApi | null
+    /** Tag names on the note. */
+    readonly tags: readonly string[]
 }
 
 export interface PaginatedAccountNoteListApi {
@@ -848,6 +850,11 @@ export interface AccountNotebookApi {
     readonly created_by: UserBasicApi
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
+    /**
+     * Tag names on the notebook. On update this replaces the existing set; omit to leave tags untouched.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 export interface PaginatedAccountNotebookListApi {
@@ -857,6 +864,18 @@ export interface PaginatedAccountNotebookListApi {
     /** @nullable */
     previous?: string | null
     results: AccountNotebookApi[]
+}
+
+/**
+ * Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,
+ * since a note's title comes from its first line.
+ */
+export interface PatchedAccountNotebookUpdateApi {
+    /**
+     * Replaces the notebook's tags. Omit to leave them untouched.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 /**
@@ -5086,9 +5105,17 @@ export type AccountNotesListParams = {
      */
     offset?: number
     /**
+     * Sort order. Defaults to '-last_modified_at'.
+     */
+    ordering?: string
+    /**
      * Full-text search across note title and content, plus substring match on account name.
      */
     search?: string
+    /**
+     * JSON-encoded array of tag names, e.g. `["renewal","risk"]`. Only return notes that carry any of the listed tags.
+     */
+    tags?: string
 }
 
 export type AccountRelationshipDefinitionsListParams = {
@@ -5175,6 +5202,10 @@ export type AccountsListParams = {
 
 export type AccountsNotebooksListParams = {
     /**
+     * Only return notebooks created by these user IDs (repeat the param per user).
+     */
+    created_by?: number[]
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -5183,13 +5214,17 @@ export type AccountsNotebooksListParams = {
      */
     offset?: number
     /**
-     * Sort by creation date or author. Defaults to '-created_at'.
+     * Sort by creation date, last modification, author or title. Defaults to '-created_at'.
      */
     ordering?: string
     /**
      * Full-text search across notebook title and content.
      */
     search?: string
+    /**
+     * JSON-encoded array of tag names, e.g. `["renewal","risk"]`. Returns notebooks that carry any of the listed tags.
+     */
+    tags?: string
 }
 
 export type AccountsRelationshipsListParams = {

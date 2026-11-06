@@ -1261,6 +1261,7 @@ class AccountNotebookView:
     created_by: UserBasicInfo | None = None
     last_modified_at: datetime | None = None
     last_modified_by: UserBasicInfo | None = None
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -1276,6 +1277,7 @@ class AccountNoteView:
     account_id: UUID
     account_name: str
     created_by: UserBasicInfo | None = None
+    tags: list[str] = field(default_factory=list)
 
 
 # --- Presentation wave: input contracts for the CRUD write paths ---
@@ -1336,6 +1338,14 @@ class CreateAccountNotebookInput:
     content: Any
     text_content: str | None
     synthesized_content: Any = None
+    tags: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class UpdateAccountNotebookInput:
+    """Validated body for a partial update of an account notebook. ``None`` leaves the tags untouched."""
+
+    tags: list[str] | None = None
 
 
 @dataclass(frozen=True)

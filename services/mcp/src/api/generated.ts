@@ -2616,6 +2616,8 @@ export namespace Schemas {
       readonly account_name: string;
       /** User who created the note, if known. */
       readonly created_by: UserBasic | null;
+      /** Tag names on the note. */
+      readonly tags: readonly string[];
     }
 
     export interface AccountNotebook {
@@ -2638,6 +2640,11 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
+      /**
+         * Tag names on the notebook. On update this replaces the existing set; omit to leave tags untouched.
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     /**
@@ -80155,6 +80162,18 @@ export namespace Schemas {
     }
 
     /**
+     * Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,
+     * since a note's title comes from its first line.
+     */
+    export interface PatchedAccountNotebookUpdate {
+      /**
+         * Replaces the notebook's tags. Omit to leave them untouched.
+         * @items.maxLength 255
+         */
+      tags?: string[];
+    }
+
+    /**
      * A team-defined account relationship type (CSM, Onboarding manager, ...).
      */
     export interface PatchedAccountRelationshipDefinition {
@@ -121958,9 +121977,17 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort order. Defaults to '-last_modified_at'.
+     */
+    ordering?: string;
+    /**
      * Full-text search across note title and content, plus substring match on account name.
      */
     search?: string;
+    /**
+     * JSON-encoded array of tag names, e.g. `["renewal","risk"]`. Only return notes that carry any of the listed tags.
+     */
+    tags?: string;
     };
 
     export type AccountRelationshipDefinitionsListParams = {
@@ -122047,6 +122074,10 @@ export namespace Schemas {
 
     export type AccountsNotebooksListParams = {
     /**
+     * Only return notebooks created by these user IDs (repeat the param per user).
+     */
+    created_by?: number[];
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -122055,13 +122086,17 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort by creation date or author. Defaults to '-created_at'.
+     * Sort by creation date, last modification, author or title. Defaults to '-created_at'.
      */
     ordering?: string;
     /**
      * Full-text search across notebook title and content.
      */
     search?: string;
+    /**
+     * JSON-encoded array of tag names, e.g. `["renewal","risk"]`. Returns notebooks that carry any of the listed tags.
+     */
+    tags?: string;
     };
 
     export type AccountsRelationshipsListParams = {
