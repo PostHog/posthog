@@ -379,17 +379,36 @@ def test_an_organization_without_ai_credits_makes_no_model_call(
 
 
 @pytest.mark.parametrize(
-    "error_type,status_code",
-    [(anthropic.AuthenticationError, 401), (anthropic.PermissionDeniedError, 403), (anthropic.BadRequestError, 400)],
+    "error_type,status_code,headers,expected_error,expected_message",
+    [
+        (anthropic.AuthenticationError, 401, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (anthropic.PermissionDeniedError, 403, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (anthropic.BadRequestError, 400, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (anthropic.APIStatusError, 402, {}, LLMDetectorUnavailableError, "could not reach the model"),
+        (
+            anthropic.APIStatusError,
+            402,
+            {"X-PostHog-Denial": "insufficient_credits"},
+            LLMDetectorPausedError,
+            LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE,
+        ),
+    ],
 )
 def test_provider_rejections_do_not_disable_an_alert(
-    error_type: type[anthropic.APIStatusError], status_code: int
+    error_type: type[anthropic.APIStatusError],
+    status_code: int,
+    headers: dict[str, str],
+    expected_error: type[Exception],
+    expected_message: str,
 ) -> None:
-    response = httpx.Response(status_code, request=httpx.Request("POST", "https://example.com/messages"))
+    response = httpx.Response(
+        status_code, headers=headers, request=httpx.Request("POST", "https://example.com/messages")
+    )
     with _mocked_model(_verdict()) as invoke:
         invoke.side_effect = error_type("Provider unavailable", response=response, body={})
-        with pytest.raises(LLMDetectorUnavailableError):
+        with pytest.raises(expected_error) as raised:
             LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=_attribution())
+    assert expected_message in str(raised.value)
 
 
 @pytest.mark.parametrize(
