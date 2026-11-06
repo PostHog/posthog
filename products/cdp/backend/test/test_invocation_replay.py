@@ -480,7 +480,9 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
 
     def _fingerprint(self) -> str:
         blocks = self._details().context["page"].blocks
-        return next(block for block in blocks if isinstance(block, OperationForm)).initial["fingerprint"]
+        initial = next(block for block in blocks if isinstance(block, OperationForm)).initial
+        assert initial is not None
+        return initial["fingerprint"]
 
     def _send(self, fingerprint: str, confirm: str = "2") -> Any:
         return self.staff_client.post(
@@ -532,7 +534,7 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         fingerprint = self._fingerprint()
 
         first = self._send(fingerprint)
-        assert get_replay_state(fingerprint)["status"] == "failed"
+        assert (get_replay_state(fingerprint) or {})["status"] == "failed"
         assert "Allow resending this plan" in self.staff_client.get(first["Location"]).content.decode()
 
         self._send(fingerprint)
