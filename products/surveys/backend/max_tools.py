@@ -17,7 +17,7 @@ from rest_framework import serializers
 from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem
 
 from posthog.api.utils import ServiceRequest
-from posthog.constants import DEFAULT_SURVEY_APPEARANCE
+from posthog.constants import DEFAULT_SURVEY_APPEARANCE, AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
@@ -204,7 +204,7 @@ def _save_through_survey_api(tool: MaxTool, data: dict[str, Any], survey: Survey
 
 
 def _validation_error_result(error: serializers.ValidationError) -> tuple[str, dict[str, Any]]:
-    error_message = json.dumps(error.detail)
+    error_message = json.dumps(error.detail, ensure_ascii=False)
     return f"Survey validation failed: {error_message}", {
         "error": "validation_failed",
         "error_message": error_message,
@@ -217,6 +217,9 @@ def _build_appearance(team: Team) -> dict[str, Any]:
     team_appearance = get_team_survey_config(team).get("appearance", {})
     if team_appearance:
         appearance.update(team_appearance)
+    if not team.organization.is_feature_available(AvailableFeature.WHITE_LABELLING):
+        # A default saved while the organization had white labelling would fail every create
+        appearance.pop("whiteLabel", None)
     return appearance
 
 
@@ -496,7 +499,7 @@ class CreateSurveyTool(MaxTool):
                     "error_message": "No questions provided in the survey configuration.",
                 }
 
-            survey_data = self._build_survey_data(
+            survey_data = await sync_to_async(self._build_survey_data)(
                 name=name,
                 description=description,
                 questions=questions,
@@ -725,6 +728,11 @@ class EditSurveyTool(MaxTool):
                     "error": "not_found",
                     "error_message": f"No survey found with ID '{survey_id}' in your team.",
                 }
+
+            if linked_flag_variant is not None and linked_flag_id is None and survey.linked_flag_id is None:
+                raise serializers.ValidationError(
+                    "linked_flag_variant needs a linked feature flag. Pass linked_flag_id as well."
+                )
 
             update_data: dict[str, Any] = {}
 

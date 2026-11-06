@@ -1472,13 +1472,13 @@ class TestSurveyToolsSaveThroughSurveyAPI(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_rejects_a_name_another_survey_uses(self, tool_kind):
-        await Survey.objects.acreate(team=self.team, name="Taken", type="popover", questions=[])
+        await Survey.objects.acreate(team=self.team, name="Enquête", type="popover", questions=[])
 
-        content, artifact = await self._run(tool_kind, name="Taken")
+        content, artifact = await self._run(tool_kind, name="Enquête")
 
         assert artifact["error"] == "validation_failed", content
-        assert "already" in artifact["error_message"]
-        assert await Survey.objects.filter(team=self.team, name="Taken").acount() == 1
+        assert "Enquête (2)" in artifact["error_message"]
+        assert await Survey.objects.filter(team=self.team, name="Enquête").acount() == 1
 
     @parameterized.expand(
         [
@@ -1498,13 +1498,32 @@ class TestSurveyToolsSaveThroughSurveyAPI(BaseTest):
             team_id=self.team.id, scope="Survey", item_id=str(survey.id), activity=activity, user=self.user
         ).aexists()
 
+    @parameterized.expand(
+        [
+            (
+                "script_in_html",
+                {"thankYouMessageHeader": "<script>alert(1)</script>Thanks"},
+                "thankYouMessageHeader",
+                "Thanks",
+            ),
+            ("white_label_without_the_feature", {"whiteLabel": True}, "whiteLabel", None),
+        ]
+    )
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_create_strips_scripts_from_team_default_appearance(self):
-        self.team.survey_config = {"appearance": {"thankYouMessageHeader": "<script>alert(1)</script>Thanks"}}
+    async def test_create_applies_team_default_appearance_safely(self, _name, team_appearance, key, expected):
+        self.team.survey_config = {"appearance": team_appearance}
         await self.team.asave()
 
         content, artifact = await self._run("create", name="Appearance")
 
         survey = await Survey.objects.aget(id=artifact["survey_id"])
-        assert survey.appearance["thankYouMessageHeader"] == "Thanks", content
+        assert survey.appearance.get(key) == expected, content
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_rejects_a_flag_variant_without_a_linked_flag(self):
+        content, artifact = await self._run("edit", linked_flag_variant="control")
+
+        assert artifact["error"] == "validation_failed", content
+        assert "linked_flag_id" in artifact["error_message"]
