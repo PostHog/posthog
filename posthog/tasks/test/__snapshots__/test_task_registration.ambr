@@ -155,6 +155,7 @@
     'posthog.tasks.tasks.update_event_partitions',
     'posthog.tasks.tasks.update_survey_adaptive_sampling',
     'posthog.tasks.tasks.update_survey_iteration',
+    'posthog.tasks.team_access_cache_tasks.invalidate_team_tokens_task',
     'posthog.tasks.team_access_cache_tasks.invalidate_token_cache_task',
     'posthog.tasks.team_access_cache_tasks.invalidate_user_tokens_task',
     'posthog.tasks.team_event_volume.update_team_event_volumes',

@@ -162,6 +162,23 @@ class TestRetiredTokenTeamMetadataClear(BaseTest):
 
         mock_clear.assert_not_called()
 
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_team_tokens_task.apply_async")
+    @patch("posthog.tasks.team_metadata.clear_team_metadata_cache_for_token_task.delay")
+    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
+    def test_failed_auth_drop_on_token_reset_retries_and_still_enqueues_the_clear(
+        self, _mock_push_vercel: Mock, mock_clear: Mock, mock_auth_retry: Mock
+    ) -> None:
+        old_token = self.team.api_token
+
+        with (
+            patch.object(token_auth_cache, "invalidate_team_tokens", side_effect=ConnectionError("redis down")),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.team.reset_token_and_save(user=self.user, is_impersonated_session=False)
+
+        mock_auth_retry.assert_called_once_with(args=[self.team.id], countdown=5)
+        mock_clear.assert_called_once_with(old_token)
+
     @override_settings(FLAGS_REDIS_URL="")
     @patch("posthog.tasks.team_metadata.clear_team_metadata_cache_for_token_task.delay")
     @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
