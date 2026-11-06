@@ -390,6 +390,17 @@ def _fallback_parent_fk(model: type[Model], parent_resource: APIScopeObject) -> 
     return None
 
 
+def _require_model_instance(obj: object, ref_method: str) -> None:
+    # model_to_resource() returns None for an object it cannot classify, and the object checks read
+    # None as "no access control applies". A facade contract would pass every check without this guard.
+    if isinstance(obj, Model):
+        return
+    raise TypeError(
+        f"Expected a Django model instance, got {type(obj).__name__}. For an object held as a "
+        f"contract, build an ObjectAccessRef and call {ref_method}() instead."
+    )
+
+
 def fallback_parent_object_id(obj: Model, parent_resource: APIScopeObject) -> Optional[str]:
     """Id of the object `obj` falls back to for access, or None when it has no such parent.
 
@@ -883,6 +894,7 @@ class UserAccessControl:
             explicit: If True, only return explicit access controls (no fallback to default)
             specific_only: If True, only consider access controls with roles or organization members
         """
+        _require_model_instance(obj, "access_level_for_ref")
 
         resource = resource or model_to_resource(obj)
         org_membership = self._organization_membership
@@ -994,6 +1006,7 @@ class UserAccessControl:
 
         Returns true or false if access controls are applied, otherwise None
         """
+        _require_model_instance(obj, "check_access_level_for_ref")
 
         resource = model_to_resource(obj)
         if not resource:
@@ -1039,6 +1052,7 @@ class UserAccessControl:
         3. The user is an org admin
         4. The user has "manager" access to the resource
         """
+        _require_model_instance(obj, "check_can_modify_access_levels_for_ref")
 
         if self._is_creator(obj):
             # TODO: Should this always be the case, even for projects?
@@ -1297,6 +1311,56 @@ class UserAccessControl:
                 return True
 
         return False
+
+    def stored_rule_floor(self, resources: Iterable[APIScopeObject]) -> Optional[AccessControlLevel]:
+        """The lowest level the stored rules on ``resources`` can give this user in this team.
+
+        For a caller that copies access to a place that cannot follow PostHog's resolution, such as
+        a grant over a whole warehouse namespace. The floor holds under either resolution mode and
+        whether or not the organization is entitled to access control or roles. So a later change
+        to either can only raise what PostHog enforces above it, never drop it below.
+
+        Each scope (the resource, or one object) contributes its lowest candidate row. The
+        candidates are the user's member rows, if the scope has any. Otherwise they are the rows of
+        the user's roles and the default rows, because a role rule may not apply. Every resolution
+        picks one of the candidates or a level from a broader scope, which contributes on its own.
+        A ``project`` rule on this team contributes only when it denies the project.
+
+        ``None`` means no stored rule applies. This includes org admins, who bypass every rule.
+        """
+        membership = self._organization_membership
+        if not EE_AVAILABLE or not self._team or not membership or self.is_organization_admin:
+            return None
+        role_ids = list(
+            cast(Any, self._user)
+            .role_memberships.filter(role__organization_id=self._organization_id)
+            .valid_for_authorization()
+            .values_list("role_id", flat=True)
+        )
+        rows = AccessControl.objects.filter(team_id=self._team.id, resource__in=list(resources)).filter(
+            Q(organization_member=None, role=None)
+            | Q(organization_member_id=membership.id, role=None)
+            | Q(organization_member=None, role_id__in=role_ids)
+        )
+        rows_by_scope: dict[tuple[str, Optional[str]], list[AccessControl]] = defaultdict(list)
+        for row in rows:
+            rows_by_scope[(row.resource, row.resource_id)].append(row)
+
+        lowest: Optional[AccessControlLevel] = None
+        for (resource, resource_id), scope_rows in rows_by_scope.items():
+            member_rows = [row for row in scope_rows if row.organization_member_id is not None]
+            candidates = member_rows or scope_rows
+            if resource == "project":
+                if resource_id == str(self._team.id) and any(r.access_level == NO_ACCESS_LEVEL for r in candidates):
+                    return cast(AccessControlLevel, NO_ACCESS_LEVEL)
+                continue
+            order = ordered_access_levels(cast(APIScopeObject, resource))
+            for row in candidates:
+                # A level outside the order is unknown: count it as no access.
+                level = cast(AccessControlLevel, row.access_level if row.access_level in order else NO_ACCESS_LEVEL)
+                if lowest is None or order.index(level) < order.index(lowest):
+                    lowest = level
+        return lowest
 
     def effective_access_level_for_resource(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
         """
