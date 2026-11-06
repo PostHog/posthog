@@ -7,6 +7,7 @@ Provides async tasks for updating and syncing team metadata caches.
 import time
 
 from django.conf import settings
+from django.db import DEFAULT_DB_ALIAS
 
 import structlog
 from celery import shared_task
@@ -102,7 +103,9 @@ def clear_team_metadata_cache_for_token_task(api_token: str) -> None:
     The task takes the token because the Team row may be gone, and then no query can find the token from a team id.
     """
     # A retry can run hours later, after a staff token change gave the token back to a team.
-    if Team.objects.filter(api_token=api_token).exists():
+    # The check reads the primary because a lagging replica still shows the old owner.
+    # The task would then skip the delete and never retry it.
+    if Team.objects.using(DEFAULT_DB_ALIAS).filter(api_token=api_token).exists():
         return
     # strict_mirror raises on a failed delete of the shared Redis copy too, so the task retries it.
     team_metadata_hypercache.delete_cache_entry(api_token, strict_mirror=True)
