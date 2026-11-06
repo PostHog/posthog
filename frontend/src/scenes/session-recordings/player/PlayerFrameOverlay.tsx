@@ -78,6 +78,7 @@ const RECOVERABLE_SNAPSHOT_ERRORS = [
     'loadSnapshotsForSourceFailure',
     'loadSnapshotSourcesFailure',
     'snapshotSourceLoadExhausted',
+    'snapshotRateLimited',
 ]
 
 // The frame failure reports show an online browser and a frame that never started to load, and a retry
@@ -168,9 +169,11 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                           ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
                           : isUnauthorized
                             ? 'Your session has expired. Sign in again to keep watching this recording.'
-                            : isRecoverable
-                              ? "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support."
-                              : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
+                            : playerError === 'snapshotRateLimited'
+                              ? "You've loaded a lot of recording data in a short time. Wait a few minutes, then retry."
+                              : isRecoverable
+                                ? "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support."
+                                : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
                 </div>
                 {isUnauthorized && (
                     <LemonButton data-attr="replay-overlay-sign-in" to={urls.login()} type="primary" fullWidth center>

@@ -254,6 +254,18 @@
       "captureProduced": false
     },
     {
+      "type": "message_too_many_events",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
+      "type": "message_window_id_too_long",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
       "type": "misrouted_event",
       "category": "event",
       "severity": "error",

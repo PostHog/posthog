@@ -108,6 +108,8 @@ describe('taskTrackerSceneLogic', () => {
             },
         })
         initKeaTests()
+        // Without Tasks access the scene sends `/tasks` URLs to classic PostHog AI.
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
         toolEvents = toolStreamEventsLogic()
         toolEvents.mount()
         toolEvents.actions.registerToolListener('editor', {
@@ -191,6 +193,20 @@ describe('taskTrackerSceneLogic', () => {
         expect(createBody).toHaveProperty('branch', null)
         expect(uploadStagedTaskAttachments).not.toHaveBeenCalled()
         expect(runBody).not.toHaveProperty('pending_user_artifact_ids')
+    })
+
+    // An Inbox task link must still open its transcript without Tasks access.
+    it.each([
+        ['/tasks', '/ai'],
+        ['/tasks/new', '/ai'],
+        ['/tasks/a1b2c3d4-0000-4000-8000-000000000001', '/tasks/a1b2c3d4-0000-4000-8000-000000000001'],
+    ])('without Tasks access, %s lands on %s', async (start, expected) => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        logic.mount()
+        router.actions.push(start)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe(`/project/997${expected}`)
     })
 
     it.each([
@@ -729,6 +745,25 @@ describe('taskTrackerSceneLogic', () => {
         }
     )
 
+    it('toasts the active-session cap refusal and keeps the draft', async () => {
+        const detail =
+            'You already have 10 cloud sandboxes running. Wait for one to finish or stop one, then try again.'
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/:id/run/': () => [400, { detail, code: 'active_session_cap' }],
+            },
+        })
+        const toast = jest.spyOn(lemonToast, 'error')
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'Inspect the example chart' })
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(toast).toHaveBeenCalledWith(detail)
+        expect(logic.values.isSubmittingTask).toBe(false)
+        expect(logic.values.newTaskData.description).toBe('Inspect the example chart')
+        toast.mockRestore()
+    })
+
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via
     // `runInteractionLogic`, which prunes against the task-scoped store) re-wraps the same refs.
@@ -764,12 +799,36 @@ describe('taskTrackerSceneLogic', () => {
             expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({
                 'new-task': source === 'both' ? ['insight:scene-sig', 'insight:sig'] : ['insight:sig'],
             })
+            expect(attachedContextLogic().values.chatChipsByTask['new-task'].map((chip) => chip.id)).toEqual(
+                source === 'both' ? ['insight:scene-sig', 'insight:sig', 'text:Text'] : ['insight:sig', 'text:Text']
+            )
             expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
             expect(attachedContextLogic().values.contextItems).toHaveLength(
                 source === 'seed' ? 0 : source === 'both' ? 1 : 2
             )
         }
     )
+
+    // A pinned surface replaces the page's context, but the user's own pick must still reach the first message.
+    it('sends a new chat pick alongside pinned context and clears the draft', async () => {
+        const pinned = taskTrackerSceneLogic({
+            panelId: 'pinned-context',
+            contextItems: [{ type: 'insight', key: 'pinned', label: 'Pinned' }],
+        })
+        pinned.mount()
+        attachedContextLogic().actions.registerContext('scene', [{ type: 'insight', key: 'page', label: 'Page' }])
+        attachedContextLogic().actions.pickItem({ type: 'dashboard', key: 7, label: 'Weekly' })
+
+        pinned.actions.setNewTaskData({ description: 'why the drop?' })
+        pinned.actions.submitNewTask()
+        await expectLogic(pinned).toFinishAllListeners()
+
+        expect(runBody?.pending_user_message).toContain('- insight pinned ("Pinned")')
+        expect(runBody?.pending_user_message).toContain('- dashboard 7 ("Weekly")')
+        expect(runBody?.pending_user_message).not.toContain('- insight page')
+        expect(attachedContextLogic().values.pickedByChat['']).toEqual([])
+        pinned.unmount()
+    })
 
     // The tasks backend has no server-side consent check (unlike the conversations coordinator), so a
     // send must be blocked client-side before it ever reaches `api.tasks.create` — otherwise a sandbox
