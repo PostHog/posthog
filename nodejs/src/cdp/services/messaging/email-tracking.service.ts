@@ -616,12 +616,12 @@ export class EmailTrackingService {
                 verifySignature: true,
             })
 
-            const recorded = snsMessageId ? await this.wasSesNotificationRecorded(snsMessageId) : false
-            if (recorded) {
+            const dedup = snsMessageId ? await this.sesNotificationDedup(snsMessageId) : 'new'
+            if (dedup === 'recorded') {
                 sesRedeliveriesSkippedCounter.inc()
                 return { status: 200, message: 'already recorded' }
             }
-            if (recorded === null) {
+            if (dedup === 'unknown') {
                 emailTrackingErrorsCounter.inc({ error_type: 'ses_dedup_unavailable', source: 'ses' })
             }
 
@@ -736,8 +736,7 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
-            // A Redis that could not answer the check gets no second wait for the mark.
-            if (snsMessageId && recorded !== null) {
+            if (snsMessageId && dedup === 'new') {
                 await this.markSesNotificationRecorded(snsMessageId)
             }
             return { status, message: body as string }
@@ -748,13 +747,16 @@ export class EmailTrackingService {
         }
     }
 
-    // Answers null when Redis cannot answer. The caller then records the notification, because a double count beats
-    // a lost event.
-    private async wasSesNotificationRecorded(snsMessageId: string): Promise<boolean | null> {
+    // 'unknown' when Redis cannot answer. The caller then records the notification, because a double count beats a
+    // lost event.
+    private async sesNotificationDedup(snsMessageId: string): Promise<'recorded' | 'new' | 'unknown'> {
+        if (!this.redis) {
+            return 'new'
+        }
         const exists = await this.redisCall('ses-notification-recorded-check', (client) =>
             client.exists(sesNotificationRecordedKey(snsMessageId))
         )
-        return exists === null ? null : exists === 1
+        return exists === null ? 'unknown' : exists === 1 ? 'recorded' : 'new'
     }
 
     private async markSesNotificationRecorded(snsMessageId: string): Promise<void> {

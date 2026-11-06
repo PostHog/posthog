@@ -489,7 +489,7 @@ describe('EmailTrackingService', () => {
                         .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
                         .filter(({ value }) => value.app_source_id === parentRunId)
                         .map(({ value }) => value.metric_name)
-                    expect(names).toContain('email_opened')
+                    expect(names.filter((name) => name === 'email_opened')).toHaveLength(1)
                 })
             })
 
@@ -755,6 +755,23 @@ describe('EmailTrackingService', () => {
                 expect(metrics.map((m) => [m.value.metric_name, m.value.count])).toEqual([
                     ['email_bounced', 1],
                     ['email_bounced_hard', 1],
+                ])
+            })
+
+            it('records a notification once and skips the mark when Redis cannot answer the check', async () => {
+                const service = api['emailTrackingService'] as any
+                const useClient = jest.spyOn(service.redis, 'useClient').mockReturnValue(new Promise(() => {}))
+
+                const response = await postBounce({ functionId: hogFunction.id, snsMessageId: new UUIDT().toString() })
+
+                expect(response.status).toBe(200)
+                const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(metrics.map((m) => [m.value.metric_name, m.value.count])).toEqual([
+                    ['email_bounced', 1],
+                    ['email_bounced_hard', 1],
+                ])
+                expect(useClient.mock.calls.map(([options]: any[]) => options.name)).toEqual([
+                    'ses-notification-recorded-check',
                 ])
             })
 
