@@ -35,8 +35,13 @@ const billingJsonWithGrandfatheredEventsRetention: BillingType = {
         product.type === 'product_analytics'
             ? {
                   ...product,
-                  plans: product.plans.map((plan) =>
-                      plan.current_plan ? { ...plan, plan_key: GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY } : plan
+                  plans: product.plans.flatMap((plan) =>
+                      plan.current_plan
+                          ? [
+                                { ...plan, plan_key: GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY },
+                                { ...plan, plan_key: 'paid-20261105', current_plan: false },
+                            ]
+                          : [plan]
                   ),
               }
             : product

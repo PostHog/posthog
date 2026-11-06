@@ -318,6 +318,7 @@ export interface billingLogicValues {
     platformAddons: BillingProductV2AddonType[]
     productAnalyticsFreePlan: BillingPlanType | null
     productAnalyticsPlanAfterPackageDowngrade: BillingPlanType | null
+    productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
     productAnalyticsPlans: BillingPlanType[]
     productSpecificAlert: BillingAlertConfig | null
     products: BillingProductV2Type[]
@@ -685,10 +686,15 @@ export interface billingLogicMeta {
         currentPlatformAddonPlan: (currentPlatformAddon: BillingProductV2AddonType | null) => BillingPlanType | null
         productAnalyticsPlans: (billing: BillingType | null) => BillingPlanType[]
         productAnalyticsFreePlan: (productAnalyticsPlans: BillingPlanType[]) => BillingPlanType | null
-        hasGrandfatheredEventsRetention: (productAnalyticsPlans: BillingPlanType[]) => boolean
+        productAnalyticsPlanReplacingGrandfathered: (productAnalyticsPlans: BillingPlanType[]) => BillingPlanType | null
+        hasGrandfatheredEventsRetention: (
+            productAnalyticsPlans: BillingPlanType[],
+            productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
+        ) => boolean
         productAnalyticsPlanAfterPackageDowngrade: (
             productAnalyticsPlans: BillingPlanType[],
-            hasGrandfatheredEventsRetention: boolean
+            hasGrandfatheredEventsRetention: boolean,
+            productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
         ) => BillingPlanType | null
         currentEventsRetentionMonths: (currentOrganization: OrganizationType | null) => number | null
         unusedPlatformAddonAmount: (
@@ -1291,24 +1297,38 @@ export const billingLogic = kea<billingLogicType>([
             (productAnalyticsPlans: BillingPlanType[]): BillingPlanType | null =>
                 productAnalyticsPlans.find((plan) => !!plan.free_allocation && !plan.tiers) ?? null,
         ],
-        hasGrandfatheredEventsRetention: [
+        productAnalyticsPlanReplacingGrandfathered: [
             (s) => [s.productAnalyticsPlans],
-            (productAnalyticsPlans: BillingPlanType[]): boolean =>
+            (productAnalyticsPlans: BillingPlanType[]): BillingPlanType | null =>
+                productAnalyticsPlans.find(
+                    (plan) => !!plan.tiers && plan.plan_key !== GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY
+                ) ?? null,
+        ],
+        hasGrandfatheredEventsRetention: [
+            (s) => [s.productAnalyticsPlans, s.productAnalyticsPlanReplacingGrandfathered],
+            (
+                productAnalyticsPlans: BillingPlanType[],
+                productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
+            ): boolean =>
+                !!productAnalyticsPlanReplacingGrandfathered &&
                 productAnalyticsPlans.some(
                     (plan) => !!plan.current_plan && plan.plan_key === GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY
                 ),
         ],
         productAnalyticsPlanAfterPackageDowngrade: [
-            (s) => [s.productAnalyticsPlans, s.hasGrandfatheredEventsRetention],
+            (s) => [
+                s.productAnalyticsPlans,
+                s.hasGrandfatheredEventsRetention,
+                s.productAnalyticsPlanReplacingGrandfathered,
+            ],
             (
                 productAnalyticsPlans: BillingPlanType[],
-                hasGrandfatheredEventsRetention: boolean
+                hasGrandfatheredEventsRetention: boolean,
+                productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
             ): BillingPlanType | null =>
-                productAnalyticsPlans.find((plan) =>
-                    hasGrandfatheredEventsRetention
-                        ? !!plan.tiers && plan.plan_key !== GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY
-                        : !!plan.current_plan
-                ) ?? null,
+                hasGrandfatheredEventsRetention
+                    ? productAnalyticsPlanReplacingGrandfathered
+                    : (productAnalyticsPlans.find((plan) => !!plan.current_plan) ?? null),
         ],
         currentEventsRetentionMonths: [
             (s) => [s.currentOrganization],
