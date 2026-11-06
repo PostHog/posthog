@@ -1296,7 +1296,7 @@ const QUOTE_PAIRS: [open: string, close: string][] = [
 ]
 // Run after the strict pass: a pair the strict pass skipped because a letter touched the
 // opening quote (`x'secret'`) is still a value.
-const LOOSE_APOSTROPHE_QUOTED_VALUE = /'[^'\n]*'(?!\w)/g
+const LOOSE_APOSTROPHE_QUOTED_VALUE = /'[^']*'(?!\w)/g
 const QUOTED_VALUE_PATTERNS = [
     APOSTROPHE_QUOTED_VALUE,
     LOOSE_APOSTROPHE_QUOTED_VALUE,

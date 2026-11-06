@@ -400,6 +400,11 @@ describe('ToolExecutor metrics', () => {
                 'Validation error: invalid_input (field: query): Unable to resolve field: x<value>',
             ],
             [
+                'a PostHogValidationError, with a multi-line quote opened against a letter masked',
+                apiValidationError("Unable to resolve field: x'secret\nphrase' here", 'query'),
+                'Validation error: invalid_input (field: query): Unable to resolve field: x<value> here',
+            ],
+            [
                 'a PostHogValidationError, with the token cut at the length cap masked',
                 apiValidationError(`${'\x0b'.repeat(2016)}Unable to resolve abcdefghijklmnopqrstuvwxyztoken`, 'query'),
                 'Validation error: invalid_input (field: query): Unable to resolve <value>',
