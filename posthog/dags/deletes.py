@@ -996,25 +996,11 @@ def delete_event_documents(
 
     context.add_output_metadata({"pending_deletes": dagster.MetadataValue.int(pending)})
 
-    reuse_floor = _mutation_reuse_floor(cluster)
-    by_shard: dict[int, list[MutationWaiter]] = {}
-    for table in _present_document_embedding_tables(cluster):
-        runner = LightweightDeleteMutationRunner(
-            table=table.sharded_table,
-            predicate=_DOCUMENT_DELETE_PREDICATE,
-            parameters=_document_delete_predicate_params(load_and_verify_deletes_dictionary),
-            reuse_since=reuse_floor,
-        )
-        for host, mutation in cluster.map_one_host_per_shard(runner).result().items():
-            if host.shard_num is not None:
-                by_shard.setdefault(host.shard_num, []).append(mutation)
-
-    cluster_mutations: ClusterShardMutations = {
-        (cluster.data_cluster_name, cluster.shard_role): {
-            shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()
-        }
-    }
-    return (load_and_verify_deletes_dictionary, cluster_mutations)
+    sharded_tables = [table.sharded_table for table in _present_document_embedding_tables(cluster)]
+    return (
+        load_and_verify_deletes_dictionary,
+        _delete_per_shard(cluster, sharded_tables, _DOCUMENT_DELETE_PREDICATE, load_and_verify_deletes_dictionary),
+    )
 
 
 @dagster.op
@@ -1040,25 +1026,11 @@ def delete_team_only_tables(
     if pending == 0:
         return (load_and_verify_deletes_dictionary, {})
 
-    reuse_floor = _mutation_reuse_floor(cluster)
-    by_shard: dict[int, list[MutationWaiter]] = {}
-    for table in _present_team_only_tables(cluster):
-        runner = LightweightDeleteMutationRunner(
-            table=table.sharded_table,
-            predicate=_TEAM_ONLY_DELETE_PREDICATE,
-            parameters=_document_delete_predicate_params(load_and_verify_deletes_dictionary),
-            reuse_since=reuse_floor,
-        )
-        for host, mutation in cluster.map_one_host_per_shard(runner).result().items():
-            if host.shard_num is not None:
-                by_shard.setdefault(host.shard_num, []).append(mutation)
-
-    cluster_mutations: ClusterShardMutations = {
-        (cluster.data_cluster_name, cluster.shard_role): {
-            shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()
-        }
-    }
-    return (load_and_verify_deletes_dictionary, cluster_mutations)
+    sharded_tables = [table.sharded_table for table in _present_team_only_tables(cluster)]
+    return (
+        load_and_verify_deletes_dictionary,
+        _delete_per_shard(cluster, sharded_tables, _TEAM_ONLY_DELETE_PREDICATE, load_and_verify_deletes_dictionary),
+    )
 
 
 def delete_team_data(
@@ -1183,6 +1155,33 @@ def _present_document_embedding_tables(cluster: ClickhouseCluster) -> list[Docum
 def _present_team_only_tables(cluster: ClickhouseCluster) -> list[TeamOnlyTable]:
     """The team-only tables that exist here, judged as `_present_document_embedding_tables` judges embeddings tables."""
     return [table for table in TEAM_ONLY_TABLES if _any_node_has(cluster, table.sharded_table)]
+
+
+def _delete_per_shard(
+    cluster: ClickhouseCluster,
+    sharded_tables: list[str],
+    predicate: str,
+    pending_deletes_dictionary: "PendingDeletesDictionary",
+) -> ClusterShardMutations:
+    """Start a lightweight delete on one host per shard of each table, grouped by shard for the mutation waiter."""
+    reuse_floor = _mutation_reuse_floor(cluster)
+    by_shard: dict[int, list[MutationWaiter]] = {}
+    for sharded_table in sharded_tables:
+        runner = LightweightDeleteMutationRunner(
+            table=sharded_table,
+            predicate=predicate,
+            parameters=_document_delete_predicate_params(pending_deletes_dictionary),
+            reuse_since=reuse_floor,
+        )
+        for host, mutation in cluster.map_one_host_per_shard(runner).result().items():
+            if host.shard_num is not None:
+                by_shard.setdefault(host.shard_num, []).append(mutation)
+
+    return {
+        (cluster.data_cluster_name, cluster.shard_role): {
+            shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()
+        }
+    }
 
 
 def _document_delete_predicate_params(pending_deletes_dictionary: "PendingDeletesDictionary") -> dict[str, str | int]:
