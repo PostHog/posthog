@@ -26,8 +26,11 @@ REPLAY_DIRECT_BLOCKS_FLAG = "replay-direct-blocks"
 def is_direct_blocks_enabled(team_id: int) -> bool:
     """Gate for giving the player block urls. The player polls the listing for a live recording, so the check sends
     no flag-called event."""
-    # All deployments share one flag project and team ids repeat across them, so conditions target a deployment by this.
-    person_properties = {"cloud_deployment": settings.CLOUD_DEPLOYMENT} if settings.CLOUD_DEPLOYMENT else {}
+    # Team ids repeat across deployments, so a team condition also names the deployment. A condition on the distinct id
+    # cannot be evaluated locally, so team_id is sent as a property for team targeting.
+    person_properties: dict[str, str | int] = {"team_id": team_id}
+    if settings.CLOUD_DEPLOYMENT:
+        person_properties["cloud_deployment"] = settings.CLOUD_DEPLOYMENT
     try:
         return bool(
             posthoganalytics.feature_enabled(

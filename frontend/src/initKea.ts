@@ -117,6 +117,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
     loadMembers: 'products.replay_vision.frontend.replay_scanners.highlightFeedGroupLogic', // The feed card shows its own retry
     loadTraceSpans: 'products.tracing.frontend.components.TraceDialog.traceDialogLogic', // The dialog shows its own retry
+    fetchMatchingCounts: 'products.tracing.frontend.tracingDataLogic', // The matching-count label is hidden when the count fails
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
     loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     loadProposals: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
@@ -209,7 +210,6 @@ response to user input, such as a malformed CSV, so it is not reported as an exc
 Every other failure on these actions still toasts and reports.
 */
 const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
-    createTable: 'products.dataWarehouse.selfManagedSourceLogic',
     updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
     setEnabled: 'scenes.subscriptions.subscriptionSceneLogic', // Toasts the refusal, or offers to take ownership
 }
@@ -229,6 +229,33 @@ the code in products/ai_observability/backend/api/summarization.py.
 */
 const CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     generateSummary: 'products.ai_observability.frontend.summary-view.summaryViewLogic',
+}
+
+/*
+Loads whose owning logic renders a 404 with code `github_repository_inaccessible` inline, with a link
+to the GitHub integration settings. The team's GitHub connection can't reach the PR's repository, so
+the 404 is a setup state, not a defect. The backend raises the code in products/signals/backend/views.py.
+*/
+const GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
+    loadPrChecks: 'scenes.inbox.logics.inboxReportDetailLogic',
+    loadPrComments: 'scenes.inbox.logics.inboxReportDetailLogic',
+}
+
+// projectLogic toasts a duplicate project name 409 from these actions.
+const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    createProject: 'scenes.projectLogic',
+    updateCurrentProject: 'scenes.projectLogic',
+}
+
+function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
+    if (error?.status === 404 && error?.code === 'content_expired') {
+        return isOwnedByLogic(CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    }
+    if (error?.status === 404 && error?.code === 'github_repository_inaccessible') {
+        return isOwnedByLogic(GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    }
+    return error?.status === 409 && isOwnedByLogic(CONFLICT_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
 }
 
 interface InitKeaProps {
@@ -384,15 +411,11 @@ export function initKea({
                     NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
                 const isSelfHandledExistingMember =
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
-                const isSelfHandledContentExpired =
-                    error?.status === 404 &&
-                    error?.code === 'content_expired' &&
-                    isOwnedByLogic(CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)
                 if (
                     shouldReportApiFailure(error) &&
                     !isSelfHandledNotFound &&
                     !isSelfHandledExistingMember &&
-                    !isSelfHandledContentExpired &&
+                    !isExpectedFailureOwnedByLogic(error, actionKey, logic.pathString) &&
                     !isSelfHandledValidationError
                 ) {
                     posthog.captureException(error)

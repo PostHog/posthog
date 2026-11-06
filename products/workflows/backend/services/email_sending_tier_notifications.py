@@ -52,7 +52,6 @@ def _notify_demotion(decision: TierDecision) -> None:
         send_email_sending_tier_demoted.delay(
             team_id=decision.team_id,
             per_day=limits.per_day,
-            per_hour=limits.per_hour,
             demoted_at=timezone.now().isoformat(),
         )
     except Exception:
@@ -83,10 +82,7 @@ def _notify_promotion(decision: TierDecision) -> None:
             notification_type=NotificationType.EMAIL_REPUTATION,
             priority=Priority.NORMAL,
             title="Workflow email sending limit raised",
-            body=(
-                f"This project earned a higher sending limit: "
-                f"up to {limits.per_day:,} emails per day and {limits.per_hour:,} per hour."
-            ),
+            body=f"This project earned a higher sending limit: up to {limits.per_day:,} emails per day.",
             target_type=TargetType.TEAM,
             target_id=str(decision.team_id),
             source_url="/workflows/reputation",

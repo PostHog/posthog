@@ -106,6 +106,7 @@ rules:
                               |BriefConfig
                               |ButtonTile
                               |WorkloadTrustPolicy
+                              |WorkloadTrustPolicyRequest
                               |Canvas
                               |CanvasBuild
                               |CanvasHomePreference
@@ -223,7 +224,9 @@ rules:
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |ExternalDataSourceDestination
+                              |ExternalDataSourceInputsBackup
                               |FeatureFlag
+                              |FeatureFlagCodeAnalysis
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
@@ -260,6 +263,7 @@ rules:
                               |HogFunctionRevision
                               |Hook
                               |Insight
+                              |InsightExplanation
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
@@ -306,11 +310,13 @@ rules:
                               |MessageSuppression
                               |MessageTemplate
                               |Metric
+                              |MetricDailyQueryCount
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
+                              |MCPCustomHarness
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
@@ -463,6 +469,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskRunGatewayRequest
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -618,6 +625,7 @@ rules:
                         |BriefConfig
                         |ButtonTile
                         |WorkloadTrustPolicy
+                        |WorkloadTrustPolicyRequest
                         |Canvas
                         |CanvasBuild
                         |CanvasHomePreference
@@ -732,7 +740,9 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
+                        |ExternalDataSourceInputsBackup
                         |FeatureFlag
+                        |FeatureFlagCodeAnalysis
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
@@ -769,6 +779,7 @@ rules:
                         |HogFunctionRevision
                         |Hook
                         |Insight
+                        |InsightExplanation
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
@@ -810,10 +821,12 @@ rules:
                         |MessageSuppression
                         |MessageTemplate
                         |Metric
+                        |MetricDailyQueryCount
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |MCPAuditEvent
+                        |MCPCustomHarness
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
@@ -965,6 +978,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskRunGatewayRequest
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig
@@ -1298,6 +1312,7 @@ rules:
                         |TeamDataQualityConfig
                         |TeamDataWarehouseConfig
                         |TeamDefaultEvaluationContext
+                        |TeamEventsPlanDeletion
                         |TeamEventsRetentionConfig
                         |TeamEventVolume
                         |TeamExperimentsConfig

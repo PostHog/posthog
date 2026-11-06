@@ -7,6 +7,9 @@ The backfill fills each source's `credentials_integration_id` column with the on
   row, so a run can be repeated. The backfill never merges two sources into one row, because that would put
   the secrets of both under one edit point.
 - An OAuth source: the column gets the in-use `*_integration_id` pointer of its stored `job_inputs`.
+- A legacy HubSpot source: execution exchanges its tokens and creates or reuses a HubSpot OAuth row.
+  It removes the legacy tokens and saves the pointer and column together. Preview makes no network calls.
+  Unusable grants are skipped so a later run can retry.
 
 Old rows can hold shapes that the OAuth walk does not read (a flat legacy key, a select stored as a string).
 The backfill logs and skips them. It never guesses which pointer is in use.
@@ -18,7 +21,7 @@ integrations list.
 
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -26,7 +29,7 @@ from django.db import transaction
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.integrations import IntegrationManager, IntegrationReference
+from posthog.integrations import IntegrationConflict, IntegrationManager, IntegrationReference
 
 from products.warehouse_sources.backend.facade.contracts import SharedCredentialsError, UnreadableSourceInputsError
 from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
@@ -39,16 +42,23 @@ from products.warehouse_sources.backend.logic.source_credentials import (
 from products.warehouse_sources.backend.logic.source_credentials_rollout import (
     connection_fields_equal,
     in_use_oauth_slot,
+    is_stripped,
     split_connection_fields,
 )
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.legacy_oauth import (
+    LegacyOAuthGrantUnusable,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (
     OAuthPointerShapeError,
     PointerPath,
     pointer_at,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+if TYPE_CHECKING:
+    from posthog.integrations.accessors import OAuthAccessor
 
 logger = structlog.get_logger(__name__)
 
@@ -57,12 +67,17 @@ UPDATED = "updated"
 RECREATED = "recreated"
 UNCHANGED = "unchanged"
 OAUTH_LINKED = "oauth_linked"
+HUBSPOT_LEGACY_ADOPTED = "hubspot_legacy_adopted"
+SKIPPED_LEGACY_UNUSABLE = "skipped_legacy_token_unusable"
 SKIPPED_SHAPE = "skipped_unreadable_shape"
 SKIPPED_NO_ROW = "skipped_no_row"
 SKIPPED_SHARED = "skipped_shared"
 SKIPPED_DELETED = "skipped_deleted"
 SKIPPED_UNREADABLE = "skipped_unreadable"
 SKIPPED_UNKNOWN_TYPE = "skipped_unknown_type"
+# The source is stripped: `job_inputs` has no credentials to copy, and the row or the column is the only copy.
+SKIPPED_STRIPPED = "skipped_stripped"
+STRIPPED_ROW_MISSING = "stripped_row_missing_or_unreadable"
 FAILED = "failed"
 
 # The outcomes of a source whose row does not hold its stored connection fields yet.
@@ -72,10 +87,12 @@ NOT_BACKFILLED = frozenset(
         UPDATED,
         RECREATED,
         OAUTH_LINKED,
+        HUBSPOT_LEGACY_ADOPTED,
         SKIPPED_SHARED,
         SKIPPED_UNREADABLE,
         SKIPPED_SHAPE,
         SKIPPED_UNKNOWN_TYPE,
+        STRIPPED_ROW_MISSING,
         FAILED,
     }
 )
@@ -174,7 +191,7 @@ def _batches(
     remaining = limit
     while remaining is None or remaining > 0:
         page_size = batch_size if remaining is None else min(batch_size, remaining)
-        batch = _next_sources(last_id, page_size, team_ids, source_type)
+        batch = next_source_batch(last_id, page_size, team_ids, source_type)
         if not batch:
             return
         last_id = batch[-1].id
@@ -183,9 +200,10 @@ def _batches(
             remaining -= len(batch)
 
 
-def _next_sources(
+def next_source_batch(
     after_id: UUID | None, size: int, team_ids: Sequence[int], source_type: str | None
 ) -> list[ExternalDataSource]:
+    """One page of non-deleted sources in id order, with only the fields that the credentials tools read."""
     # `select_related(None)` clears the default manager's join, which `only()` cannot defer past.
     queryset = (
         ExternalDataSource.objects.exclude(deleted=True)
@@ -204,6 +222,7 @@ def _next_sources(
 
 def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: BackfillCounts) -> None:
     planned: list[tuple[ExternalDataSource, dict[str, Any]]] = []
+    stripped: list[ExternalDataSource] = []
     for source in batch:
         source_type = str(source.source_type)
         try:
@@ -218,13 +237,17 @@ def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: B
         except ValueError:
             counts[(source_type, SKIPPED_UNKNOWN_TYPE)] += 1
             continue
-        if plan == OAUTH_LINKED:
-            _run(source, execute, plan, counts)
+        if plan == SKIPPED_STRIPPED:
+            stripped.append(source)
             continue
         if isinstance(plan, str):
-            counts[(source_type, plan)] += 1
+            if plan in (OAUTH_LINKED, HUBSPOT_LEGACY_ADOPTED):
+                _run(source, execute, plan, counts)
+            else:
+                counts[(source_type, plan)] += 1
             continue
         planned.append((source, plan))
+    _check_stripped(stripped, counts)
     if not planned:
         return
 
@@ -244,13 +267,16 @@ def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: B
 
 
 def _plan(source: ExternalDataSource) -> dict[str, Any] | str:
-    """The connection fields that the row of a source with typed-in credentials must hold, or the outcome of
-    a source that needs no row write (an OAuth source, a source without connection fields)."""
+    """Return the stored typed-in fields or the planned outcome, without network calls or writes."""
     inputs = SourceInputsStore.load_stored(source)
+    if is_stripped(inputs):
+        return SKIPPED_STRIPPED
+    if _has_legacy_oauth_tokens(source, inputs):
+        return HUBSPOT_LEGACY_ADOPTED
     slot = in_use_oauth_slot(str(source.source_type), inputs)
     if slot is not None:
         return _oauth_outcome(source, inputs, slot)
-    fields = _stored_connection_fields(source, inputs)
+    fields = stored_connection_fields(source, inputs)
     if not fields or not has_typed_in_credentials(str(source.source_type)):
         return SKIPPED_NO_ROW
     return fields
@@ -269,7 +295,7 @@ def _oauth_outcome(source: ExternalDataSource, inputs: Mapping[str, Any], slot: 
 def _run(source: ExternalDataSource, execute: bool, outcome: str, counts: BackfillCounts) -> None:
     if execute:
         try:
-            outcome = _sync_source(source)
+            outcome = _adopt_legacy_oauth(source) if outcome == HUBSPOT_LEGACY_ADOPTED else _sync_source(source)
         except OAuthPointerShapeError:
             _log_shape(source)
             outcome = SKIPPED_SHAPE
@@ -288,7 +314,7 @@ def _log_shape(source: ExternalDataSource) -> None:
     )
 
 
-def _stored_connection_fields(source: ExternalDataSource, inputs: Mapping[str, Any]) -> dict[str, Any]:
+def stored_connection_fields(source: ExternalDataSource, inputs: Mapping[str, Any]) -> dict[str, Any]:
     """The connection fields of the stored `job_inputs`. A leaf that no key can decrypt raises
     `UnreadableSourceInputsError`, so its ciphertext never goes to a row."""
     fields = split_connection_fields(str(source.source_type), inputs)
@@ -296,6 +322,68 @@ def _stored_connection_fields(source: ExternalDataSource, inputs: Mapping[str, A
     if recovered is None:
         raise UnreadableSourceInputsError(f"job_inputs of source {source.id} hold an undecryptable value")
     return recovered
+
+
+def _has_legacy_oauth_tokens(source: ExternalDataSource, inputs: Mapping[str, Any]) -> bool:
+    # The registry loads every source, so keep it off this module's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (  # noqa: PLC0415 — heavy import
+        SourceRegistry,
+    )
+
+    return SourceRegistry.get_source(ExternalDataSourceType(source.source_type)).has_legacy_oauth_tokens(inputs)
+
+
+def _adopt_legacy_oauth(source: ExternalDataSource) -> str:
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (  # noqa: PLC0415 - heavy registry import
+        SourceRegistry,
+    )
+
+    inputs = SourceInputsStore.load_stored(source)
+    source_class = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+    try:
+        grant = source_class.adopt_legacy_oauth(inputs)
+    except LegacyOAuthGrantUnusable:
+        logger.warning("warehouse_source_credentials.backfill_legacy_token_unusable", source_id=str(source.id))
+        return SKIPPED_LEGACY_UNUSABLE
+    if grant is None:
+        return _sync_source(source)
+
+    with transaction.atomic():
+        fresh = (
+            ExternalDataSource.objects.select_related(None)
+            .select_for_update(of=("self",))
+            .filter(pk=source.pk, team_id=source.team_id)
+            .exclude(deleted=True)
+            .first()
+        )
+        if fresh is None:
+            return SKIPPED_DELETED
+        fresh_inputs = SourceInputsStore.load_stored(fresh)
+        if grant.pointer_key in fresh_inputs:
+            return _sync_source(fresh)
+        if fresh_inputs.get("hubspot_refresh_token") != grant.refresh_token:
+            return SKIPPED_LEGACY_UNUSABLE
+
+        oauth = cast("OAuthAccessor", getattr(IntegrationManager, grant.kind.replace("-", "_")).oauth)
+        row = oauth.find(fresh.team_id, external_id=grant.external_id)
+        if row is None:
+            try:
+                row = oauth.create(
+                    fresh.team_id,
+                    external_id=grant.external_id,
+                    config=grant.config,
+                    sensitive_config=grant.sensitive_config,
+                    created_by_id=fresh.created_by_id,
+                )
+            except IntegrationConflict:
+                row = oauth.find(fresh.team_id, external_id=grant.external_id)
+                if row is None:
+                    raise
+
+        new_inputs = {key: value for key, value in fresh_inputs.items() if key not in grant.legacy_keys}
+        new_inputs[grant.pointer_key] = row.id
+        SourceInputsStore.adopt_oauth_pointer(fresh, new_inputs, IntegrationReference.from_legacy_id(row.id))
+        return HUBSPOT_LEGACY_ADOPTED
 
 
 def _sync_source(source: ExternalDataSource) -> str:
@@ -327,6 +415,9 @@ def _sync_source(source: ExternalDataSource) -> str:
         if fresh is None:
             return SKIPPED_DELETED
         inputs = SourceInputsStore.load_stored(fresh)
+        if is_stripped(inputs):
+            # Stripped after the batch read. The row is the only copy, so `job_inputs` must never overwrite it.
+            return SKIPPED_STRIPPED
         slot = in_use_oauth_slot(str(fresh.source_type), inputs)
         if slot is not None:
             outcome = _oauth_outcome(fresh, inputs, slot)
@@ -336,7 +427,7 @@ def _sync_source(source: ExternalDataSource) -> str:
                     fresh, IntegrationReference.from_legacy_id(pointer.integration_id)
                 )
             return outcome
-        fields = _stored_connection_fields(fresh, inputs)
+        fields = stored_connection_fields(fresh, inputs)
         if not fields or not has_typed_in_credentials(str(fresh.source_type)):
             return SKIPPED_NO_ROW
         before = fresh.credentials_integration_id
@@ -355,6 +446,29 @@ def _sync_source(source: ExternalDataSource) -> str:
             # A change of where a shared row connects made a new row for this source.
             SourceInputsStore.write_credentials_reference(fresh, reference)
         return UPDATED
+
+
+def _check_stripped(sources: list[ExternalDataSource], counts: BackfillCounts) -> None:
+    # Never write the row or the column of a stripped source from `job_inputs`: that would replace the
+    # credentials with nothing.
+    if not sources:
+        return
+    typed_in: list[ExternalDataSource] = []
+    for source in sources:
+        try:
+            slot = in_use_oauth_slot(str(source.source_type), SourceInputsStore.load_stored(source))
+        except ValueError:
+            counts[(str(source.source_type), STRIPPED_ROW_MISSING)] += 1
+            continue
+        if slot is None:
+            typed_in.append(source)
+            continue
+        readable = _column_pk(source.credentials_integration_id or "") is not None
+        counts[(str(source.source_type), SKIPPED_STRIPPED if readable else STRIPPED_ROW_MISSING)] += 1
+    stored = WarehouseSourceCredentialsStore.get_many(typed_in)
+    for source in typed_in:
+        outcome = SKIPPED_STRIPPED if isinstance(stored.get(source.id), dict) else STRIPPED_ROW_MISSING
+        counts[(str(source.source_type), outcome)] += 1
 
 
 @frozen
