@@ -44,7 +44,7 @@ from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import (
-    key_read_overlaps_restriction,
+    mirrored_column_is_restricted,
     mirrored_properties_for_column,
     property_path_overlaps_restriction,
     restricted_feature_flag_names,
@@ -1319,14 +1319,10 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         Must match what `_substitute_value_read` builds for the source property, so the mirror column and
         its source property become the same AST node and agree on nullability and comparison printing.
         """
-        source_properties = _mirrored_source_properties(field_type, self.context)
-        if not source_properties:
+        resolved_field = field_type.resolve_database_field(self.context)
+        if not isinstance(resolved_field, DatabaseField):
             return None
-        restricted_keys = restricted_property_keys_for_table_type(field_type.table_type, self.context)
-        # A dotted source such as `metadata.backend` is restricted by its parent `metadata` too.
-        if not any(
-            key_read_overlaps_restriction(source_property, restricted_keys) for source_property in source_properties
-        ):
+        if not mirrored_column_is_restricted(field_type.table_type, resolved_field.name, self.context):
             return None
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
