@@ -1,7 +1,10 @@
 import { useValues } from 'kea'
 
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { AIPanel } from '../../scenes/ticket/AIPanel'
 import { ExceptionsPanel } from '../../scenes/ticket/ExceptionsPanel'
@@ -68,10 +71,14 @@ export function SupportTicketSidebarWidgets({ ticketId }: { ticketId: string }):
                 distinctId={ticket?.distinct_id}
             />
         ),
-        ai_traces: {
-            content: person?.uuid ? <TicketAiTracesPanel personId={person.uuid} /> : null,
-            unavailableReason: 'This ticket has no linked person.',
-        },
+        ...(userHasAccess(AccessControlResourceType.LlmAnalytics, AccessControlLevel.Viewer)
+            ? {
+                  ai_traces: {
+                      content: person?.uuid ? <TicketAiTracesPanel personId={person.uuid} /> : null,
+                      unavailableReason: 'This ticket has no linked person.',
+                  },
+              }
+            : {}),
         previous_tickets: widgetTicketOnlySlot(
             isWidgetTicket,
             <PreviousTicketsPanel

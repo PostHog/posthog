@@ -14,6 +14,11 @@ export interface TicketAiTraceDetailLogicProps {
 
 const CONVERSATION_EVENTS = ['$ai_generation', '$ai_embedding']
 
+// The query runners serialize a missing state as null.
+function hasState(value: unknown): boolean {
+    return value !== undefined && value !== null
+}
+
 export function traceEventsToShow(trace: LLMTrace | null): LLMTraceEvent[] {
     if (!trace) {
         return []
@@ -25,13 +30,13 @@ export function traceEventsToShow(trace: LLMTrace | null): LLMTraceEvent[] {
     const spans = trace.events.filter(
         (event) =>
             event.event === '$ai_span' &&
-            (event.properties.$ai_input_state !== undefined || event.properties.$ai_output_state !== undefined)
+            (hasState(event.properties.$ai_input_state) || hasState(event.properties.$ai_output_state))
     )
     if (spans.length > 0) {
         return spans
     }
     // TraceQuery leaves the root $ai_trace event out of `events` and returns its state on the trace itself.
-    if (trace.inputState === undefined && trace.outputState === undefined) {
+    if (!hasState(trace.inputState) && !hasState(trace.outputState)) {
         return []
     }
     return [

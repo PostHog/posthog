@@ -28,6 +28,11 @@ describe('traceEventsToShow', () => {
             ['trace-1'],
         ],
         ['nothing when no step recorded an input or output', trace([event('empty-span', '$ai_span')]), []],
+        [
+            'nothing when the root state came back null',
+            trace([event('null-span', '$ai_span', { $ai_input_state: null })], { inputState: null, outputState: null }),
+            [],
+        ],
     ])('shows %s', (_name, input, expectedIds) => {
         expect(traceEventsToShow(input).map((shown) => shown.id)).toEqual(expectedIds)
     })
