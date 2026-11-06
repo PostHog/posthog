@@ -983,6 +983,9 @@ const meta: Meta = {
                     if (query.includes('AS bucket')) {
                         return [200, { results: KPI_RESULTS }]
                     }
+                    if (query.includes('current_users')) {
+                        return [200, { results: [[1840, 1655, 2050, 2180]] }]
+                    }
                     return [200, { results: [] }]
                 },
             },
