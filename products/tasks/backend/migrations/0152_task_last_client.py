@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
             name="last_client",
             field=models.CharField(
                 blank=True,
-                choices=products.tasks.backend.models.task_client_provenance_choices,
+                choices=products.tasks.backend.models.task_client_choices,
                 editable=False,
                 max_length=32,
                 null=True,

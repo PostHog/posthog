@@ -117,6 +117,7 @@ from products.tasks.backend.models import (
     SandboxSession,
     Task,
     TaskArtifact,
+    TaskClient,
     TaskClientProvenance,
     TaskPin,
     TaskRun,
@@ -14741,7 +14742,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             ("desktop", ARRAY_APP_CLIENT_ID_DEV, None, TaskClientProvenance.POSTHOG_DESKTOP),
             ("mobile", POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US, None, TaskClientProvenance.POSTHOG_MOBILE),
             ("web", ARRAY_APP_CLIENT_ID_DEV, TaskClientProvenance.POSTHOG_WEB, TaskClientProvenance.POSTHOG_WEB),
-            ("session", None, None, TaskClientProvenance.SLACK),
+            ("session", None, None, TaskClient.SLACK),
         ]
     )
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
@@ -14750,11 +14751,11 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         _name: str,
         client_id: str | None,
         header: TaskClientProvenance | None,
-        expected: TaskClientProvenance,
+        expected: TaskClient | TaskClientProvenance,
         _mock_signal_followup,
     ) -> None:
         task = self.create_task()
-        Task.objects.filter(id=task.id).update(last_client=TaskClientProvenance.SLACK)
+        Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
         run = self._create_run_with_sandbox(task)
         client = self._oauth_client(client_id) if client_id else self.client
         headers = {"HTTP_X_POSTHOG_CLIENT_PROVENANCE": header} if header else {}

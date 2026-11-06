@@ -384,13 +384,23 @@ class TaskClientProvenance(models.TextChoices):
     POSTHOG_DESKTOP = "posthog_desktop", "PostHog Desktop"
     POSTHOG_MOBILE = "posthog_mobile", "PostHog Mobile"
     POSTHOG_WEB = "posthog_web", "PostHog Web"
-    # Only `last_client` is ever Slack. Slack-created tasks keep `client_provenance` null.
-    SLACK = "slack", "Slack"
 
 
 def task_client_provenance_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(TaskClientProvenance.choices)
+
+
+class TaskClient(models.TextChoices):
+    POSTHOG_DESKTOP = TaskClientProvenance.POSTHOG_DESKTOP.value, TaskClientProvenance.POSTHOG_DESKTOP.label
+    POSTHOG_MOBILE = TaskClientProvenance.POSTHOG_MOBILE.value, TaskClientProvenance.POSTHOG_MOBILE.label
+    POSTHOG_WEB = TaskClientProvenance.POSTHOG_WEB.value, TaskClientProvenance.POSTHOG_WEB.label
+    SLACK = "slack", "Slack"
+
+
+def task_client_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(TaskClient.choices)
 
 
 def task_origin_product_choices() -> list[tuple[str, str | Promise]]:
@@ -534,7 +544,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     )
     last_client = models.CharField(
         max_length=32,
-        choices=task_client_provenance_choices,
+        choices=task_client_choices,
         null=True,
         blank=True,
         editable=False,
@@ -721,7 +731,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
         if is_new and self.last_client is None:
             self.last_client = self.client_provenance or (
-                TaskClientProvenance.SLACK if self.origin_product == Task.OriginProduct.SLACK else None
+                TaskClient.SLACK if self.origin_product == Task.OriginProduct.SLACK else None
             )
             self.last_client_at = django_timezone.now() if self.last_client else None
 

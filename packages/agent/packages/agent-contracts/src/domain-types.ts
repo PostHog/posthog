@@ -79,8 +79,7 @@ export interface OrganizationMemberBasic {
 export type TaskClientProvenance =
   | "posthog_desktop"
   | "posthog_mobile"
-  | "posthog_web"
-  | "slack";
+  | "posthog_web";
 
 export interface Task {
   id: string;

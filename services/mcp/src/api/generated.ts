@@ -77301,12 +77301,26 @@ export namespace Schemas {
      * * `posthog_desktop` - PostHog Desktop
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web
-     * * `slack` - Slack
      */
     export type TaskClientProvenanceEnum = typeof TaskClientProvenanceEnum[keyof typeof TaskClientProvenanceEnum];
 
 
     export const TaskClientProvenanceEnum = {
+      PosthogDesktop: 'posthog_desktop',
+      PosthogMobile: 'posthog_mobile',
+      PosthogWeb: 'posthog_web',
+    } as const;
+
+    /**
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack
+     */
+    export type TaskClientEnum = typeof TaskClientEnum[keyof typeof TaskClientEnum];
+
+
+    export const TaskClientEnum = {
       PosthogDesktop: 'posthog_desktop',
       PosthogMobile: 'posthog_mobile',
       PosthogWeb: 'posthog_web',
@@ -77377,8 +77391,7 @@ export namespace Schemas {
        *
        * * `posthog_desktop` - PostHog Desktop
        * * `posthog_mobile` - PostHog Mobile
-       * * `posthog_web` - PostHog Web
-       * * `slack` - Slack */
+       * * `posthog_web` - PostHog Web */
       client_provenance?: TaskClientProvenanceEnum | null;
       /** Client the latest person turn on this task came from. Null when no turn came from a known client.
        *
@@ -77386,7 +77399,7 @@ export namespace Schemas {
        * * `posthog_mobile` - PostHog Mobile
        * * `posthog_web` - PostHog Web
        * * `slack` - Slack */
-      last_client?: TaskClientProvenanceEnum | null;
+      last_client?: TaskClientEnum | null;
       /**
          * When the latest person turn from `last_client` arrived.
          * @nullable
@@ -77460,8 +77473,7 @@ export namespace Schemas {
        *
        * * `posthog_desktop` - PostHog Desktop
        * * `posthog_mobile` - PostHog Mobile
-       * * `posthog_web` - PostHog Web
-       * * `slack` - Slack */
+       * * `posthog_web` - PostHog Web */
       client_provenance?: TaskClientProvenanceEnum | null;
       /** Client the latest person turn on this task came from. Null when no turn came from a known client.
        *
@@ -77469,7 +77481,7 @@ export namespace Schemas {
        * * `posthog_mobile` - PostHog Mobile
        * * `posthog_web` - PostHog Web
        * * `slack` - Slack */
-      last_client?: TaskClientProvenanceEnum | null;
+      last_client?: TaskClientEnum | null;
       /**
          * When the latest person turn from `last_client` arrived.
          * @nullable
@@ -111612,8 +111624,7 @@ export namespace Schemas {
        *
        * * `posthog_desktop` - PostHog Desktop
        * * `posthog_mobile` - PostHog Mobile
-       * * `posthog_web` - PostHog Web
-       * * `slack` - Slack */
+       * * `posthog_web` - PostHog Web */
       client_provenance?: TaskClientProvenanceEnum | null;
       /** Client the latest person turn on this task came from. Null when no turn came from a known client.
        *
@@ -111621,7 +111632,7 @@ export namespace Schemas {
        * * `posthog_mobile` - PostHog Mobile
        * * `posthog_web` - PostHog Web
        * * `slack` - Slack */
-      last_client?: TaskClientProvenanceEnum | null;
+      last_client?: TaskClientEnum | null;
       /**
          * When the latest person turn from `last_client` arrived.
          * @nullable
@@ -112821,8 +112832,7 @@ export namespace Schemas {
        *
        * * `posthog_desktop` - PostHog Desktop
        * * `posthog_mobile` - PostHog Mobile
-       * * `posthog_web` - PostHog Web
-       * * `slack` - Slack */
+       * * `posthog_web` - PostHog Web */
       client_provenance?: TaskClientProvenanceEnum | null;
       /** Client the latest person turn on this task came from. Null when no turn came from a known client.
        *
@@ -112830,7 +112840,7 @@ export namespace Schemas {
        * * `posthog_mobile` - PostHog Mobile
        * * `posthog_web` - PostHog Web
        * * `slack` - Slack */
-      last_client?: TaskClientProvenanceEnum | null;
+      last_client?: TaskClientEnum | null;
       /**
          * When the latest person turn from `last_client` arrived.
          * @nullable
@@ -135809,7 +135819,6 @@ export namespace Schemas {
      * * `posthog_desktop` - PostHog Desktop
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web
-     * * `slack` - Slack
      * @minLength 1
      */
     client_provenance?: TasksListClientProvenance;
@@ -135974,7 +135983,6 @@ export namespace Schemas {
       PosthogDesktop: 'posthog_desktop',
       PosthogMobile: 'posthog_mobile',
       PosthogWeb: 'posthog_web',
-      Slack: 'slack',
     } as const;
 
     export type TasksListExcludeOriginProduct = typeof TasksListExcludeOriginProduct[keyof typeof TasksListExcludeOriginProduct];
