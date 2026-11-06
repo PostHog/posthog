@@ -18,6 +18,8 @@ Scorer models and other provider credentials are unchanged.
 
 Offline API uploads run through the Python SDK independently of `TEST` and `OPT_OUT_CAPTURE`.
 The harness's dedicated trace client captures `$ai_generation`, `$ai_span`, and `$ai_trace` events despite the harness's `TEST` database setting, and honors `OPT_OUT_CAPTURE`.
+During teardown, the harness waits up to five seconds for trace shutdown before continuing infrastructure cleanup.
+Pending traces may be lost if delivery does not finish before the process exits.
 
 ## Result contents and scope
 

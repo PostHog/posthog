@@ -5,7 +5,7 @@ import asyncio
 from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
-from threading import Event
+from threading import Event, Thread
 from typing import Any, ClassVar
 from uuid import UUID
 
@@ -233,6 +233,45 @@ def test_one_shot_slots_bound_concurrency(tmp_path: Path, monkeypatch: pytest.Mo
 
     asyncio.run(run_both())
     assert max_active == 1
+
+
+def test_trace_upload_does_not_block_infrastructure_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    upload_started = Event()
+    release_upload = Event()
+    cleanup_done = Event()
+
+    def blocked_upload(*args: Any, **kwargs: Any) -> None:
+        upload_started.set()
+        assert release_upload.wait(timeout=5)
+
+    monkeypatch.setenv("OPT_OUT_CAPTURE", "")
+    monkeypatch.setattr("products.posthog_ai.eval_harness.harness.lifecycle.TRACE_SHUTDOWN_TIMEOUT_SECONDS", 0)
+    with (
+        patch("posthoganalytics.consumer.batch_post", side_effect=blocked_upload),
+        patch("products.posthog_ai.eval_harness.harness.lifecycle.atexit.register"),
+        patch("products.posthog_ai.eval_harness.harness.lifecycle._git", return_value=""),
+    ):
+        harness = SandboxedEvalHarness(parse_args([]))
+        harness._stack.callback(cleanup_done.set)
+        harness._bootstrap(frozenset(), ProgressReporter(total_suites=0))
+        client = harness._posthog_client
+        assert client is not None
+        closer = Thread(target=harness._stack.close, daemon=True)
+        try:
+            client.capture(event="$ai_trace", distinct_id="test", properties={"$ai_trace_id": "test-trace"})
+            client.flush(timeout_seconds=0)
+            assert upload_started.wait(timeout=5)
+            closer.start()
+            assert cleanup_done.wait(timeout=2)
+            assert not release_upload.is_set()
+        finally:
+            release_upload.set()
+            if closer.ident is not None:
+                closer.join(timeout=5)
+            else:
+                harness._stack.close()
+            client.shutdown()
+        assert not closer.is_alive()
 
 
 def test_case_filter_narrows_eval_cases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
