@@ -1570,7 +1570,7 @@ def log_activity(
             "user": user,
             "was_impersonated": was_impersonated,
             "is_system": user is None,
-            "item_id": str(item_id),
+            "item_id": str(item_id) if item_id is not None else None,
             "scope": scope,
             "activity": activity,
             "detail": detail,

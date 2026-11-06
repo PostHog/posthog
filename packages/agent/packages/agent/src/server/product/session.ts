@@ -49,7 +49,7 @@ export function resolvePullRequestFooter(
 ): string {
   return (
     session.pullRequests?.footer ??
-    buildPullRequestFooter(launch, { source: launch.source })
+    buildPullRequestFooter(launch, { sources: [launch.source] })
   );
 }
 

@@ -106,6 +106,7 @@ from .config import (
     clear_worktree_box_cleanup,
     clear_worktree_provider,
     load_config,
+    load_worktree_boxes,
     save_dotfiles_uri,
     save_git_identity,
     save_region,
@@ -1807,6 +1808,16 @@ def devbox_remote_exec(workspace_name: str | None, command: tuple[str, ...]) -> 
     exec_replace(name, list(command))
 
 
+def _sync_warning(name: str, editor: str) -> str:
+    worktree = next((path for path, record in load_worktree_boxes().items() if record.workspace == name), None)
+    if worktree is None:
+        return f"⚠ Sync is active for '{name}'. Editing in {editor} can conflict with the local source of truth."
+    return (
+        f"⚠ '{name}' mirrors the worktree at {worktree}. Edit files in that worktree, "
+        f"and use {editor} to run the stack and tests. Files edited on the devbox conflict with the mirror."
+    )
+
+
 def _open_in_herdr(name: str, workspaces: list[dict[str, Any]] | None) -> None:
     ws = _get_workspace_or_fail(name, workspaces)
     status = get_workspace_status(ws)
@@ -1840,12 +1851,7 @@ def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool, he
 
     if (vscode or cursor or herdr) and mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
         editor = "VS Code Remote" if vscode else "Cursor Remote" if cursor else "Herdr terminals on the devbox"
-        click.echo(
-            click.style(
-                f"⚠ Sync is active for '{name}'. Editing in {editor} can conflict with the local source of truth.",
-                fg="yellow",
-            )
-        )
+        click.echo(click.style(_sync_warning(name, editor), fg="yellow"))
 
     target = "vscode" if vscode else "cursor" if cursor else "web" if web else "herdr" if herdr else "browser"
     telemetry.add_command_properties(devbox_open_target=target)
@@ -2023,6 +2029,7 @@ def devbox_destroy(workspace: str | None, verbose: bool) -> None:
             click.echo(click.style("Warning: failed to terminate sync session; continuing.", fg="yellow"))
 
     delete_workspace(name, verbose=verbose)
+    herdr_app.forget_machine(name)
     click.echo("Destroyed.")
 
 
