@@ -309,6 +309,7 @@ class MCPToolFailuresQueryRunner(HarnessLabelQueryRunner[MCPToolFailuresQueryRes
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_failures_query",
                 timings=self.timings,
                 modifiers=self.modifiers,

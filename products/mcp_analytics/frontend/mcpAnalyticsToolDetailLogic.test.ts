@@ -132,8 +132,6 @@ describe('failure drill-down', () => {
                     harnesses: [],
                     cause: '',
                     sample_message: '',
-                    cause: '',
-                    sample_message: '',
                 })
             }).toDispatchActions(['loadFailureOccurrences', 'loadFailureOccurrencesSuccess'])
 
