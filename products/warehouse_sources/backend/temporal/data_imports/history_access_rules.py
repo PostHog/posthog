@@ -139,16 +139,25 @@ def request_access_rules_copy(schema: ExternalDataSchema, user: User) -> None:
     table = schema.table
     if not schema.keeps_history or table is None:
         return
-    history_table = registered_history_table(table)
-    if history_table is not None:
-        copy_access_rules(user, table, history_table)
-        drop_pending_access_rules_copy(schema)
-        return
-    if not can_copy_access_rules(user, table, None):
-        raise HistoryAccessRulesNotAllowedError(HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE)
-    schema.sync_type_config = update_sync_type_config_keys(
-        schema.id, schema.team_id, updates={PENDING_COPY_KEY: {"table_id": str(table.id), "user_id": user.id}}
-    )
+    with transaction.atomic():
+        # Registration holds the same lock while it creates the history table and reads the request, so a
+        # request either sees the registered table or is seen by the registration.
+        lock_schema_for_history_registration(schema.id, schema.team_id)
+        history_table = registered_history_table(table)
+        if history_table is not None:
+            copy_access_rules(user, table, history_table)
+            drop_pending_access_rules_copy(schema)
+            return
+        if not can_copy_access_rules(user, table, None):
+            raise HistoryAccessRulesNotAllowedError(HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE)
+        schema.sync_type_config = update_sync_type_config_keys(
+            schema.id, schema.team_id, updates={PENDING_COPY_KEY: {"table_id": str(table.id), "user_id": user.id}}
+        )
+
+
+def lock_schema_for_history_registration(schema_id: UUID, team_id: int) -> None:
+    """Lock the schema row until the transaction ends. Call inside `transaction.atomic()`."""
+    list(ExternalDataSchema.objects.select_for_update().filter(id=schema_id, team_id=team_id).values_list("id"))
 
 
 def drop_pending_access_rules_copy(schema: ExternalDataSchema) -> None:
@@ -183,6 +192,12 @@ def run_pending_access_rules_copy(schema_id: UUID, team_id: int, history_table: 
     fails, it is denied the same way and the request stays pending: the next registration tries it again.
     Raises only when even that denial can't be written.
     """
+    with transaction.atomic():
+        lock_schema_for_history_registration(schema_id, team_id)
+        _run_pending_copy(schema_id, team_id, history_table)
+
+
+def _run_pending_copy(schema_id: UUID, team_id: int, history_table: DataWarehouseTable) -> None:
     config: dict[str, Any] = (
         ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id)
         .values_list("sync_type_config", flat=True)
