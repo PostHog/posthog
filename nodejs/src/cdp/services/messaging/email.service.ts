@@ -432,8 +432,6 @@ export function parseAddressList(value?: string): string[] | undefined {
     return result.length > 0 ? result : undefined
 }
 
-// CC and BCC belong to the route because a route builder may parse them its own way, and SES must
-// deliver to exactly the list that builder checked.
 type SesRoute = {
     tenantName: string
     configurationSetName: string
