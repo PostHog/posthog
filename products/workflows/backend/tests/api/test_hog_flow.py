@@ -3595,6 +3595,20 @@ class TestHogFlowAPI(APIBaseTest):
             ("mocked_requests", True, True, {"request_origins": []}, None),
             ("reply_is_not_json", True, False, None, None),
             ("reply_origins_not_a_list", True, False, {"request_origins": "https://slack.com"}, None),
+            (
+                "reply_origins_hold_full_urls",
+                True,
+                False,
+                {
+                    "request_origins": [
+                        "https://user:fake-pass@hooks.example.com:443/services/fake-token?api_key=fake-key",
+                        "HTTP://[::1]:8080/path",
+                        "https://hooks.example.com",
+                        "not a url",
+                    ]
+                },
+                ["https://hooks.example.com", "http://[::1]:8080"],
+            ),
         ]
     )
     def test_test_invocation_with_real_requests_is_logged_without_input_values(

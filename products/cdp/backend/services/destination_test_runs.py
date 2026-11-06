@@ -9,6 +9,7 @@ secrets, and the test resolves secret inputs to plaintext before it runs.
 import re
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Optional
+from urllib.parse import urlsplit
 
 import requests
 import structlog
@@ -31,6 +32,9 @@ TEST_RUN_REQUEST_ORIGINS_MISSING = Counter(
     "Test runs with real requests whose audit row cannot say where the requests went",
     labelnames=["scope"],
 )
+
+_MAX_REQUEST_ORIGINS = 100
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 
 _CONTEXT_FIELDS = ("hog", "inputs", "inputs_schema", "mappings")
 # The worker runs these templates with their own executors, which send real requests even when the test mocks.
@@ -157,6 +161,24 @@ def destination_test_run_context(
     )
 
 
+def _as_origin(value: str) -> Optional[str]:
+    """Reduce a URL to scheme, host and port, so a path, query or userinfo secret never reaches the row."""
+    try:
+        parts = urlsplit(value.strip())
+        port = parts.port
+    except ValueError:
+        return None
+    scheme = parts.scheme.lower()
+    host = parts.hostname
+    if not scheme or not host:
+        return None
+    if ":" in host:
+        host = f"[{host}]"
+    if port is None or port == _DEFAULT_PORTS.get(scheme):
+        return f"{scheme}://{host}"
+    return f"{scheme}://{host}:{port}"
+
+
 def record_test_run_request_origins(row: Optional[ActivityLog], response: requests.Response) -> None:
     """Add the origins the worker reports for a test run to the run's `tested` row."""
     if row is None:
@@ -178,4 +200,6 @@ def record_test_run_request_origins(row: Optional[ActivityLog], response: reques
             status_code=response.status_code,
         )
         return
-    update_activity_context(row, request_origins=origins)
+    # The worker already sends origins. Normalizing again keeps that guarantee in the audit row itself.
+    normalized = [origin for origin in (_as_origin(value) for value in origins) if origin is not None]
+    update_activity_context(row, request_origins=list(dict.fromkeys(normalized))[:_MAX_REQUEST_ORIGINS])
