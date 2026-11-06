@@ -90,10 +90,12 @@ FIND_REPLAY_WRAPPER_JS = f"""(
 
 MEASURE_CONTENT_HEIGHT_JS = f"""
     // The player scales the replay down to fit the viewport, so its scaled box would shrink the viewport
-    // and the replay with it. The unscaled height matches the unscaled width the width measure uses.
+    // and the replay with it. Measure it unscaled, as the width measure does, and keep its aspect ratio
+    // when the width is capped.
     const replayElement = {FIND_REPLAY_WRAPPER_JS};
     if (replayElement) {{
-        return Math.max(replayElement.offsetHeight, document.body.scrollHeight);
+        const widthCap = Math.min(1, {MAX_WIDTH_PIXELS} / replayElement.offsetWidth);
+        return Math.round(replayElement.offsetHeight * widthCap);
     }}
 
     const element = document.querySelector('.InsightCard__viz') ||
