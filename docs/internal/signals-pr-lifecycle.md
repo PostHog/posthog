@@ -341,6 +341,7 @@ The team channel shows eligible suggested owners within Slack's text limit.
 When the labels exceed that limit, the notification shows complete labels and a count of the remaining owners.
 It pings only owners routed to that channel, so owners with a personal notification target appear as plain text.
 Slack keeps plain-text owner names literal instead of converting them into mentions.
+Report text also escapes incomplete mention prefixes and nested tokens while it keeps valid HTTP links.
 If no suggested reviewer has access, the ready report still goes to the configured team channel without an owner label.
 If the latest actionability judgment marks the report as already addressed, the system does not assign a fallback owner or send a reviewer push notification.
 Slack still sends the report to the configured team channel without reviewer mentions.

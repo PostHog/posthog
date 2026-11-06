@@ -197,20 +197,23 @@ def test_build_message_blocks_shows_only_the_impact_section(summary: str, expect
 
 @pytest.mark.parametrize("use_section_blocks", [False, True])
 @pytest.mark.parametrize(
-    ("reviewer_labels", "expected"),
+    ("reviewer_labels", "expected", "priority"),
     [
-        (["<@U1>", "<@U2>"], "👤 Suggested owners: <@U1> <@U2>"),
-        (["<@U1>", "@here @channel"], "👤 Suggested owners: <@U1> @here @channel"),
-        (["a" * 2980], "👤 Suggested owner: " + "a" * 2980),
-        (["a" * 2981], "👤 Suggested owner: (+1 more)"),
-        (["🚀" * 1490], "👤 Suggested owner: " + "🚀" * 1490),
-        (["🚀" * 1491], "👤 Suggested owner: (+1 more)"),
+        (["<@U1>", "<@U2>"], "👤 Suggested owners: <@U1> <@U2>", None),
+        (["<@U1>", "@here @channel"], "👤 Suggested owners: <@U1> @here @channel", None),
+        (["a" * 2980], "👤 Suggested owner: " + "a" * 2980, None),
+        (["a" * 2981], "👤 Suggested owner: (+1 more)", None),
+        (["🚀" * 1490], "👤 Suggested owner: " + "🚀" * 1490, None),
+        (["🚀" * 1491], "👤 Suggested owner: (+1 more)", None),
         (
             ["<@U1>"] + ["Owner" * 200] * 100,
             "👤 Suggested owners: <@U1> " + "Owner" * 200 + " " + "Owner" * 200 + " (+98 more)",
+            None,
         ),
-        (["a" * 2966, "<@U1234567890>"], "👤 Suggested owners: " + "a" * 2966 + " (+1 more)"),
-        (["<@U1>", "&amp;" * 595], "👤 Suggested owners: <@U1> (+1 more)"),
+        (["a" * 2966, "<@U1234567890>"], "👤 Suggested owners: " + "a" * 2966 + " (+1 more)", None),
+        (["<@U1>", "&amp;" * 595], "👤 Suggested owners: <@U1> (+1 more)", None),
+        (["a" * 2970], "🟠 *P1* · 👤 Suggested owner: " + "a" * 2970, AutonomyPriority.P1),
+        (["a" * 2971], "🟠 *P1* · 👤 Suggested owner: (+1 more)", AutonomyPriority.P1),
     ],
     ids=[
         "mentions",
@@ -222,13 +225,17 @@ def test_build_message_blocks_shows_only_the_impact_section(summary: str, expect
         "many_names",
         "whole_mention",
         "escaped_name",
+        "priority_at_limit",
+        "priority_over_limit",
     ],
 )
 def test_build_message_blocks_bounds_owner_labels(
-    reviewer_labels: list[str], expected: str, use_section_blocks: bool
+    reviewer_labels: list[str], expected: str, priority: str | None, use_section_blocks: bool
 ) -> None:
     report = SignalReport(id="report-uuid", title="Shared channel")
-    blocks, _ = _build_message_blocks(report, reviewer_labels=reviewer_labels, use_section_blocks=use_section_blocks)
+    blocks, _ = _build_message_blocks(
+        report, reviewer_labels=reviewer_labels, use_section_blocks=use_section_blocks, priority=priority
+    )
 
     body = blocks[1]["text"]["text"] if use_section_blocks else blocks[1]["text"]
     assert body == ("*Shared channel*" if use_section_blocks else "**Shared channel**")
@@ -255,6 +262,9 @@ def test_build_message_blocks_caps_section_body_without_truncating_mentions() ->
         "![notify](!here) everyone & ![owner](@U999) look\n\n## Impact\n\n![team](!channel) is affected",
         "[notify](!here) everyone & [owner](@U999) look\n\n## Impact\n\n[team](!channel) is affected",
         "![notify](!here) everyone & [channel](#C999) [group](!subteam^S999) [link](javascript:alert)",
+        "<!here [details](https://example.com/report?a=1&b=2) everyone & <@U999",
+        "<!here [details](https://example.com/report) everyone & <#C999 [more](https://example.com)",
+        "![notify](!here[details](https://example.com)) everyone & ![owner](@U999[more](https://example.com))",
     ],
 )
 def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields(use_section_blocks: bool, summary: str) -> None:
@@ -946,8 +956,8 @@ def test_dispatch_posts_team_channel_when_reviewer_has_own_channel(org_and_team)
     assert sent == 2
     posts = {c.kwargs["channel"]: c.kwargs["blocks"] for c in fake_client.chat_postMessage.call_args_list}
     assert set(posts) == {"CUSER", "CTEAM"}
-    assert posts["CUSER"][2]["elements"][0]["text"] == "👤 Suggested owner: <@U_OWN>"
-    assert posts["CTEAM"][2]["elements"][0]["text"] == "👤 Suggested owner: Reviewer Bot"
+    assert posts["CUSER"][2]["elements"][0]["text"] == "🟡 *P2* · 👤 Suggested owner: <@U_OWN>"
+    assert posts["CTEAM"][2]["elements"][0]["text"] == "🟡 *P2* · 👤 Suggested owner: Reviewer Bot"
 
 
 @pytest.mark.django_db
@@ -1043,7 +1053,7 @@ def test_dispatch_filtered_own_channel_reviewer_is_shown_without_a_mention_in_te
     assert sent == 1
     call_kwargs = fake_client.chat_postMessage.call_args.kwargs
     assert call_kwargs["channel"] == "CTEAM"
-    assert call_kwargs["blocks"][2]["elements"][0]["text"] == "👤 Suggested owner: Reviewer Bot"
+    assert call_kwargs["blocks"][2]["elements"][0]["text"] == "🔵 *P3* · 👤 Suggested owner: Reviewer Bot"
 
 
 @pytest.mark.django_db

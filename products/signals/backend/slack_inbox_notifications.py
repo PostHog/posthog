@@ -395,12 +395,12 @@ def _display_title(title: str | None) -> str:
 
 def _section_body(markdown: str) -> str:
     def safe_token(match: re.Match[str]) -> str:
-        destination = match.group(1).partition("|")[0]
+        destination = match.group(0)[1:-1].partition("|")[0]
         return match.group(0) if is_safe_slack_http_url(destination) else _escape_mrkdwn(match.group(0))
 
     # Conversion creates Slack tokens, so only HTTP links may survive in the untrusted body.
     converted = SlackMarkdownConverter().convert(markdown)
-    return truncate_slack_text(re.sub(r"<([^<>]*)>", safe_token, converted), 3000)
+    return truncate_slack_text(re.sub(r"<[^<>]*>|[<>]", safe_token, converted), 3000)
 
 
 def _owner_context_text(reviewer_labels: list[str], *, max_length: int = _SLACK_CONTEXT_MAX_LEN) -> str:
@@ -469,7 +469,9 @@ def _build_message_blocks(
         prefix_length = slack_text_length(" · ".join(context_parts) + " · ") if context_parts else 0
         context_parts.append(_owner_context_text(reviewer_labels, max_length=_SLACK_CONTEXT_MAX_LEN - prefix_length))
     if context_parts:
-        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(context_parts), "verbatim": True}]})
+        blocks.append(
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(context_parts), "verbatim": True}]}
+        )
 
     action_elements: list[dict] = []
     # A link, not an interactive button: the inbox runs its own access, quota and repository checks.
