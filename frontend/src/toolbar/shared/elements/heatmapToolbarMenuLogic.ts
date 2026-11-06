@@ -212,6 +212,13 @@ export function buildElementStatsProperties(
     return properties
 }
 
+// The heatmap API drops the variant when this flag is off, so the clickmap drops it too.
+function clickmapVariantProperties(variantFilter: HeatmapVariantFilter | null): AnyPropertyFilter[] {
+    return variantFilter && toolbarPosthogJS.getFeatureFlag(FEATURE_FLAGS.HEATMAPS_EVENT_FILTER)
+        ? [variantToElementStatsProperty(variantFilter)]
+        : []
+}
+
 // mirrors how posthog-js decides target_fixed when recording heatmap points, so an area
 // and its points classify the same way
 export function isInFixedContainer(element: HTMLElement): boolean {
@@ -936,10 +943,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     }
 
                     const { href, wildcardHref } = values
-                    // The heatmap API drops the variant when this flag is off, so the clickmap drops it too.
-                    const variantFilter = toolbarPosthogJS.getFeatureFlag(FEATURE_FLAGS.HEATMAPS_EVENT_FILTER)
-                        ? values.heatmapVariantFilter
-                        : null
                     const options = {
                         context: 'load_heatmap_stats',
                         reauthenticateOnForbidden: true,
@@ -955,7 +958,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                           wildcardHref,
                                           values.heatmapAreaFilter?.selector ?? null
                                       ),
-                                      ...(variantFilter ? [variantToElementStatsProperty(variantFilter)] : []),
+                                      ...clickmapVariantProperties(values.heatmapVariantFilter),
                                   ],
                                   date_from: values.commonFilters.date_from,
                                   date_to: values.commonFilters.date_to,
