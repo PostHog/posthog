@@ -101,6 +101,7 @@ describe('hog', () => {
         })
         expect(manifest.commands.map((command: { name: string }) => command.name)).toEqual([
             'auth login',
+            'auth add',
             'auth logout',
             'auth migrate',
             'auth status',

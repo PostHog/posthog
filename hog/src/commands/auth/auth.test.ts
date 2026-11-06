@@ -758,4 +758,190 @@ describe('hog auth login', () => {
         const migrated = exitCode === 0 && files[LEGACY_CLI_FILE] !== undefined
         expect(Object.values(result.keychain)).toEqual(migrated ? [JSON.stringify({ apiKey: 'phx_secret' })] : [])
     })
+
+    const ADD_PENDING_FILE = '/home/test/.config/hog/pending-auth-add.json'
+    const STEPPED_UP_ACCESS = `pha_${'b'.repeat(43)}`
+    const STEPPED_UP_REFRESH = `phr_${'s'.repeat(43)}`
+
+    test('add asks for the scopes the login has plus the new ones, and keeps the new ones ticked', async () => {
+        const result = await runHog(['auth', 'add', 'insight:write', 'dashboard:write'], {
+            env: { CLAUDECODE: '1' },
+            ...OAUTH_LOGIN,
+            respond: deviceFlow(0),
+        })
+
+        expect(result.json()).toMatchObject({ status: 'pending', code: 'BCDF-GHJK', next: 'hog auth add --wait' })
+        expect(result.requests).toEqual([
+            {
+                method: 'POST',
+                url: `${EU}/oauth/device-authorization/`,
+                body: {
+                    client_id: HOG_CLIENT_ID,
+                    scope: 'openid insight:read insight:write dashboard:write',
+                    required_scopes: 'insight:write dashboard:write',
+                },
+            },
+        ])
+        expect(readJson(result.files[ADD_PENDING_FILE] ?? '{}')).toMatchObject({ deviceCode: DEVICE_CODE })
+    })
+
+    test.each([
+        ['in the same project, the login keeps its id', OAUTH_LOGIN, 42, 'login-1', null, REFRESH_TOKEN],
+        [
+            'in another project, the login gets a new id',
+            OAUTH_LOGIN,
+            7,
+            expect.not.stringMatching(/^login-1$/),
+            '42',
+            REFRESH_TOKEN,
+        ],
+        [
+            'over a personal API key, the login gets a new id',
+            KEYCHAIN_LOGIN,
+            42,
+            expect.not.stringMatching(/^phx_/),
+            null,
+            undefined,
+        ],
+    ])('add --wait replaces the stored login: %s', async (_name, stored, project, loginId, previous, revoked) => {
+        const scopes = ['openid', 'insight:read', 'insight:write']
+        const result = await runHog(['auth', 'add', '--wait'], {
+            env: { CLAUDECODE: '1' },
+            files: {
+                ...stored.files,
+                [ADD_PENDING_FILE]: JSON.stringify({
+                    ...(readJson(PENDING) as object),
+                    scopes,
+                    requiredScopes: ['insight:write'],
+                }),
+            },
+            keychain: stored.keychain,
+            respond: deviceFlow(0, {
+                status: 200,
+                body: {
+                    ...APPROVED,
+                    access_token: STEPPED_UP_ACCESS,
+                    refresh_token: STEPPED_UP_REFRESH,
+                    scope: scopes.join(' '),
+                    scoped_teams: [project],
+                },
+            }),
+        })
+
+        expect(result.json()).toMatchObject({
+            status: 'added',
+            projectId: String(project),
+            previousProjectId: previous,
+            scopes,
+        })
+        expect(readJson(result.keychain[EU] ?? '{}')).toEqual({
+            accessToken: STEPPED_UP_ACCESS,
+            refreshToken: STEPPED_UP_REFRESH,
+        })
+        expect(readJson(result.files[SETTINGS_FILE] ?? '{}')).toMatchObject({ logins: { [EU]: { loginId, scopes } } })
+        const revoke = result.requests.find((request) => request.url.endsWith('/oauth/revoke/'))
+        expect((revoke?.body as { token?: string } | undefined)?.token).toBe(revoked)
+        expect(result.files[ADD_PENDING_FILE]).toBeUndefined()
+    })
+
+    test('add --wait keeps the current login when PostHog drops a required scope', async () => {
+        const result = await runHog(['auth', 'add', '--wait'], {
+            env: { CLAUDECODE: '1' },
+            files: {
+                ...OAUTH_LOGIN.files,
+                [ADD_PENDING_FILE]: JSON.stringify({
+                    ...(readJson(PENDING) as object),
+                    scopes: ['openid', 'insight:read', 'insight:write'],
+                    requiredScopes: ['insight:write'],
+                }),
+            },
+            keychain: OAUTH_LOGIN.keychain,
+            respond: deviceFlow(0, {
+                status: 200,
+                body: {
+                    ...APPROVED,
+                    access_token: STEPPED_UP_ACCESS,
+                    refresh_token: STEPPED_UP_REFRESH,
+                    scope: 'openid insight:read',
+                },
+            }),
+        })
+
+        expect(result.error()).toMatchObject({ code: 'scopes_not_granted' })
+        expect(result.keychain[EU]).toBe(OAUTH_LOGIN.keychain[EU])
+        const revoke = result.requests.find((request) => request.url.endsWith('/oauth/revoke/'))
+        expect((revoke?.body as { token?: string } | undefined)?.token).toBe(STEPPED_UP_REFRESH)
+    })
+
+    test.each([
+        ['rejected', 'access_denied', 'login_rejected'],
+        ['expired', 'expired_token', 'login_expired'],
+    ])('add --wait %s tells an agent the command that asks for the same scopes again', async (_name, error, code) => {
+        const result = await runHog(['auth', 'add', '--wait'], {
+            env: { CLAUDECODE: '1' },
+            files: {
+                ...OAUTH_LOGIN.files,
+                [ADD_PENDING_FILE]: JSON.stringify({
+                    ...(readJson(PENDING) as object),
+                    scopes: ['openid', 'insight:read', 'insight:write', 'dashboard:write'],
+                    requiredScopes: ['insight:write', 'dashboard:write'],
+                }),
+            },
+            keychain: OAUTH_LOGIN.keychain,
+            respond: deviceFlow(0, { status: 400, body: { error } }),
+        })
+
+        expect(result.error()).toMatchObject({
+            code,
+            hint: expect.stringContaining('`hog auth add insight:write dashboard:write`'),
+        })
+        expect(result.keychain[EU]).toBe(OAUTH_LOGIN.keychain[EU])
+        expect(result.files[ADD_PENDING_FILE]).toBeUndefined()
+    })
+
+    test.each([
+        [
+            'an object without an access level',
+            ['insight'],
+            {},
+            { code: 'unknown_scope', hint: expect.stringContaining('insight:write') },
+        ],
+        ['a scope PostHog does not have', ['insight:admin'], {}, { code: 'unknown_scope' }],
+        [
+            'a scope this hog does not know',
+            ['newthing:read'],
+            {},
+            { code: 'unknown_scope', hint: expect.stringContaining('update hog') },
+        ],
+        [
+            'a personal API key',
+            ['insight:write'],
+            { HOG_PERSONAL_API_KEY: 'phx_secret', HOG_PROJECT_ID: '42' },
+            { code: 'step_up_unavailable', hint: expect.stringContaining('insight:write') },
+        ],
+    ])('add refuses %s without asking PostHog', async (_name, scopes, env, expected) => {
+        const result = await runHog(['auth', 'add', ...scopes], {
+            env: { CLAUDECODE: '1', ...env },
+            ...OAUTH_LOGIN,
+            respond: deviceFlow(0),
+        })
+
+        expect(result.error()).toMatchObject(expected)
+        expect(result.requests).toEqual([])
+    })
+
+    test('add skips the browser when write access already covers the scope', async () => {
+        const result = await runHog(['auth', 'add', 'insight:read'], {
+            env: { CLAUDECODE: '1' },
+            files: {
+                ...OAUTH_LOGIN.files,
+                [SETTINGS_FILE]: OAUTH_LOGIN.files[SETTINGS_FILE].replace('"insight:read"', '"insight:write"'),
+            },
+            keychain: OAUTH_LOGIN.keychain,
+            respond: deviceFlow(0),
+        })
+
+        expect(result.json()).toMatchObject({ status: 'already_granted' })
+        expect(result.requests).toEqual([])
+    })
 })

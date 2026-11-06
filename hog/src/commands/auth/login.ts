@@ -1,4 +1,4 @@
-import { printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
+import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
@@ -10,7 +10,7 @@ import type { StoreChoice } from '@/posthog/credential-store/types'
 import { LOGIN_SCOPES, READ_ONLY_LOGIN_SCOPES } from '@/posthog/device-auth'
 import { hostKey, HostSchema, parseHost, type Host } from '@/posthog/host'
 import { parseProjectId, ProjectIdSchema } from '@/posthog/ids'
-import { loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
+import { LOGIN_COMMAND, loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
 import { parsePersonalApiKey, PersonalApiKeySchema } from '@/posthog/tokens'
 
 const REGIONS = { us: parseHost('https://us.posthog.com'), eu: parseHost('https://eu.posthog.com') }
@@ -22,7 +22,7 @@ function cloudRegion(host: Host | undefined): Host | undefined {
 }
 
 type LoginResult =
-    | (Extract<ApprovalResult<never>, { status: 'pending' }> & { host: string })
+    | (PendingResult & { host: string })
     | {
           status: 'logged_in'
           host: string
@@ -126,13 +126,7 @@ export default defineCommand({
             return finish(ctx, await resumeApproval(ctx, loginWait(ctx.runtime)))
         }
 
-        if (!prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
-            throw new HogError(
-                'login_needs_a_person',
-                'hog auth login needs a person to approve it in a browser, so it does not run in CI.',
-                'Set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST instead.'
-            )
-        }
+        refuseInCi(ctx, LOGIN_COMMAND, 'Set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST instead.')
 
         let host =
             ctx.globals.host ??
