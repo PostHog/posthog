@@ -69,7 +69,32 @@ describe('onboardingWizardRunLogic', () => {
         logic.unmount()
         restoreEventSource()
         jest.restoreAllMocks()
+        jest.useRealTimers()
         localStorage.clear()
+    })
+
+    it('polls for the installation run every few seconds until it appears', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+        jest.useFakeTimers()
+        logic = onboardingWizardRunLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const listCalls = jest.mocked(wizardRunsList).mock.calls.length
+
+        jest.advanceTimersByTime(5_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(jest.mocked(wizardRunsList).mock.calls.length).toBe(listCalls + 1)
+
+        jest.mocked(wizardRunsList).mockResolvedValue({ count: 1, results: [run], next: null })
+        jest.advanceTimersByTime(5_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.run?.id).toBe(run.id)
+
+        const callsAfterFound = jest.mocked(wizardRunsList).mock.calls.length
+        jest.advanceTimersByTime(30_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(jest.mocked(wizardRunsList).mock.calls.length).toBe(callsAfterFound)
     })
 
     it('ignores history, audits, and other users, then saves the installation and supersedes it with a newer one', async () => {

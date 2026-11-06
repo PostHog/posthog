@@ -34,6 +34,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportCheck,
+    SignalReportMonitoringResult,
     SignalScoutConfig,
     SignalScoutRun,
 )
@@ -64,6 +65,7 @@ from products.signals.backend.report_check_execution import (
     resolve_check_query,
     run_due_report_checks,
 )
+from products.signals.backend.report_check_final_metrics import collect_due_final_metrics, run_due_final_metrics
 from products.signals.backend.report_check_monitoring import (
     MonitoringWindowClosed,
     measure_monitoring_check,
@@ -98,6 +100,7 @@ from products.signals.backend.report_checks import (
 from products.signals.backend.report_merge import merge_reports
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import MetricMeasurement
+from products.signals.backend.report_monitoring_attempts import complete_implementation, current_monitoring_attempt
 from products.signals.backend.scout_harness.tools.checks import (
     InvalidCheckResultError,
     InvalidCheckWriteError,
@@ -106,7 +109,11 @@ from products.signals.backend.scout_harness.tools.checks import (
     list_report_checks,
     record_check_result,
 )
-from products.signals.backend.serializers import CHECK_RESULT_HIDDEN_EXPLANATION, SignalReportCheckWriteSerializer
+from products.signals.backend.serializers import (
+    CHECK_RESULT_HIDDEN_EXPLANATION,
+    SignalReportCheckReplacementSerializer,
+    SignalReportCheckWriteSerializer,
+)
 from products.signals.backend.temporal.emitter import SignalEmitterInput
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.signals.backend.views import SignalReportCheckViewSet
@@ -132,6 +139,10 @@ def _seed_check_lane(team: Team) -> None:
 
 def _threshold_config(**overrides: object) -> dict:
     return {"query": _PAGEVIEWS, "comparison": {"operator": "lte", "value": 10}, **overrides}
+
+
+def _replacement_config(**overrides: object) -> dict:
+    return _threshold_config(monitoring={"reference_period_minutes": 10080, "threshold_scaling": "fixed"}, **overrides)
 
 
 class TestCheckComparison(SimpleTestCase):
@@ -491,6 +502,23 @@ class TestAgentCheckConfig(SimpleTestCase):
 
 
 class TestCheckScheduleValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing_monitoring", {"config": _threshold_config()}, "config"),
+            ("negative_window", {"soak_minutes": -1}, "soak_minutes"),
+            ("window_too_long", {"soak_minutes": MAX_CHECK_SOAK_HOURS * 60 + 1}, "soak_minutes"),
+            ("interval_too_short", {"run_interval_minutes": MIN_CHECK_INTERVAL_MINUTES - 1}, "run_interval_minutes"),
+            ("no_evaluations", {"runs_remaining": 0}, "runs_remaining"),
+            ("multiple_evaluations", {"runs_remaining": 2}, "runs_remaining"),
+        ]
+    )
+    def test_invalid_metric_replacement_configuration(self, _name: str, overrides: dict, field: str) -> None:
+        serializer = SignalReportCheckReplacementSerializer(
+            data={"title": "Better metric", "config": _replacement_config(), **overrides}
+        )
+        assert not serializer.is_valid()
+        assert field in serializer.errors
+
     @parameterized.expand(
         [("metric_threshold", _threshold_config()), ("agent", {"instructions": "Check the issue again."})]
     )
@@ -1246,7 +1274,7 @@ class TestReportCheckAPI(APIBaseTest):
         ):
             response = self.client.post(
                 f"{self.url}{check.id}/replace/",
-                {"title": "Better metric", "config": _threshold_config()},
+                {"title": "Better metric", "config": _replacement_config()},
                 format="json",
             )
         if flag_result is True:
@@ -1385,10 +1413,16 @@ class TestReportCheckAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("missing_config", {}),
-            ("fractional_count", _threshold_config(value_format="count", comparison={"operator": "lte", "value": 1.5})),
+            ("multiple_evaluations", _replacement_config(), {"runs_remaining": 2}),
+            ("restart_period_conflict", _replacement_config(), {}, "just_started"),
+            ("suppressed_monitoring", _replacement_config(), {}, "suppressed"),
+            (
+                "fractional_count",
+                _replacement_config(value_format="count", comparison={"operator": "lte", "value": 1.5}),
+            ),
             (
                 "malformed_hogql",
-                _threshold_config(
+                _replacement_config(
                     query=trends_metric_query(
                         series=[{"kind": "EventsNode", "event": "$pageview", "math": "hogql", "math_hogql": "sum("}]
                     )
@@ -1396,22 +1430,200 @@ class TestReportCheckAPI(APIBaseTest):
             ),
         ]
     )
-    def test_invalid_metric_replacement_leaves_the_check_and_activity_unchanged(self, _name: str, config: dict) -> None:
+    def test_invalid_metric_replacement_leaves_the_check_and_activity_unchanged(
+        self, _name: str, config: dict, overrides: dict | None = None, monitoring_state: str | None = None
+    ) -> None:
         self.enterContext(
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True)
         )
+        now = timezone.now()
+        self.enterContext(time_machine.travel(now, tick=False))
         check = self._create()
+        if monitoring_state is not None:
+            self.report.status = SignalReport.Status.READY
+            self.report.save(update_fields=["status"])
+            complete_implementation(
+                team_id=self.team.id,
+                report_id=self.report.id,
+                monitoring_started_at=now if monitoring_state == "just_started" else now - timedelta(hours=1),
+            )
+            if monitoring_state == "suppressed":
+                self.report.refresh_from_db()
+                self.report.save(update_fields=self.report.transition_to(SignalReport.Status.SUPPRESSED))
         SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(approved_at=timezone.now())
         original_state = SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get()
         log_count = SignalReportArtefact.objects.filter(report=self.report).count()
 
         rejected = self.client.post(
-            f"{self.url}{check.id}/replace/", {"title": "Better metric", "config": config}, format="json"
+            f"{self.url}{check.id}/replace/",
+            {"title": "Better metric", "config": config, **(overrides or {})},
+            format="json",
         )
         assert rejected.status_code == status.HTTP_400_BAD_REQUEST
         assert SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get() == original_state
         assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == 1
         assert SignalReportArtefact.objects.filter(report=self.report).count() == log_count
+
+    @parameterized.expand(
+        [
+            ("defaults", {}, 14 * 1440, 1440, 1),
+            ("configured", {"soak_minutes": 1440, "run_interval_minutes": 480, "runs_remaining": 1}, 1440, 480, 1),
+            ("short_window", {"soak_minutes": 120}, 120, None, 1),
+            ("zero_window", {"soak_minutes": 0}, 0, None, 1),
+        ]
+    )
+    def test_replacement_upgrades_legacy_checks_with_configurable_monitoring(
+        self, _name: str, schedule: dict, duration: int, interval: int | None, runs: int
+    ) -> None:
+        self.enterContext(
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True)
+        )
+        self.report.status = SignalReport.Status.READY
+        self.report.save(update_fields=["status"])
+        check = self._create(soak_minutes=14 * 1440, next_run_at=None, runs_remaining=3, run_interval_minutes=360)
+        complete_implementation(
+            team_id=self.team.id,
+            report_id=self.report.id,
+            monitoring_started_at=timezone.now() - timedelta(minutes=1),
+        )
+        response = self.client.post(
+            f"{self.url}{check.id}/replace/",
+            {
+                "title": "Better metric",
+                "rationale": "Measure the intended outcome.",
+                "config": _replacement_config(),
+                **schedule,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        replacement = SignalReportCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
+        assert replacement.soak_minutes == duration
+        assert replacement.run_interval_minutes == interval
+        assert replacement.runs_remaining == runs
+        assert replacement.config["monitoring"] == _replacement_config()["monitoring"]
+        self.report.refresh_from_db()
+        replacement.refresh_from_db()
+        assert self.report.monitoring_started_at is not None
+        assert replacement.measurement_start_at == self.report.monitoring_started_at
+        assert replacement.next_run_at == self.report.monitoring_started_at + timedelta(minutes=interval or duration)
+
+    @parameterized.expand(
+        [
+            ("single_metric", False),
+            ("agent_and_other_metric", True),
+            ("errored_sibling", True, SignalReportCheck.Status.ERRORED),
+            ("expired_sibling", True, SignalReportCheck.Status.EXPIRED, True),
+            ("past_expiry_sibling", True, SignalReportCheck.Status.ACTIVE, True),
+        ]
+    )
+    def test_replacement_restarts_monitoring_and_finishes_final_verification(
+        self, _name: str, other_metric: bool, sibling_status: str | None = None, expired: bool = False
+    ) -> None:
+        self.enterContext(
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True)
+        )
+        now = timezone.now()
+        self.enterContext(time_machine.travel(now, tick=False))
+        self.report.status = SignalReport.Status.READY
+        self.report.save(update_fields=["status"])
+        if other_metric:
+            _seed_check_lane(self.team)
+        original = self._create(
+            kind="agent" if other_metric else "metric_threshold",
+            config={"instructions": "Verify checkout recovery."} if other_metric else _replacement_config(),
+            soak_minutes=60,
+            next_run_at=None,
+        )
+        remaining = (
+            self._create(config=_replacement_config(), soak_minutes=120, next_run_at=None) if other_metric else None
+        )
+        if remaining is not None:
+            remaining.approved_at = now
+            remaining.approved_by = self.user
+            remaining.save(update_fields=["approved_at", "approved_by"])
+        previous = complete_implementation(
+            team_id=self.team.id,
+            report_id=self.report.id,
+            monitoring_started_at=now - timedelta(hours=2),
+            close_pr_on_resolve=True,
+        )
+        assert previous is not None
+        previous_versions = dict(previous.check_versions)
+        if remaining is not None and sibling_status is not None:
+            remaining.refresh_from_db()
+            remaining.status = sibling_status
+            remaining.consecutive_errors = 3
+            remaining.last_outcome = SignalReportCheck.Outcome.ERRORED
+            if expired:
+                remaining.expires_at = now - timedelta(minutes=5)
+            remaining.save(update_fields=["status", "consecutive_errors", "last_outcome", "expires_at"])
+        assert {due.member.check.id for due in collect_due_final_metrics(now, limit=10)} == {
+            remaining.id if remaining else original.id
+        }
+
+        response = self.client.post(
+            f"{self.url}{original.id}/replace/",
+            {"title": "Better metric", "config": _replacement_config(), "runs_remaining": 1},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.report.refresh_from_db()
+        attempt = current_monitoring_attempt(self.report)
+        assert attempt is not None and attempt.id != previous.id
+        assert attempt.monitoring_started_at == now
+        assert attempt.close_pr_on_resolve is True
+        expected_ids = {response.json()["id"]} | ({str(remaining.id)} if remaining else set())
+        assert set(attempt.check_versions) == expected_ids
+        if remaining is not None:
+            remaining.refresh_from_db()
+            assert attempt.check_versions[str(remaining.id)] == previous_versions[str(remaining.id)]
+            assert remaining.approved_at == now
+            assert remaining.approved_by_id == self.user.id
+            assert remaining.status == SignalReportCheck.Status.ACTIVE
+            assert remaining.consecutive_errors == 0
+            assert remaining.measurement_start_at == now
+            assert remaining.next_run_at == now + timedelta(hours=2)
+            assert remaining.expires_at > now + timedelta(hours=2)
+        previous.refresh_from_db()
+        assert previous.check_versions == previous_versions
+        original.refresh_from_db()
+        assert original.status == SignalReportCheck.Status.CANCELLED
+        assert not collect_due_final_metrics(now, limit=10)
+
+        with (
+            time_machine.travel(now + timedelta(hours=1), tick=False),
+            patch(
+                "products.signals.backend.report_check_metric_evaluation.measure_metric",
+                return_value=MetricMeasurement(value=6, measured_at=now + timedelta(hours=1), series=None),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            summary = run_due_final_metrics(now=timezone.now(), deadline=time.monotonic() + 120, limit=10)
+        assert summary.passed == 1
+        if remaining is not None:
+            self.report.refresh_from_db()
+            assert self.report.status == SignalReport.Status.MONITORING
+            assert {
+                str(check_id)
+                for check_id in SignalReportMonitoringResult.objects.for_team(self.team.id)
+                .filter(attempt_id=attempt.id)
+                .values_list("report_check_id", flat=True)
+            } == {response.json()["id"]}
+            with (
+                time_machine.travel(now + timedelta(hours=2), tick=False),
+                patch(
+                    "products.signals.backend.report_check_metric_evaluation.measure_metric",
+                    return_value=MetricMeasurement(value=6, measured_at=now + timedelta(hours=2), series=None),
+                ),
+                self.captureOnCommitCallbacks(execute=True),
+            ):
+                summary = run_due_final_metrics(now=timezone.now(), deadline=time.monotonic() + 120, limit=10)
+            assert summary.passed == 1
+        results = SignalReportMonitoringResult.objects.for_team(self.team.id).filter(attempt_id=attempt.id)
+        assert {str(check_id) for check_id in results.values_list("report_check_id", flat=True)} == expected_ids
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.RESOLVED
 
     def test_replacement_keeps_a_check_moved_by_a_report_merge(self) -> None:
         SignalReport.objects.filter(id=self.report.id).update(status=SignalReport.Status.READY)
@@ -1434,7 +1646,7 @@ class TestReportCheckAPI(APIBaseTest):
                 check=check,
                 title="Revised goal",
                 rationale="",
-                config=_threshold_config(),
+                config=_replacement_config(),
                 attribution=ArtefactAttribution.from_user(self.user.id),
                 access_policy=ReportMetricAccessPolicy(request=Request(request), team=self.team),
             )
@@ -1450,13 +1662,13 @@ class TestReportCheckAPI(APIBaseTest):
             ("zero_soak", "-7d", MIN_CHECK_INTERVAL_MINUTES, 3, True, 0),
             ("longer_query_window", "-40d", 30 * 24 * 60, 3, False),
             ("last_run_at_expiry", "-7d", 30 * 24 * 60, 3, False, 30 * 24 * 60),
-            ("fits_near_horizon", "-7d", 30 * 24 * 60, 3, True, 29 * 24 * 60),
+            ("interval_exceeds_window", "-7d", 30 * 24 * 60, 3, False, 29 * 24 * 60),
             ("pending_longer_query", "-40d", 30 * 24 * 60, 3, False, 1450, SignalReport.Status.READY),
             ("agent_active", "-7d", MIN_CHECK_INTERVAL_MINUTES, 3, True, 1450, SignalReport.Status.RESOLVED, "agent"),
             ("agent_pending", "-7d", MIN_CHECK_INTERVAL_MINUTES, 3, True, 0, SignalReport.Status.READY, "agent"),
         ]
     )
-    def test_replacement_preserves_only_recurring_schedules_that_fit(
+    def test_replacement_preserves_valid_windows_and_limits_legacy_recurrence_to_one_evaluation(
         self,
         _name: str,
         date_from: str,
@@ -1491,16 +1703,18 @@ class TestReportCheckAPI(APIBaseTest):
             )
             original_state = SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get()
             log_count = SignalReportArtefact.objects.filter(report=self.report).count()
-            config = _threshold_config(
+            config = _replacement_config(
                 query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from=date_from),
                 comparison={"operator": "lte", "value": 5},
             )
             payload: dict[str, object] = {"title": "Revised goal", "config": config}
+            if stored_soak > 0:
+                payload["run_interval_minutes"] = interval
             response = self.client.post(f"{self.url}{check.id}/replace/", payload, format="json")
         check.refresh_from_db()
         if not fits:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-            assert "90-day horizon" in response.json()["error"]
+            assert "shorter than the observation window" in response.json()["error"]
             assert SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get() == original_state
             assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == 1
             assert SignalReportArtefact.objects.filter(report=self.report).count() == log_count
@@ -1509,8 +1723,8 @@ class TestReportCheckAPI(APIBaseTest):
             replacement = SignalReportCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
             assert check.status == SignalReportCheck.Status.CANCELLED
             assert replacement.soak_minutes == stored_soak
-            assert replacement.run_interval_minutes == interval
-            assert replacement.runs_remaining == runs
+            assert replacement.run_interval_minutes == (interval if stored_soak > 0 else None)
+            assert replacement.runs_remaining == 1
             assert replacement.approved_at is None
             assert replacement.approved_by_id is None
             assert replacement.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
@@ -1519,7 +1733,9 @@ class TestReportCheckAPI(APIBaseTest):
                 if report_status == SignalReport.Status.READY
                 else SignalReportCheck.Status.ACTIVE
             )
-            last_run_at = replacement.next_run_at + timedelta(minutes=interval * (runs - 1))
+            last_run_at = replacement.next_run_at + timedelta(
+                minutes=(replacement.run_interval_minutes or 0) * (replacement.runs_remaining - 1)
+            )
             assert last_run_at < replacement.expires_at <= now + MAX_CHECK_HORIZON
 
     @parameterized.expand([("direct_query", False), ("metric_reference", True)])
@@ -1542,7 +1758,10 @@ class TestReportCheckAPI(APIBaseTest):
             organization_member=self.organization_membership,
             access_level=PropertyAccessLevel.NONE.value,
         )
-        config: dict[str, object] = {"comparison": {"operator": "lte", "value": 5}}
+        config: dict[str, object] = {
+            "comparison": {"operator": "lte", "value": 5},
+            "monitoring": {"reference_period_minutes": 10080, "threshold_scaling": "fixed"},
+        }
         config.update({"metric_id": "pageviews"} if reference else {"query": _PAGEVIEWS})
         response = self.client.post(
             f"{self.url}{check.id}/replace/", {"title": "Revised goal", "config": config}, format="json"
@@ -1583,7 +1802,7 @@ class TestReportCheckAPI(APIBaseTest):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
         response = self.client.post(
             f"{self.url}{check.id}/replace/",
-            {"title": "Revised goal", "config": _threshold_config()},
+            {"title": "Revised goal", "config": _replacement_config()},
             format="json",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -1840,7 +2059,10 @@ class TestReportCheckAPI(APIBaseTest):
             kind=SignalReportCheck.Kind.AGENT,
             config={"instructions": "Re-read the issue and say whether it still fires."},
         )
-        record_check_verdict(check, CheckVerdict(outcome="failed", explanation="The issue fired 30 times yesterday."))
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+            record_check_verdict(
+                check, CheckVerdict(outcome="failed", explanation="The issue fired 30 times yesterday.")
+            )
 
         artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/artefacts/"
         result = next(
@@ -3259,6 +3481,9 @@ class TestResearchAuthoredChecks(APIBaseTest):
     def test_research_preserves_person_selected_pending_checks(
         self, selection: str, capture_snapshot: bool = False
     ) -> None:
+        self.enterContext(
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True)
+        )
         original = create_checks_from_specs(
             report=self.report,
             specs=[self._spec()],
@@ -3269,13 +3494,22 @@ class TestResearchAuthoredChecks(APIBaseTest):
         snapshot = check_versions([original]) if capture_snapshot else None
         url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/checks/{original.id}/"
         if selection.startswith("replacement"):
-            with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
-                response = self.client.post(
-                    f"{url}replace/",
-                    {"title": "Person-selected goal", "config": self._spec().config},
-                    format="json",
-                )
-                assert response.status_code == status.HTTP_200_OK, response.json()
+            response = self.client.post(
+                f"{url}replace/",
+                {
+                    "title": "Person-selected goal",
+                    "config": {
+                        **self._spec().config,
+                        "monitoring": {
+                            "reference_period_minutes": 1440,
+                            "threshold_scaling": "fixed",
+                            "baseline_period_minutes": 1440,
+                        },
+                    },
+                },
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
         elif selection.startswith("approval"):
             response = self.client.post(f"{url}approve/")
             assert response.status_code == status.HTTP_200_OK, response.json()
