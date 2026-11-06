@@ -35,6 +35,17 @@ const QUILL_OUTLINE_ADD_FILTER_BUTTON = [
     '[--lemon-button-height:1.75rem]! [--lemon-button-font-size:0.8125rem]! [--lemon-button-icon-size:0.875rem]! [--lemon-button-padding-vertical:0.125rem]! [--lemon-button-padding-horizontal:0.5rem]! [--lemon-button-padding-adjacent-icon:0.375rem]! [--lemon-button-gap:0.5rem]!',
 ].join(' ')
 
+// PropertyFilters renders each active filter as a PropertyFilterButton pill. These overrides restyle the pills
+// as quill chips (an outline button at the sm size, see chip.css), so they match the buttons above them. Like
+// the add button, they read quill tokens and must render inside a data-quill subtree.
+const QUILL_CHIP_ACTIVE_FILTERS = [
+    '[&_.PropertyFilterButton]:h-6! [&_.PropertyFilterButton]:gap-1! [&_.PropertyFilterButton]:py-0! [&_.PropertyFilterButton]:pl-2! [&_.PropertyFilterButton]:text-[0.75rem]!',
+    '[&_.PropertyFilterButton]:rounded-[var(--radius-xs)]! [&_.PropertyFilterButton]:bg-[var(--background)]! [&_.PropertyFilterButton:hover]:bg-[var(--fill-hover)]!',
+    '[&_.PropertyFilterButton]:border-[color-mix(in_oklab,var(--foreground)_10%,transparent)]! dark:[&_.PropertyFilterButton]:border-[color-mix(in_oklab,var(--foreground)_15%,transparent)]!',
+    '[&_.PropertyFilterButton--closeable]:pr-1! [&_.PropertyFilterButton>.LemonIcon]:text-[0.875rem]!',
+    '[&_.PropertyFilterButton_.LemonButton]:[--lemon-button-height:1.25rem]! [&_.PropertyFilterButton_.LemonButton]:[--lemon-button-icon-size:0.75rem]! [&_.PropertyFilterButton_.LemonButton]:m-0! [&_.PropertyFilterButton_.LemonButton]:rounded-[var(--radius-xs)]!',
+].join(' ')
+
 interface McpSharedFiltersProps {
     pageKey: string
     dataAttrPrefix: string
@@ -103,7 +114,12 @@ export function McpSharedFilters({
                             </div>
                         </div>
                         {activeFilters.length > 0 && (
-                            <div className="flex min-w-0 flex-wrap items-center gap-2">{activeFilters}</div>
+                            <div
+                                data-quill
+                                className={cn('flex min-w-0 flex-wrap items-center gap-2', QUILL_CHIP_ACTIVE_FILTERS)}
+                            >
+                                {activeFilters}
+                            </div>
                         )}
                     </div>
                 )}
