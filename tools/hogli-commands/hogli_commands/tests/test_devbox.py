@@ -73,6 +73,13 @@ def recorded_properties(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     return recorded
 
 
+@pytest.fixture
+def stub_mutagen_setup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(devbox_mutagen, "ensure_mutagen_installed", lambda **kw: None)
+    monkeypatch.setattr(devbox_mutagen, "ensure_daemon_with_shim", lambda: None)
+    monkeypatch.setattr(devbox_mutagen, "ensure_user_mutagen_config", lambda: Path("/tmp/mutagen.yml"))
+
+
 class TestDevboxConfig:
     """Test persisted devbox preferences."""
 
@@ -2208,7 +2215,9 @@ class TestDevboxCommands:
         assert "hogli devbox:update" in result.output
         assert "hogli devbox:destroy" in result.output
 
-    def test_devbox_setup_runs_explicit_setup_steps(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_devbox_setup_runs_explicit_setup_steps(
+        self, monkeypatch: pytest.MonkeyPatch, stub_mutagen_setup: None
+    ) -> None:
         calls: list[str] = []
 
         monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": calls.append("reachable"))
@@ -2275,7 +2284,7 @@ class TestDevboxCommands:
         ]
 
     def test_devbox_setup_threads_resolved_identity_agent_into_ssh_config(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, stub_mutagen_setup: None
     ) -> None:
         captured: dict[str, object] = {}
 
@@ -2307,6 +2316,7 @@ class TestDevboxCommands:
         self,
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
+        stub_mutagen_setup: None,
     ) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
@@ -2339,6 +2349,7 @@ class TestDevboxCommands:
         self,
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
+        stub_mutagen_setup: None,
     ) -> None:
         devbox_config_path.write_text(json.dumps({"git_name": "Existing User", "git_email": "existing@example.com"}))
 
@@ -3041,7 +3052,7 @@ class TestDevboxOpenHerdr:
 
 
 @pytest.fixture
-def stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def stub_setup_environment(monkeypatch: pytest.MonkeyPatch, stub_mutagen_setup: None) -> None:
     """No-op every external dependency in ``devbox_setup`` so reset/gate tests can run hermetically."""
     for name in ("ensure_coder_reachable", "ensure_coder_authenticated"):
         monkeypatch.setattr(devbox_cli, name, lambda *a, **kw: None)

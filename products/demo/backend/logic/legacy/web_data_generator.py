@@ -11,12 +11,13 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.schema import ActionsNode, FunnelsQuery, InsightVizNode
 
-from posthog.models import Person, PropertyDefinition
+from posthog.models import Person
 from posthog.models.utils import UUIDT
 
 from products.actions.backend.facade.api import create_action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.event_definitions.backend.models import PropertyDefinition
 from products.product_analytics.backend.facade.models import Insight
 
 from .data_generator import DataGenerator
