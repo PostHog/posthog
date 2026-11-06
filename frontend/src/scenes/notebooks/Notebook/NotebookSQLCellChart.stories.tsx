@@ -114,8 +114,7 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// Opening the notebook writes the SQL cell's height and chart settings back, which saves it and shows the "Saved"
-// tag for 3 s of real time. Wait for the tag to come and go, so a capture never lands inside that window.
+// Opening the notebook autosaves it, and the "Saved" tag shows for 3 s of real time, so wait it out.
 const waitForAutosaveTag: Story['play'] = async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.queryByText('Saved')).not.toBeNull(), { timeout: 3000 }).catch(() => undefined)

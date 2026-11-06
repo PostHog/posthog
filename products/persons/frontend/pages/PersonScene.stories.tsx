@@ -133,8 +133,7 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// `pageUrl` navigates on mount. A delayed push lands after the runner's loader check, so the scene
-// chunk can still be loading at capture time.
+// `pageUrl`, not a delayed push, so the scene chunk has loaded before the runner checks for loaders.
 export const PersonNotFound: Story = {
     render: () => <App />,
     parameters: { pageUrl: urls.personByUUID('not-found') },

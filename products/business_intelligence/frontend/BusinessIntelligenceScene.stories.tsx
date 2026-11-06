@@ -279,7 +279,6 @@ export default meta
 export const RelationshipKeyCheck: StoryObj = {
     render: () => <WorksheetStage config={config} />,
     play: async (context) => {
-        // The shared play pins the elapsed time label, which otherwise shows real browser time.
         await meta.play?.(context)
         await userEvent.click(
             await waitFor(() => {

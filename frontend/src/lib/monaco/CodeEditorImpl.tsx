@@ -182,7 +182,6 @@ export function CodeEditor({
     const isDarkModeOn = useBodyIsDark()
     const inTestRunner = inStorybookTestRunner()
     const scrollbarRendering = inTestRunner ? 'hidden' : 'auto'
-    // Monaco blinks the cursor on a JS interval, so a snapshot of a focused editor catches either phase.
     const cursorBlinking = inTestRunner ? 'solid' : 'blink'
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null

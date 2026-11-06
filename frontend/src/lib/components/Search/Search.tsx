@@ -83,7 +83,6 @@ const useRotatingPlaceholder = (isActive: boolean): { text: string; isVisible: b
     const [isVisible, setIsVisible] = useState(true)
 
     useEffect(() => {
-        // The rotation runs on an interval, so a snapshot would catch a random word or the fade between two.
         if (!isActive || inStorybookTestRunner()) {
             setIndex(0)
             setIsVisible(true)

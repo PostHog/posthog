@@ -107,7 +107,6 @@ export const Loading: Story = {
         loading: true,
         body: <WidgetLoadingState />,
     },
-    // The loader is the subject of this story, so the runner must not wait for it to go away.
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 

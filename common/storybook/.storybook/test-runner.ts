@@ -84,9 +84,7 @@ export default {
     // making the marker visible from the very first module evaluation.
     async prepare({ page, browserContext, testRunnerConfig }) {
         await page.addInitScript(() => {
-            // Components that call Math.random (placeholder names, skeleton widths) render differently on every run.
-            // A seeded generator (mulberry32) gives the same sequence each time, and preVisit restarts it per story,
-            // so a story's output does not depend on which stories ran before it in the file.
+            // Seeded (mulberry32) and restarted per story in preVisit, so random placeholders render the same every run.
             const RANDOM_SEED = 1
             let randomState = RANDOM_SEED
             Math.random = (): number => {
@@ -141,8 +139,7 @@ export default {
     async preVisit(page, context) {
         // Resets the scheme `takeSnapshotWithTheme` emulates, which is page-level and outlasts the story.
         // Not `null`: that stops emulation, so WebKit follows a dark host.
-        // Reduced motion makes components skip animations the CSS override cannot reach, such as the
-        // requestAnimationFrame-driven camera moves in React Flow and d3 canvases, which a capture can catch mid-way.
+        // Reduced motion also stops requestAnimationFrame motion (React Flow, d3) that the CSS override cannot reach.
         await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
         await page.evaluate(() =>
             (window as unknown as { __testRunnerRestartRandom?: () => void }).__testRunnerRestartRandom?.()
@@ -629,11 +626,7 @@ async function takeSnapshotWithTheme(
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
 }
 
-/**
- * The 0 ms animations that base.scss forces in the test runner sometimes paint their first keyframe in headless
- * Chromium instead of the last. Finishing every animation commits the last keyframe, which is the state the
- * forwards fill is meant to hold. An animation with infinite iterations cannot finish and keeps its frame.
- */
+/** Headless Chromium sometimes paints the first keyframe of the 0 ms animations base.scss forces; this commits the last. */
 async function finishAnimations(page: Page): Promise<void> {
     await page.evaluate(() => {
         // document.getAnimations() leaves out shadow trees, and the toolbar renders in one.

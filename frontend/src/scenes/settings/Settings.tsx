@@ -156,9 +156,8 @@ export function Settings({
     }, [isCompact])
 
     // Scroll the active item into view in the nav, on load and whenever the selected section or the
-    // list of sections changes. Sections arrive with async data (flags, organization, billing), and an
-    // insert above the active item pushes it out of view after the first scroll.
-    // Delayed so any auto-expanded collapsible has finished animating.
+    // section list changes, since async sections can push it out of view. Delayed so any auto-expanded
+    // collapsible has finished animating.
     React.useEffect(() => {
         if (isSearching || !selectedSectionId) {
             return
