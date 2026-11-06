@@ -30,9 +30,19 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 # recomputable (18h, just under the ~24h warmer cadence) so the daily warmer
 # folds in late-arriving exposure events before a window freezes. Freezing too
 # early keeps a stale first_exposure_time and undercounts the metric window.
+#
+# A closed day changes only through late-arriving events and person merges, so
+# yesterday's window needs far fewer rebuilds than today's. A run rebuilds every
+# expired window before it reads it, and each rebuild scans raw events once per
+# metric. A TTL shorter than the usual gap between runs makes every run pay for
+# that scan.
+#
+# Exposures and metric events share this schedule. If exposures refreshed more
+# often than metric events, a run would count newly exposed users without their
+# conversions.
 DEFAULT_EXPOSURE_TTL_SECONDS = {
-    "0d": 15 * 60,  # 15 min
-    "1d": 60 * 60,  # 1 hour
+    "0d": 30 * 60,  # 30 min
+    "1d": 6 * 60 * 60,  # 6 hours
     "4d": 18 * 60 * 60,  # 18 hours; covers windows 2-4 days old
     "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
 }
@@ -94,7 +104,7 @@ def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
 
 
 # Minimum experiment runtime before auto-enabling precomputation. The
-# today-window TTL (DEFAULT_EXPOSURE_TTL_SECONDS["0d"], 15 min) caches the
+# today-window TTL (DEFAULT_EXPOSURE_TTL_SECONDS["0d"], 30 min) caches the
 # entire current-day result, so for very young experiments freshly arriving
 # exposures stay invisible until that TTL elapses. The gate scopes that
 # trade-off to experiments where most of the data is already in past
@@ -102,7 +112,7 @@ def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
 # query override.
 #
 # Why 12h: it covers the workday in which users launch experiments. Users
-# refresh the results page most often then, so the 15-min cache lag is most
+# refresh the results page most often then, so that cache lag is most
 # noticeable. After that, refreshes drop off and the cost saving from
 # precomputation matters more than the freshness gap. 12h is also short enough
 # that experiments hit the precomputed (fast) path on day two.
