@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.contrib.auth.models import Group
+from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
@@ -21,6 +22,7 @@ from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
 from posthog.csp_middleware import CSPMiddleware
+from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -318,16 +320,29 @@ class TestAdminConsoleViews(BaseTest):
             ("form_page_keeps_its_parameters", "team", "set-api-token/?from=ticket", "api-token/set/?from=ticket"),
             ("button_action_lands_on_its_panel", "team", "rebuild-cache/", "#panel-remote-config"),
             ("organization_action", "organization", "limit-product/?resource=events", "?resource=events#panel-billing"),
+            (
+                "deletion_request_form_page",
+                "datadeletionrequest",
+                "approve/?from=ticket",
+                "workflow/approve/?from=ticket",
+            ),
         ]
     )
     def test_an_old_django_admin_action_url_lands_on_the_console(
         self, _name: str, record: str, old: str, new: str
     ) -> None:
-        obj = self.team if record == "team" else self.organization
+        obj: Model
+        if record == "team":
+            obj, plural = self.team, "teams"
+        elif record == "organization":
+            obj, plural = self.organization, "organizations"
+        else:
+            obj = DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
+            plural = "deletion-requests"
         response = self.client.get(f"/admin/posthog/{record}/{obj.pk}/{old}")
 
         assert response.status_code == 302
-        assert response["Location"] == f"/admin/console/{record}s/{obj.pk}/{new}"
+        assert response["Location"] == f"/admin/console/{plural}/{obj.pk}/{new}"
 
     def test_django_admin_team_page_points_moved_actions_to_the_console(self) -> None:
         response = self.client.get(f"/admin/posthog/team/{self.team.pk}/change/")

@@ -46,6 +46,8 @@ export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
         statusIndicator: <MCPListeningIndicator />,
         featureFlagOverrides: {
             [FEATURE_FLAGS.MCP_ANALYTICS_SETUP_MODE]: {
+                // The how-it-works sidebar already has its hedgehog.
+                hedgehog: undefined,
                 SetupActions: undefined,
                 SetupCard: MCPSetupCard,
                 // The setup card renders the indicator itself, as its footer.
