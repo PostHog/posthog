@@ -1525,7 +1525,40 @@ const NODE_SUB_LANES = [
     ['node:cdp', 'nodejs/src/cdp'],
 ]
 const NODE_LANES = [NODE_INGESTION, ...NODE_SUB_LANES.map(([lane]) => lane)]
-const NATIVE_BINDING_CONSUMER_LANES = NODE_LANES
+
+// Ingestion's own tree. Its CI checks out ingestion/ and nothing else, so no
+// file outside the tree can affect its checks and nothing outside the tree
+// claims these targets. The AI research pipelines live inside the tree as
+// directories of their own with a lane of their own. Markdown under the tree
+// is prose like anywhere else.
+const INGESTION = 'ingestion'
+const INGESTION_AI_RESEARCH = 'ingestion:ai-research'
+const INGESTION_AI_RESEARCH_DIRS = [
+    'ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ml-mirror',
+    'ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ai-research',
+    'ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/anonymize',
+    'ingestion/node/packages/ingestion/src/servers/ai-research-',
+    'ingestion/node/packages/ingestion/src/servers/ingestion-session-replay-ml-',
+    'ingestion/node/packages/ingestion/src/servers/ml-mirror-',
+]
+// Until @posthog/node-common and @posthog/ingestion are published, nodejs
+// consumes them from the workspace, so a change to either still runs the
+// nodejs suites. Each entry goes once its consumers pin a version.
+const INGESTION_EXPORTS = ['ingestion/node/packages/common/', 'ingestion/node/packages/ingestion/src/ingestion/']
+
+function ingestionLaneFor(file) {
+    if (/^\.github\/workflows\/_?ingestion-[^/]+\.yml$/.test(file)) {
+        return INGESTION
+    }
+    if (!file.startsWith('ingestion/')) {
+        return null
+    }
+    if (INGESTION_AI_RESEARCH_DIRS.some((dir) => file.startsWith(dir))) {
+        return INGESTION_AI_RESEARCH
+    }
+    return INGESTION
+}
+const NATIVE_BINDING_CONSUMER_LANES = [...NODE_LANES, INGESTION]
 
 // Every target this script can emit. A widening decision names this set instead
 // of the "ALL" sentinel, so the set intersection Trunk computes is unchanged
@@ -1817,11 +1850,8 @@ function addAppImageLanes(targets, context) {
 // nodejs/src/common/generated/ingestion-worker, not .../ingestion.
 const PROTO_TREES = new Map([
     ['cymbal', { crates: ['cymbal-proto'], domains: [] }],
-    ['ingestion', { crates: ['ingestion-worker-proto'], domains: [NODE], stubDir: 'ingestion-worker' }],
-    ['kafka_assigner', { crates: ['kafka-assigner-proto'], domains: [] }],
-    ['personhog', { crates: ['personhog-proto'], domains: [PYTHON, NODE] }],
     ['prometheus', { crates: ['prometheus-rw-proto'], domains: [] }],
-    ['usage_ingestion', { crates: ['usage-ingestion-proto'], domains: [NODE], stubDir: 'usage-ingestion' }],
+    ['usage_ingestion', { crates: ['usage-ingestion-proto'], domains: [] }],
 ])
 
 // A file directly under proto/ is treated as impacting all trees, since it's not
@@ -1973,6 +2003,20 @@ function computeTargets(changedFiles, context) {
     let inertFiles = 0
 
     for (const file of changedFiles) {
+        const ingestionLane = ingestionLaneFor(file)
+        if (ingestionLane) {
+            if (/\.mdx?$/.test(file)) {
+                inertFiles++
+                continue
+            }
+            targets.add(ingestionLane)
+            if (ingestionLane === INGESTION && INGESTION_EXPORTS.some((dir) => file.startsWith(dir))) {
+                for (const lane of NODE_LANES) {
+                    targets.add(lane)
+                }
+            }
+            continue
+        }
         const tripwire = tripwireDomain(file)
         if (tripwire) {
             if (!applyTripwireDomain(tripwire, file, targets, context)) {
@@ -2045,6 +2089,9 @@ function computeTargets(changedFiles, context) {
         if (top === 'nodejs') {
             for (const lane of nodeLanesForSource(file, context)) {
                 targets.add(lane)
+            }
+            if (file.startsWith('nodejs/packages/hog-engine/')) {
+                targets.add(INGESTION)
             }
             continue
         }
@@ -2967,6 +3014,9 @@ function buildContext(repoRoot) {
 
 module.exports = {
     computeTargets,
+    ingestionLaneFor,
+    INGESTION,
+    INGESTION_AI_RESEARCH,
     jsLockfileNodeLanes,
     loadNodeLaneMap,
     NODE_LANES,
