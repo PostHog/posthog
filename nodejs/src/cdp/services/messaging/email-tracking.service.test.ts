@@ -260,7 +260,10 @@ describe('EmailTrackingService', () => {
             ['https://example.com/?a=1&amp;b=2&amp;c=3', 'https://example.com/?a=1&b=2&c=3'],
             ['https://example.com/?a=1&AMP;b=2&#X26;c=3', 'https://example.com/?a=1&b=2&c=3'],
             ['https://example.com/?a=1&Amp;b=2&APOS;c=3', 'https://example.com/?a=1&Amp;b=2&APOS;c=3'],
-            ['https://example.com/?q=&#xD800;&#XDFFF;&#55296;', 'https://example.com/?q=\uFFFD\uFFFD\uFFFD'],
+            [
+                'https://example.com/?q=&#xD800;&#XDFFF;&#55296;&#x1F600;',
+                'https://example.com/?q=\uFFFD\uFFFD\uFFFD\u{1F600}',
+            ],
             ['https://example.com/path', 'https://example.com/path'],
             // Non-entity ampersands (legacy unencoded HTML) pass through untouched.
             ['https://example.com/?a=1&b=2', 'https://example.com/?a=1&b=2'],
