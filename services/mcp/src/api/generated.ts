@@ -21436,6 +21436,25 @@ export namespace Schemas {
       results: BulkObserveResult[];
     }
 
+    export interface BulkRemoveSuppressionsRequest {
+      /**
+         * The email addresses to remove, at most 100 per request.
+         * @minItems 1
+         * @maxItems 100
+         * @items.maxLength 512
+         */
+      identifiers: string[];
+      /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+      confirm_complaints?: boolean;
+    }
+
+    export interface BulkRemoveSuppressionsResponse {
+      /** Addresses removed from the suppression list. */
+      removed: string[];
+      /** Addresses that were not on the suppression list. */
+      not_found: string[];
+    }
+
     /**
      * * `new` - New
      * * `open` - Open
@@ -37738,6 +37757,20 @@ export namespace Schemas {
       readonly email_sending_suspension_reason: string;
     }
 
+    /**
+     * * `minute` - Minute
+     * * `hour` - Hour
+     * * `day` - Day
+     */
+    export type EmailStatsIntervalEnum = typeof EmailStatsIntervalEnum[keyof typeof EmailStatsIntervalEnum];
+
+
+    export const EmailStatsIntervalEnum = {
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+    } as const;
+
     export interface EmailStatus {
       /** The `message_id` that the send returned. */
       id: string;
@@ -44832,8 +44865,8 @@ export namespace Schemas {
          * @nullable
          */
       not_checked_reason: string | null;
-      /** When the experiment launched. */
-      launched_at: string;
+      /** The experiment's start date. The flag history counts changes from it, as the results count exposures from it. */
+      start_date: string;
       /** The project's time zone, which the findings use for times. */
       team_timezone: string;
       /** Every change since launch that can move exposed people, of every kind, in time order. A bucketing change is one per setting and save. A rollout change alone is no release-condition change. Empty for 'no_history_access', which does not read them. */
@@ -61970,7 +62003,7 @@ export namespace Schemas {
      */
     export interface LighthouseAuditRequest {
       /**
-         * The page to audit. Must be an https url on an allowed host — public PostHog pages only. Pages behind a login cannot be audited: the browser signs in to nothing, so it would measure the login screen and report its numbers as the page's.
+         * The page to audit. Must be an https url on an allowed host — public PostHog pages only. Pages behind a login cannot be audited: the browser signs in to nothing, so it would measure the login screen and report its numbers as the page's. A url that redirects off the allowed hosts is rejected for the same reason.
          * @maxLength 2000
          */
       url: string;
@@ -75765,6 +75798,94 @@ export namespace Schemas {
       quarantined_count?: number;
     }
 
+    /**
+     * * `off` - Off
+     * * `always` - Always
+     * * `fallback` - When stamphog does not approve
+     */
+    export type RoutingModeEnum = typeof RoutingModeEnum[keyof typeof RoutingModeEnum];
+
+
+    export const RoutingModeEnum = {
+      Off: 'off',
+      Always: 'always',
+      Fallback: 'fallback',
+    } as const;
+
+    /**
+     * * `waiting` - Waiting for stamphog's verdict
+     * * `routing` - Routing
+     * * `requested` - Requested
+     * * `done` - Done
+     */
+    export type RoutingStatusEnum = typeof RoutingStatusEnum[keyof typeof RoutingStatusEnum];
+
+
+    export const RoutingStatusEnum = {
+      Waiting: 'waiting',
+      Routing: 'routing',
+      Requested: 'requested',
+      Done: 'done',
+    } as const;
+
+    /**
+     * * `full` - Every owner
+     * * `pinned` - Pinned owners only
+     */
+    export type RoutingScopeEnum = typeof RoutingScopeEnum[keyof typeof RoutingScopeEnum];
+
+
+    export const RoutingScopeEnum = {
+      Full: 'full',
+      Pinned: 'pinned',
+    } as const;
+
+    export interface StamphogPullRequestRouting {
+      /** The phase of the latest routing record: 'waiting' (fallback mode, the head waits for stamphog's verdict or the safety net), 'routing' (a task holds the claim and requested nobody yet), 'requested' (the review requests went out, the routing comment is not finished) or 'done'.
+       *
+       * * `waiting` - Waiting for stamphog's verdict
+       * * `routing` - Routing
+       * * `requested` - Requested
+       * * `done` - Done */
+      readonly status: RoutingStatusEnum;
+      /** The repository's routing_mode when the record was written. Compare with the pull request's routing_mode.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly mode: RoutingModeEnum;
+      /** 'full', or 'pinned' when a stamphog approval asks only the owners of sensitive and new paths. Null while the record waits.
+       *
+       * * `full` - Every owner
+       * * `pinned` - Pinned owners only */
+      readonly scope: RoutingScopeEnum | null;
+      /** The head commit the record is for. It can be older than the pull request head. */
+      readonly head_sha: string;
+      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      readonly trigger: string;
+      /** True when a 'routing' or 'requested' claim is older than the takeover limit. The task can still be alive, and a later delivery does not always finish an expired 'requested' claim. */
+      readonly claim_expired: boolean;
+      /**
+         * When the head started to wait for stamphog's verdict. Null unless waiting.
+         * @nullable
+         */
+      readonly waiting_since: string | null;
+      /**
+         * When a task claimed the pull request for this record.
+         * @nullable
+         */
+      readonly claimed_at: string | null;
+      /**
+         * When the claim planned its requests. Null until the plan is saved.
+         * @nullable
+         */
+      readonly routed_at: string | null;
+      /** The head that a full routing of this pull request requested owners for, blank if none. Fallback mode routes in full at most once per pull request. */
+      readonly full_routed_head: string;
+      /** The latest approved head whose pinned owners were requested, blank if none. */
+      readonly pinned_routed_head: string;
+    }
+
     export interface StamphogPullRequest {
       readonly id: string;
       /** Full name of the repository this pull request belongs to. */
@@ -75794,6 +75915,14 @@ export namespace Schemas {
       readonly deletions: number;
       /** Files changed, recorded when the pull request merges. */
       readonly changed_files: number;
+      /** The repository's routing_mode now. 'off' means reviewer routing does not run for new events.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly routing_mode: RoutingModeEnum;
+      /** The latest reviewer routing record of the pull request, or null when routing never wrote one: routing is off, the pull request is still a draft, or no routing event arrived yet. Use the routing runs list for the owners each run requested or cut. */
+      readonly routing: StamphogPullRequestRouting | null;
       /** When this pull request was first captured. */
       readonly created_at: string;
       /** When this pull request was last updated. */
@@ -75822,18 +75951,9 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `off` - Off
-     * * `always` - Always
-     * * `fallback` - When stamphog does not approve
+     * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual.
      */
-    export type RoutingModeEnum = typeof RoutingModeEnum[keyof typeof RoutingModeEnum];
-
-
-    export const RoutingModeEnum = {
-      Off: 'off',
-      Always: 'always',
-      Fallback: 'fallback',
-    } as const;
+    export type StamphogRepoConfigRoutingForkLabels = {[key: string]: string};
 
     export interface StamphogRepoConfig {
       readonly id: string;
@@ -75860,8 +75980,10 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       readonly routing_mode: RoutingModeEnum;
+      /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. */
+      readonly routing_fork_labels: StamphogRepoConfigRoutingForkLabels;
       /**
-         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label or routing_mode.
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode or routing_fork_labels.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -75877,18 +75999,6 @@ export namespace Schemas {
       previous?: string | null;
       results: StamphogRepoConfig[];
     }
-
-    /**
-     * * `full` - Every owner
-     * * `pinned` - Pinned owners only
-     */
-    export type RoutingScopeEnum = typeof RoutingScopeEnum[keyof typeof RoutingScopeEnum];
-
-
-    export const RoutingScopeEnum = {
-      Full: 'full',
-      Pinned: 'pinned',
-    } as const;
 
     /**
      * * `requested` - Requested
@@ -87965,6 +88075,11 @@ export namespace Schemas {
     }
 
     /**
+     * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
+     */
+    export type PatchedStamphogRepoConfigWriteRoutingForkLabels = {[key: string]: string};
+
+    /**
      * Input shape for creating/updating a repo config.
      *
      * Separate from the read serializer because the contract is an output shape: it carries a
@@ -87998,6 +88113,8 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       routing_mode?: RoutingModeEnum;
+      /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
+      routing_fork_labels?: PatchedStamphogRepoConfigWriteRoutingForkLabels;
     }
 
     export type PatchedSubscriptionWriteContextsItem = {
@@ -98846,14 +98963,14 @@ export namespace Schemas {
     export interface RecordCheckResultRequest {
       /** The check this run was dispatched to answer, as given in the run note. */
       check_id: string;
-      /** `passed` when the evidence meets the check's stated bar and the expectation holds, `failed` when the evidence meets the bar and the expectation does not hold. `inconclusive` when your tools worked but the evidence cannot settle the question; give a `reason`. `errored` only when a tool, query, or model call failed. `failed` retires the check, so use it for a conclusion, not a suspicion.
+      /** `passed` when the evidence meets the check's stated bar and the expectation holds, `failed` when the evidence meets the bar and the expectation does not hold. `inconclusive` when your tools worked but the evidence cannot settle the question; give a `reason`. `errored` only when a tool, query, or model call failed. Reserve `failed` for a conclusion, not a suspicion.
        *
        * * `passed` - Passed
        * * `failed` - Failed
        * * `errored` - Errored
        * * `inconclusive` - Inconclusive */
       outcome: SignalReportCheckOutcomeEnum;
-      /** Required with `inconclusive`, and refused with any other outcome. `awaiting_data`: the data can still arrive (a rollout lag, a soak not complete, too few samples so far), so the check looks again later. `unmeasurable`: the data the check needs is not captured. `needs_manual_verification`: only a person or another environment can verify it. `no_fix_to_measure`: nothing was changed to fix the claim, so no window after a fix exists. A report resolved without a pull request still has a window that starts when it resolved. Every reason except `awaiting_data` ends the check.
+      /** Required with `inconclusive`, and refused with any other outcome. `awaiting_data`: the data can still arrive (a rollout lag, a soak not complete, too few samples so far). `unmeasurable`: the data the check needs is not captured. `needs_manual_verification`: only a person or another environment can verify it. `no_fix_to_measure`: nothing was changed to fix the claim, so no window after a fix exists. A report resolved without a pull request still has a window that starts when it resolved.
        *
        * * `awaiting_data` - Awaiting Data
        * * `unmeasurable` - Unmeasurable
@@ -99197,12 +99314,12 @@ export namespace Schemas {
          */
       key: string;
       /**
-         * Prose to write. Read verbatim into future prompts.
+         * Markdown to write. Future prompts read it verbatim and people read it directly, so structured Markdown (headings, bullets, inline code for ids) is easier to skim than a wall of prose.
          * @maxLength 50000
          */
       content: string;
       /**
-         * Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that is unparseable, or that isn't a run on this project, is dropped rather than rejected, so the memory write is never lost. Omit it and the lineage still lands: a write from a scout sandbox is attributed to that sandbox's own run.
+         * Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that is unparseable, or that isn't a run on this project, is dropped rather than rejected, so the memory write is never lost. Omit it and the lineage still lands: a write from a scout sandbox is attributed to that sandbox's own run. A report-pipeline caller is attributed by its stage and does not pass one.
          * @nullable
          */
       run_id?: string | null;
@@ -99221,6 +99338,16 @@ export namespace Schemas {
       identifier: string;
       /** Optional message category key. If omitted, the recipient is opted back in to all marketing messages. */
       category_key?: string;
+    }
+
+    export interface RemoveSuppressionRequest {
+      /**
+         * The email address to remove.
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+      confirm_complaints?: boolean;
     }
 
     export interface ReorderTilesRequest {
@@ -104571,7 +104698,7 @@ export namespace Schemas {
          */
       content: string;
       /**
-         * Address the note to one scout by its skill name (exact match against a configured scout on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.
+         * Address the note to one scout by its skill name (exact match against a configured scout on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`); any other `pipeline:*` value is rejected. Use a pipeline audience for guidance about how reports get researched, judged, and routed rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.
          * @maxLength 200
          */
       skill_name?: string;
@@ -109477,6 +109604,11 @@ export namespace Schemas {
     }
 
     /**
+     * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
+     */
+    export type StamphogRepoConfigWriteRoutingForkLabels = {[key: string]: string};
+
+    /**
      * Input shape for creating/updating a repo config.
      *
      * Separate from the read serializer because the contract is an output shape: it carries a
@@ -109510,6 +109642,8 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       routing_mode?: RoutingModeEnum;
+      /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
+      routing_fork_labels?: StamphogRepoConfigWriteRoutingForkLabels;
     }
 
     export interface StamphogRoutingFile {
@@ -109526,6 +109660,11 @@ export namespace Schemas {
       additions?: number;
       /** Deleted lines. */
       deletions?: number;
+      /**
+         * Repo-relative path of the ownership file, read at the run's owners_sha, whose `owners` list names this owner for the file. Null when only an additions declaration made the owner a candidate (see the owner's `new_path` pins), or when the run is older than this field.
+         * @nullable
+         */
+      owners_source?: string | null;
     }
 
     export interface StamphogRoutingRunOwnerDetail {
@@ -114734,6 +114873,41 @@ export namespace Schemas {
     export interface TransactionalEmailStats {
       /** One row per group, busiest first. */
       results: TransactionalEmailStatsRow[];
+    }
+
+    export interface TransactionalEmailStatsCounts {
+      /** Emails that reached the email provider. */
+      sent: number;
+      /** Emails the recipient's mail server accepted. */
+      delivered: number;
+      /** Emails that bounced. */
+      bounced: number;
+      /** Emails the recipient marked as spam. */
+      complained: number;
+      /** Emails that were not sent. */
+      failed: number;
+    }
+
+    export interface TransactionalEmailStatsBucket {
+      /** When this time bucket starts. */
+      start: string;
+      /** Sends queued during this bucket. */
+      counts: TransactionalEmailStatsCounts;
+    }
+
+    export interface TransactionalEmailStatsOverTime {
+      /** The width of each bucket. A `minute` bucket spans five minutes.
+       *
+       * * `minute` - Minute
+       * * `hour` - Hour
+       * * `day` - Day */
+      interval: EmailStatsIntervalEnum;
+      /** The project timezone that the buckets start in. */
+      timezone: string;
+      /** Every bucket in the period, oldest first. */
+      buckets: TransactionalEmailStatsBucket[];
+      /** Totals for the same length of time just before the period. Null when retention no longer covers it. */
+      previous: TransactionalEmailStatsCounts | null;
     }
 
     export interface TranslateRequest {
@@ -134628,7 +134802,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Team slug (case-insensitive, no `@org/` prefix), for example `team-desktop`. Narrows the roster to the members on that team, maintainers first, so a slug from a scout note, CODEOWNERS, or an owners file resolves to people you can route to. Returns an error, not an empty list, when the project has no synced team roster or the roster holds no rows for the slug.
+     * Team slug (case-insensitive, no `@org/` prefix), for example `team-desktop`. Narrows the roster to the members on that team, maintainers first, so a slug from a scout note, CODEOWNERS, or an owners file resolves to people you can route to. Returns an error, not an empty list, when the project has no synced team roster or the roster holds no rows for the slug. Rosters sync team by team, so a slug with no rows usually means that team is not synced here, not that it does not exist.
      * @minLength 1
      */
     team?: string;
@@ -136329,6 +136503,17 @@ export namespace Schemas {
       Template: 'template',
       SendingDomain: 'sending_domain',
     } as const;
+
+    export type TransactionalEmailLogStatsOverTimeRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    };
 
     export type TurnSuggestionsStateRetrieveParams = {
     /**

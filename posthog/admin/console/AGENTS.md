@@ -33,6 +33,7 @@ A tool is a page that is not about one record, for example a report across all t
 ## Move a Django admin action
 
 Replace the old button with `MovedToConsole.team_action(team, panel_key, label)` from `moved.py`. It links to the panel on the console team page, so staff who look in the usual place find the new one. When a whole page moves, route its old URL to `MovedToConsole.page_redirect(title, url)`, which tells staff the page moved.
+Old URLs never break, because staff keep bookmarks to them, query parameters included. When a team action's view is deleted, its old path goes into `MOVED_TEAM_ACTIONS` in `urls.py`, which redirects to the console form or panel.
 
 ## Read when needed
 
