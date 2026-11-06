@@ -147,6 +147,7 @@ rules:
                               |DAG
                               |TodayHighlights
                               |TodayPulsePins
+                              |TodayAnalyticsSidebar
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -669,6 +670,7 @@ rules:
                         |DAG
                         |TodayHighlights
                         |TodayPulsePins
+                        |TodayAnalyticsSidebar
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
