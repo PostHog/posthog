@@ -11,7 +11,7 @@ import type { UploadedMediaApi } from '~/generated/core/api.schemas'
 const UPLOAD_FAILED_MESSAGE = "Couldn't upload this image. Try again."
 const RESIZE_FAILED_MESSAGE =
     "Couldn't resize this image automatically, and it's over the 4 MB limit. Use a smaller image and try again."
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 // The last size always fits: 800x800 is under 4 MB even with no compression at all.
 const RESIZE_LONGEST_SIDES_PX = [2000, 1600, 1200, 800]
 const RESIZED_JPEG_QUALITY = 0.85
@@ -114,7 +114,7 @@ async function assertCanBeResized(image: File): Promise<void> {
     }
 }
 
-async function shrinkToUploadLimit(image: File): Promise<File> {
+export async function shrinkToUploadLimit(image: File): Promise<File> {
     await assertCanBeResized(image)
     const bitmap = await createImageBitmap(image)
     try {

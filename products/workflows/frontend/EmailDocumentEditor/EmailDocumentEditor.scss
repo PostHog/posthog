@@ -1,0 +1,247 @@
+// The canvas shows the email as recipients see it, so it uses the email's own colors rather than the app theme.
+// Everything here is the canvas approximation: the email itself comes from renderEmailHtml.
+.EmailDocumentCanvas {
+    --email-link: #1d4aff;
+
+    min-height: 100%;
+    color: #111;
+
+    .ProseMirror {
+        min-height: 12rem;
+        overflow-wrap: anywhere;
+        outline: none;
+
+        > * + *,
+        .email-canvas-column > * + * {
+            margin-top: 0;
+        }
+
+        p,
+        h1,
+        h2,
+        h3,
+        ul,
+        ol,
+        blockquote {
+            padding: 8px 0;
+            margin: 0;
+        }
+
+        h1,
+        h2,
+        h3 {
+            font-weight: 700;
+            line-height: 1.25;
+            color: inherit;
+        }
+
+        ul,
+        ol {
+            padding-left: 24px;
+        }
+
+        ul {
+            list-style: disc;
+        }
+
+        ol {
+            list-style: decimal;
+        }
+
+        li > p {
+            padding: 0;
+        }
+
+        blockquote {
+            padding-left: 12px;
+            border-left: 3px solid #d0d0d0;
+        }
+
+        code {
+            padding: 1px 4px;
+            font-family: 'Courier New', Courier, monospace;
+            color: inherit;
+            background: #f2f2f2;
+            border-radius: 3px;
+        }
+
+        a {
+            color: var(--email-link);
+            text-decoration: underline;
+            cursor: text;
+        }
+
+        hr {
+            margin: 8px 0;
+            border: 0;
+            border-top: 1px solid #ddd;
+
+            &.ProseMirror-selectednode {
+                outline: 2px solid var(--color-accent);
+            }
+        }
+
+        p.is-empty::before,
+        h1.is-empty::before,
+        h2.is-empty::before,
+        h3.is-empty::before {
+            float: left;
+            height: 0;
+            color: #a0a0a0;
+            pointer-events: none;
+            content: attr(data-placeholder);
+        }
+    }
+
+    .email-canvas-selected,
+    .ProseMirror-selectednode {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 1px;
+    }
+
+    .email-canvas-button-row {
+        padding: 12px 0;
+    }
+
+    .email-canvas-button {
+        display: inline-block;
+        min-width: 3rem;
+        padding: 12px 24px;
+        font-weight: 600;
+        line-height: 1.2;
+        color: var(--email-button-text, #fff);
+        text-align: center;
+        background-color: var(--email-button-background, #111);
+        border-radius: var(--email-button-radius, 6px);
+
+        a {
+            color: inherit;
+        }
+    }
+
+    .email-canvas-columns {
+        display: flex;
+        gap: 16px;
+
+        @container email-canvas (max-width: 380px) {
+            flex-direction: column;
+        }
+    }
+
+    .email-canvas-column {
+        min-width: 0;
+        outline: 1px dashed transparent;
+        outline-offset: 1px;
+    }
+
+    .email-canvas-columns:hover .email-canvas-column,
+    .email-canvas-column:focus-within {
+        outline-color: #bbb;
+    }
+
+    .email-canvas-spacer {
+        background-image: repeating-linear-gradient(135deg, transparent, transparent 6px, #f0f0f0 6px, #f0f0f0 7px);
+    }
+
+    .email-canvas-image img {
+        display: inline-block;
+        max-width: 100%;
+        height: auto;
+        vertical-align: top;
+    }
+
+    .email-canvas-image-frame {
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+    }
+
+    .email-canvas-image-resize {
+        position: absolute;
+        top: 50%;
+        right: -5px;
+        width: 10px;
+        height: 32px;
+        cursor: ew-resize;
+        background: var(--color-accent);
+        border: 1px solid #fff;
+        border-radius: 3px;
+        transform: translateY(-50%);
+    }
+
+    .email-canvas-image-empty {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        font-size: 13px;
+        color: #666;
+        text-align: center;
+        background: #f6f6f6;
+        border: 1px dashed #ccc;
+        border-radius: 4px;
+    }
+
+    .email-canvas-html-edit {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        opacity: 0;
+    }
+
+    .email-canvas-html:hover .email-canvas-html-edit,
+    .email-canvas-html-edit:focus-within,
+    .email-canvas-selected .email-canvas-html-edit {
+        opacity: 1;
+    }
+
+    .email-canvas-variable-wrapper {
+        display: inline;
+    }
+
+    .email-canvas-variable {
+        display: inline-flex;
+        gap: 4px;
+        align-items: center;
+        padding: 0 4px;
+        font-family: var(--font-mono, monospace);
+        font-size: 0.85em;
+        color: #333;
+        cursor: pointer;
+        background: #f2f2f2;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+
+    .email-canvas-variable-selected {
+        border-color: var(--color-accent);
+    }
+
+    .email-canvas-variable-warning {
+        background: #fff5f0;
+        border-color: #f5b8a0;
+    }
+
+    .email-canvas-variable-icon {
+        color: #d94a1e;
+    }
+
+    .email-canvas-liquid-tag {
+        padding: 0 2px;
+        font-family: var(--font-mono, monospace);
+        font-size: 0.85em;
+        color: #6b3fa0;
+        background: #f4f0fa;
+        border-radius: 3px;
+    }
+}
+
+.EmailDocumentEditor__scroll {
+    container: email-editor / inline-size;
+}
+
+.EmailDocumentEditor__body {
+    container: email-canvas / inline-size;
+}

@@ -585,6 +585,29 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
         assert validated["email"]["value"]["design"] == build_html_wrap_design(new_html)
 
+    def test_stale_wrap_drops_the_email_document_stored_with_it(self):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {
+            "from": "hi@posthog.com",
+            "to": "a@b.com",
+            "subject": "hi",
+            "html": "<p>Changed through the API</p>",
+            "design": {**build_html_wrap_design("<p>Old</p>"), "emailDocument": {"version": 1, "doc": {"type": "doc"}}},
+        }
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["design"] == build_html_wrap_design("<p>Changed through the API</p>")
+
+    def test_current_wrap_keeps_the_email_document_stored_with_it(self):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        design = {**build_html_wrap_design("<p>Same</p>"), "emailDocument": {"version": 1, "doc": {"type": "doc"}}}
+        value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": "<p>Same</p>", "design": design}
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["design"] == design
+
     def test_wrap_design_edited_in_the_visual_editor_is_kept(self):
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
         edited_design = build_html_wrap_design("<p>Inner block</p>")

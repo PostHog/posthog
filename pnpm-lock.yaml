@@ -5872,6 +5872,33 @@ importers:
       '@posthog/quill-primitives':
         specifier: workspace:*
         version: link:../../packages/quill/packages/primitives
+      '@tiptap/core':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/pm@3.20.6)
+      '@tiptap/extension-color':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/extension-text-style@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6)))
+      '@tiptap/extension-document':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))
+      '@tiptap/extension-text-style':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))
+      '@tiptap/extensions':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
+      '@tiptap/pm':
+        specifier: 3.20.6
+        version: 3.20.6
+      '@tiptap/react':
+        specifier: 3.20.6
+        version: 3.20.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@tiptap/starter-kit':
+        specifier: 3.20.6
+        version: 3.20.6
+      '@tiptap/suggestion':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27

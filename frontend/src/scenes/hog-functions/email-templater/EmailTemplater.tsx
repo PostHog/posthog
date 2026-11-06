@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, Suspense, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
@@ -14,6 +14,7 @@ import {
     LemonModal,
     LemonSegmentedButton,
     LemonSelect,
+    Spinner,
 } from '@posthog/lemon-ui'
 
 import {
@@ -32,6 +33,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
 
@@ -51,6 +53,17 @@ import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLo
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
 
 export type EmailEditorMode = 'full' | 'preview'
+
+const EmailDocumentEditor = lazyWithRetry(() =>
+    import('products/workflows/frontend/EmailDocumentEditor/EmailDocumentEditor').then((module) => ({
+        default: module.EmailDocumentEditor,
+    }))
+)
+const EmailEditorConversionPrompt = lazyWithRetry(() =>
+    import('products/workflows/frontend/EmailDocumentEditor/components/EmailEditorConversionModal').then((module) => ({
+        default: module.EmailEditorConversionPrompt,
+    }))
+)
 
 // Maps a templater field key onto its validation message slot. Only the sender, recipient, and
 // subject rows have their own message; body content is reported separately near the editor.
@@ -568,6 +581,8 @@ function NativeEmailTemplaterForm({
         mergeTags,
         activeContentTab,
         visibleFields,
+        usesDocumentEditor,
+        documentEditorOffered,
     } = useValues(emailTemplaterLogic)
     // The editor rebuilds itself when its options change, so it keeps the tags it started with.
     // Later changes reach it through setMergeTags in the logic.
@@ -581,9 +596,11 @@ function NativeEmailTemplaterForm({
     // The template editor has only subject + preheader, so they share one row with the
     // visual/plain-text switch to keep vertical space for the canvas. A transactional template adds its
     // sender as one summary line above.
+    const documentEditorActive = usesDocumentEditor && mode === 'full'
     const compactHeader =
         (logicProps.type === 'native_email_template' || logicProps.type === 'native_email_transactional_template') &&
-        mode === 'full'
+        mode === 'full' &&
+        !documentEditorActive
     const preheaderVisible = visibleFields.some((field) => field.key === 'preheader')
     // Preheaders see almost no use, so don't advertise the field unless this team already uses it.
     const offerPreheader = templates.some((template) => !!template.content?.email?.preheader)
@@ -596,7 +613,7 @@ function NativeEmailTemplaterForm({
                 props={logicProps}
                 formKey="emailTemplate"
             >
-                <div className={fieldsHidden ? 'h-0 overflow-hidden' : ''}>
+                <div className={fieldsHidden && !documentEditorActive ? 'h-0 overflow-hidden' : ''}>
                     {compactHeader ? (
                         <>
                             {logicProps.type === 'native_email_transactional_template' && <EmailSenderSummary />}
@@ -734,8 +751,47 @@ function NativeEmailTemplaterForm({
                     {!compactHeader && <AddAdvancedFieldButtons />}
                 </div>
 
-                {mode === 'full' ? (
+                {documentEditorActive ? (
+                    <div className="relative flex flex-col flex-1 min-h-0">
+                        {logicProps.layout === 'inline' ? (
+                            <div className="flex justify-end px-2 py-1 border-b shrink-0">
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    value={activeContentTab}
+                                    onChange={(tab) => setActiveContentTab(tab as 'visual' | 'plaintext')}
+                                    options={[
+                                        { value: 'visual', label: 'Visual' },
+                                        { value: 'plaintext', label: 'Plain text' },
+                                    ]}
+                                />
+                            </div>
+                        ) : null}
+                        <div
+                            className={clsx(
+                                activeContentTab === 'visual'
+                                    ? 'flex flex-col flex-1 min-h-0'
+                                    : 'absolute inset-0 -z-10 opacity-0 pointer-events-none invisible'
+                            )}
+                        >
+                            <Suspense
+                                fallback={
+                                    <div className="flex justify-center p-8">
+                                        <Spinner className="text-2xl" />
+                                    </div>
+                                }
+                            >
+                                <EmailDocumentEditor />
+                            </Suspense>
+                        </div>
+                        {activeContentTab === 'plaintext' && <PlainTextEditor />}
+                    </div>
+                ) : mode === 'full' ? (
                     <>
+                        {documentEditorOffered ? (
+                            <Suspense fallback={null}>
+                                <EmailEditorConversionPrompt />
+                            </Suspense>
+                        ) : null}
                         <div className="relative flex flex-col flex-1">
                             <div
                                 className={clsx(
@@ -993,7 +1049,7 @@ function EmailTemplaterEditorPanel({
     // The takeover has no LemonModal chrome, so it asks for an explicit close button here.
     onClose?: () => void
 }): JSX.Element {
-    const { isModalOpen, isEmailEditorReady, activeContentTab } = useValues(emailTemplaterLogic)
+    const { isModalOpen, isEmailEditorReady, activeContentTab, usesDocumentEditor } = useValues(emailTemplaterLogic)
     const { closeWithConfirmation, submitEmailTemplate, setIsSaveTemplateModalOpen, setActiveContentTab } =
         useActions(emailTemplaterLogic)
     // Fields start collapsed: in embedded contexts they duplicate the surrounding form.
@@ -1014,14 +1070,16 @@ function EmailTemplaterEditorPanel({
                 {saveIndicator}
                 {/* The toggle label changes width; keeping it left of the right-anchored
                     tabs means the tabs never shift when it flips */}
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
-                    onClick={() => setFieldsHidden(!fieldsHidden)}
-                >
-                    {fieldsHidden ? 'Show fields' : 'Hide fields'}
-                </LemonButton>
+                {!usesDocumentEditor && (
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
+                        onClick={() => setFieldsHidden(!fieldsHidden)}
+                    >
+                        {fieldsHidden ? 'Show fields' : 'Hide fields'}
+                    </LemonButton>
+                )}
                 <LemonSegmentedButton
                     size="small"
                     value={activeContentTab}
