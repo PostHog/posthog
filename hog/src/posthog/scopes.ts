@@ -25,10 +25,8 @@ export function parseScope(raw: string): Scope {
     )
 }
 
-// The scopes in `wanted` that `held` doesn't grant, checked the way PostHog checks them: `*` grants
-// everything, `x:write` grants `x:read`, and a legacy scope grants the scope that was split off it.
-// `hasScope` in services/mcp/src/lib/api.ts holds the same rules. hog can't import it, because that
-// module imports through the MCP server's own `@/` path.
+// Checked like `hasScope` in services/mcp/src/lib/api.ts (`*`, write grants read, legacy scopes),
+// which hog can't import because it uses the MCP server's own `@/` path.
 export function scopesNotCovered(held: readonly string[], wanted: readonly string[]): string[] {
     if (held.includes('*')) {
         return []

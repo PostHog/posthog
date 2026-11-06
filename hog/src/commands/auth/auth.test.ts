@@ -795,7 +795,6 @@ describe('hog auth login', () => {
             '42',
             REFRESH_TOKEN,
         ],
-        // A personal API key's login key is the key itself, which must stay out of settings.json.
         [
             'over a personal API key, the login gets a new id',
             KEYCHAIN_LOGIN,

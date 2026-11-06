@@ -95,7 +95,6 @@ export const PendingLoginSchema = PendingApprovalSchema.extend({
     deviceCode: z.string(),
     userCode: z.string(),
     scopes: z.array(z.string()),
-    // The scopes the person can't untick on the approval page, such as the ones `hog auth add` adds.
     requiredScopes: z.array(z.string()).default([]),
 })
 
@@ -197,8 +196,7 @@ export async function startDeviceLogin(
     }
 }
 
-// An older self-hosted PostHog ignores `required_scopes`. A login without them would replace one
-// that works for less than was asked, so it is revoked and the stored login stays.
+// An older self-hosted PostHog ignores `required_scopes`, so hog checks the approved scopes itself.
 async function refuseWithoutRequiredScopes(
     runtime: Runtime,
     login: OAuthLogin,
