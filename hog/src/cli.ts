@@ -103,7 +103,7 @@ function notPorted(argv: readonly string[], route: LegacyRoute): HogError {
 
 // A 403 without a step-up challenge names the scopes the command declares, which the API client doesn't know about.
 async function withScopeHint(error: unknown, scopes: readonly string[] | undefined, ctx: Context): Promise<unknown> {
-    if (!(error instanceof ApiError) || error.status !== 403 || !scopes?.length) {
+    if (!(error instanceof ApiError) || error.status !== 403 || error.code === 'step_up_required' || !scopes?.length) {
         return error
     }
     const credentials = await ctx.requestedCredentials?.catch(() => undefined)
