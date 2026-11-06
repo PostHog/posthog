@@ -1,6 +1,8 @@
 from collections.abc import Callable
+from urllib.parse import quote
 
-from django.contrib import messages
+from django.contrib import admin, messages
+from django.db.models import Model
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.urls import reverse
 from django.utils.html import format_html
@@ -16,26 +18,33 @@ class MovedToConsole:
     """
 
     @staticmethod
-    def page_redirect(title: str, url: str) -> Callable[[HttpRequest], HttpResponse]:
+    def page_redirect(title: str, url: str) -> Callable[..., HttpResponse]:
         """A view for the old URL of a page that moved. It says so once, so a bookmark does not move silently."""
 
-        def view(request: HttpRequest) -> HttpResponse:
+        def view(request: HttpRequest, **url_kwargs: object) -> HttpResponse:
             messages.info(request, f"{title} moved to PostHog Admin. Update your bookmark to this page.")
+            # Old URLs with a path parameter, such as a health check kind, name it in `url` as {kind}.
+            target = url.format(**{name: quote(str(value), safe="") for name, value in url_kwargs.items()})
             query = request.META.get("QUERY_STRING", "")
-            return HttpResponseRedirect(url + (f"?{query}" if query else ""))
+            separator = "&" if "?" in target else "?"
+            return HttpResponseRedirect(target + (f"{separator}{query}" if query else ""))
 
-        return view
+        # Like every console route, an old URL answers only to signed-in staff.
+        return admin.site.admin_view(view)
 
     @staticmethod
-    def team_redirect(target: str) -> Callable[[HttpRequest, int], HttpResponse]:
-        """A view for the old URL of a team action that moved. `target` is relative to the console team page."""
+    def record_redirect(plural: str, target: str) -> Callable[..., HttpResponse]:
+        """A view for the old URL of a record action that moved. `target` is relative to the console record page.
 
-        def view(request: HttpRequest, team_id: int) -> HttpResponse:
+        The old URL pattern names its primary key `pk`, for example `admin/posthog/team/<int:pk>/rebuild-cache/`.
+        """
+
+        def view(request: HttpRequest, pk: object) -> HttpResponse:
             messages.info(request, "This action moved to PostHog Admin. Update your bookmark to this page.")
             page, _, anchor = target.partition("#")
             query = request.META.get("QUERY_STRING", "")
             return HttpResponseRedirect(
-                f"/admin/console/teams/{team_id}/{page}"
+                f"/admin/console/{plural}/{pk}/{page}"
                 + (f"?{query}" if query else "")
                 + (f"#{anchor}" if anchor else "")
             )
@@ -43,11 +52,15 @@ class MovedToConsole:
         return view
 
     @staticmethod
-    def team_action(team: Team, panel_key: str, action: str) -> SafeString:
-        url = reverse("admin_console_team", kwargs={"team_id": team.pk})
+    def action(record: str, obj: Model, panel_key: str, action: str) -> SafeString:
+        url = reverse(f"admin_console_{record}", kwargs={"pk": obj.pk})
         return format_html(
             '<a href="{}#panel-{}">{}: now in PostHog Admin &#8599;</a>',
             url,
             panel_key,
             action,
         )
+
+    @classmethod
+    def team_action(cls, team: Team, panel_key: str, action: str) -> SafeString:
+        return cls.action("team", team, panel_key, action)
