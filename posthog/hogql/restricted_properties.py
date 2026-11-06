@@ -11,6 +11,7 @@ from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPers
 from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
+from posthog.hogql.database.schema.mcp_intent_assignments import MCPIntentAssignmentsTable, RawMCPIntentAssignmentsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebBouncesDimensionalPreAggregatedTable,
@@ -90,6 +91,10 @@ WEB_DIMENSIONAL_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
     "mat_metadata_backend": ("metadata.backend",),
 }
 
+# The intent clustering pipeline stores a truncated copy of each `$mcp_intent` value, keyed by its unsalted
+# sha256. Anyone can hash a guessed text and compare, so the hash reveals the text as much as the copy does.
+_MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS = {"intent_text": "$mcp_intent", "intent_hash": "$mcp_intent"}
+
 
 def mirrored_properties_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> tuple[str, ...]:
     """The event properties a typed column copies, or an empty tuple when the column copies nothing.
@@ -115,9 +120,21 @@ def mirrored_properties_for_column(table_type: ast.Type, column_name: str, conte
         source = _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
     elif isinstance(table, FlagEvaluationsTable):
         source = _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
+    elif isinstance(table, MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable):
+        source = _MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS.get(column_name)
     else:
         source = None
     return (source,) if source is not None else ()
+
+
+def mirrored_column_is_restricted(table_type: ast.Type, column_name: str, context: HogQLContext) -> bool:
+    """Whether a read of this stored column masks to NULL because a property it copies is restricted."""
+    source_properties = mirrored_properties_for_column(table_type, column_name, context)
+    if not source_properties:
+        return False
+    restricted_keys = restricted_property_keys_for_table_type(table_type, context)
+    # A dotted source such as `metadata.backend` is restricted by its parent `metadata` too.
+    return any(key_read_overlaps_restriction(source_property, restricted_keys) for source_property in source_properties)
 
 
 def restricted_feature_flag_names(keys: Iterable[str]) -> list[str]:
@@ -169,6 +186,8 @@ def restricted_property_keys_for_table_type(
             AiEventsTable,
             WebStatsDimensionalPreAggregatedTable,
             WebBouncesDimensionalPreAggregatedTable,
+            MCPIntentAssignmentsTable,
+            RawMCPIntentAssignmentsTable,
         ),
     ):
         prop_def_type = PropertyDefinition.Type.EVENT
