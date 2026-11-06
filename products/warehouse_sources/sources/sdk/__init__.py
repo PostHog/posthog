@@ -167,6 +167,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.legacy_oauth import (
+    LegacyOAuthGrant,
+    LegacyOAuthGrantUnusable,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     CredentialAccountsMixin,
@@ -451,6 +455,8 @@ __all__ = [
     "JSONResponseCursorPaginatorConfig",
     "JSONResponsePaginator",
     "KEYWORDS",
+    "LegacyOAuthGrant",
+    "LegacyOAuthGrantUnusable",
     "MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP",
     "MAX_EXCEL_FILE_BYTES",
     "MetaAdsIntegration",

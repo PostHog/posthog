@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Aggregate, Count, Max, Min, Q, QuerySet
+from django.db.models import Aggregate, Count, Exists, Max, Min, OuterRef, Q, QuerySet
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
@@ -72,6 +72,9 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
     return gaps.list_citation_gaps(team_id, since=since)
 
 
+NEEDS_IMPROVEMENT_DAYS = 30
+
+
 def list_prompts(
     team_id: int,
     *,
@@ -80,6 +83,7 @@ def list_prompts(
     topic: str | None = None,
     active: bool | None = None,
     include_archived: bool = False,
+    needs_improvement: bool = False,
 ) -> tuple[list[Prompt], int]:
     """One page of the team's prompt set and the total count, paged in SQL.
     A topic of "" selects the prompts that have no topic."""
@@ -90,6 +94,15 @@ def list_prompts(
         prompts = prompts.filter(topic=topic)
     if active is not None:
         prompts = prompts.filter(active=active)
+    if needs_improvement:
+        # Only the current wording counts, as in citation gaps: checks before version 2 carry no version.
+        answered = AEOCitationCheck.objects.for_team(team_id).filter(
+            Q(prompt_version=OuterRef("current_version")) | Q(prompt_version__isnull=True, prompt__current_version=1),
+            prompt_id=OuterRef("pk"),
+            check_failed=False,
+            created_at__gte=timezone.now() - dt.timedelta(days=NEEDS_IMPROVEMENT_DAYS),
+        )
+        prompts = prompts.filter(Exists(answered), ~Exists(answered.filter(cited=True)))
     page = list(prompts.order_by("topic", "-rank", "created_at", "id")[offset : offset + limit])
     return _to_prompts(team_id, page), prompts.count()
 
@@ -178,19 +191,25 @@ def list_prompt_checks(
     offset: int,
     engine: str | None = None,
     version: int | None = None,
+    since: dt.datetime | None = None,
+    include_answer_text: bool = True,
 ) -> tuple[list[PromptCheck], int]:
-    """One page of a prompt's check history, newest first, and the total count."""
+    """One page of a prompt's check history, newest first, and the total count. With
+    `include_answer_text` off, `answer_text` is None on every check and is not read from the database."""
     prompt = _get_prompt_row(team_id, prompt_id)
     checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id)
     if engine is not None:
         checks = checks.filter(engine=engine)
+    if since is not None:
+        checks = checks.filter(created_at__gte=since)
     if version is not None:
         # Checks recorded before versions existed carry no version and ran version 1.
         in_version = (
             Q(prompt_version=version) | Q(prompt_version__isnull=True) if version == 1 else Q(prompt_version=version)
         )
         checks = checks.filter(in_version)
-    page = checks.order_by("-created_at", "-id").values(*_CHECK_FIELDS)[offset : offset + limit]
+    fields = _CHECK_FIELDS if include_answer_text else tuple(f for f in _CHECK_FIELDS if f != "answer_text")
+    page = checks.order_by("-created_at", "-id").values(*fields)[offset : offset + limit]
     return [_to_prompt_check(row) for row in page], checks.count()
 
 
@@ -631,7 +650,7 @@ def _to_prompt_check(row: dict[str, Any]) -> PromptCheck:
         target_best_position=row["target_best_position"],
         top_cited_domains=_strings(row["top_cited_domains"]),
         search_queries=_strings(row["search_queries"]),
-        answer_text=row["answer_text"],
+        answer_text=row.get("answer_text"),
         prompt_version=row["prompt_version"],
         brand_sentiment=row["brand_sentiment"],
         brand_sentiment_score=row["brand_sentiment_score"],

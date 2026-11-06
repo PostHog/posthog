@@ -11,10 +11,11 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.autoresearch.backend.dataset.labeling import TrainingSample
 from products.autoresearch.backend.inference.failures import UnscorableChampion
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError
+from products.autoresearch.backend.limits import TeamLimits
 from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
@@ -96,6 +97,9 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
         # Step 3 is the sandbox fit/eval loop.
         assert "fit and evaluate" in prompt
         assert "roc_auc_score" in prompt
+        # A first champion that breaks either fit limit rolls back.
+        assert "60 s interactive query limit" in prompt
+        assert "must stay under 10 MiB" in prompt
 
     @parameterized.expand(
         [
@@ -382,6 +386,42 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("default_ceiling", None, None, 25, 10),
+            ("under_the_ceiling", None, None, 5, 5),
+            ("team_override_raises_the_ceiling", 30, None, 25, 25),
+            ("caller_limits_skip_the_flag_read", 30, 7, 25, 7),
+        ]
+    )
+    def test_dispatch_caps_iterations_at_the_project_limit(
+        self,
+        facade: MagicMock,
+        _name: str,
+        team_ceiling: int | None,
+        caller_ceiling: int | None,
+        requested: int,
+        expected: int,
+    ) -> None:
+        self._dispatched(facade)
+        payload = (
+            {"team_configs": {str(self.team.id): {"max_iterations_per_run": team_ceiling}}} if team_ceiling else None
+        )
+        limits = (
+            TeamLimits(max_training_runs_per_day=3, max_iterations_per_run=caller_ceiling, max_live_pipelines=3)
+            if caller_ceiling
+            else None
+        )
+
+        with patch(
+            "products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload", return_value=payload
+        ) as flag_read:
+            training_run = run_training(self.pipeline, iteration_budget=requested, user_id=self.user.id, limits=limits)
+
+        assert training_run.iteration_budget == expected
+        assert flag_read.called is (limits is None)
+        assert f"**Iteration budget**: {expected}" in facade.create_and_run_task.call_args.kwargs["description"]
+
+    @parameterized.expand(
+        [
             ("blank_settings", None, None, ("claude", "claude-opus-5-5", "medium")),
             ("sonnet_override", "claude-sonnet-5-5", "high", ("claude", "claude-sonnet-5-5", "high")),
             ("codex_override", "gpt-6.1-sol", None, ("codex", "gpt-6.1-sol", "medium")),
@@ -473,7 +513,7 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
             )
             self.pipeline.created_by = outsider
         else:
-            action = Action.objects.create(team=self.team, name="empty", steps_json=[])
+            action = create_action(team=self.team, name="empty", steps_json=[])
             self.pipeline.target_definition = {"type": "action", "action_id": action.id}
         self.pipeline.save()
 

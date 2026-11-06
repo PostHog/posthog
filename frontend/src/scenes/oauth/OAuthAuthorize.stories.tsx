@@ -100,35 +100,12 @@ const meta: Meta = {
         withScopeResolution,
         mswDecorator({
             get: {
-                // The logic loads projects per organization for users that have organizations
                 '/api/organizations/:organization_id/projects/': {
                     results: [
                         {
                             id: 1,
                             name: 'Default Project',
                             organization: '1',
-                        },
-                    ],
-                },
-                '/api/projects/': {
-                    results: [
-                        {
-                            id: 1,
-                            name: 'Default Project',
-                            organization: {
-                                id: '1',
-                                name: 'Default Organization',
-                                slug: 'default-org',
-                            },
-                        },
-                        {
-                            id: 2,
-                            name: 'Analytics Project',
-                            organization: {
-                                id: '1',
-                                name: 'Default Organization',
-                                slug: 'default-org',
-                            },
                         },
                     ],
                 },
@@ -257,6 +234,32 @@ export const EveryScopeRequested: Story = {
     decorators: [withPinnedSceneHeight, withOAuthApplication({ required_scopes: [] })],
     render: () => {
         useDelayedOnMountEffect(() => pushAuthorize(everyScopeRequest))
+        return <App />
+    },
+}
+
+export const NoOrganization: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        withOAuthApplication({ required_scopes: [] }),
+        mswDecorator({
+            get: {
+                '/api/users/@me/': () => [
+                    200,
+                    {
+                        uuid: '018e1b6b-0000-0000-0000-000000000002',
+                        email: 'test@posthog.com',
+                        first_name: 'Test',
+                        organization: null,
+                        organizations: [],
+                        team: null,
+                    },
+                ],
+            },
+        }),
+    ],
+    render: () => {
+        useDelayedOnMountEffect(() => pushAuthorize())
         return <App />
     },
 }
