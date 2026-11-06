@@ -88,6 +88,7 @@ export interface searchPerformanceLogicValues extends Pick<
     detailSourceNotices: SearchSourceNotice[]
     detailSources: ExternalDataSource[]
     readySources: MarketingAnalyticsSearchSource[]
+    hasReadySourceInAnyBreakdown: boolean
     query: MarketingAnalyticsSearchQuery
 }
 
@@ -117,6 +118,8 @@ export interface searchPerformanceLogicActions
 }
 
 export type searchPerformanceLogicType = MakeLogicType<searchPerformanceLogicValues, searchPerformanceLogicActions>
+
+const SEARCH_BREAKDOWNS: SearchBreakdown[] = ['keyword', 'search_term', 'page']
 
 export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
     path(['products', 'marketingAnalytics', 'searchPerformanceLogic']),
@@ -276,6 +279,13 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                     const querySource = searchPerformanceSource(source, breakdown)
                     return querySource ? [querySource] : []
                 }),
+        ],
+        hasReadySourceInAnyBreakdown: [
+            (s) => [s.sources],
+            (sources: ExternalDataSource[]): boolean =>
+                sources.some((source) =>
+                    SEARCH_BREAKDOWNS.some((breakdown) => !!searchPerformanceSource(source, breakdown))
+                ),
         ],
         hasPaidSources: [
             (s) => [s.readySources],
