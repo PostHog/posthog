@@ -1986,8 +1986,9 @@ class EditReportRequestSerializer(ReviewerProposalSerializer):
             "pull request is closed or merged and at least one merged, and a merged pull request resolves it at "
             "once. Additive: a pull request the report already links is skipped. Linking does not claim the "
             "report and does not change the pull request itself (no labels, reviewers, or ready-for-review). "
-            f"Link only a pull request whose diff targets this report's cause. At most {MAX_PULL_REQUESTS_PER_WRITE} "
-            "per call."
+            "Link only a pull request whose diff targets this report's cause. The edit refuses a pull request "
+            "outside the report's repository, one GitHub cannot read, and one closed without merging. "
+            f"At most {MAX_PULL_REQUESTS_PER_WRITE} per call."
         ),
     )
     tags = serializers.ListField(

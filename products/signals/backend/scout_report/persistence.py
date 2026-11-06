@@ -73,8 +73,10 @@ from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     MAX_SCOUT_REPORT_NOTES,
     ArtefactAttribution,
+    SignalActorKind,
     SignalReport,
     SignalReportArtefact,
+    SignalReportPullRequest,
     SignalScoutRun,
 )
 from products.signals.backend.pull_requests import apply_report_completion, link_pull_request
@@ -832,6 +834,9 @@ def append_report_source_issues(
     return len(written)
 
 
+SCOUT_PULL_REQUEST_LINK_AGENT = "PostHog scout"
+
+
 def _linked_pull_request_keys(team_id: int, report_id: str) -> set[tuple[str, int]]:
     return set(
         SignalReportArtefact.objects.filter(
@@ -841,28 +846,52 @@ def _linked_pull_request_keys(team_id: int, report_id: str) -> set[tuple[str, in
 
 
 def resolve_scout_report_pull_requests(
-    *, team_id: int, report_id: str, pull_request_urls: Sequence[str]
+    *, team_id: int, report_id: str, pull_request_urls: Sequence[str], report_repository: str | None
 ) -> list[PullRequestDetails]:
     """Read the GitHub state of the pull requests the report does not link yet.
 
     Call it before the edit transaction opens, because each pull request costs one GitHub API call. A
-    pull request the report already links is skipped here, so a retried edit makes no GitHub calls. A
-    repository without a GitHub connection, or a failed lookup, gives `unknown` state rather than an
-    error, the same as the claim path.
+    pull request the report already links is skipped here, so a retried edit makes no GitHub calls.
+
+    `report_repository` is the repository the report targets once the edit lands. A link changes the
+    report's inbox status, so only a pull request in that repository, in a state GitHub confirmed, is
+    accepted. An `unknown` state is refused rather than stored, because a stored link is never looked up
+    again and would leave the report unresolved for good. A pull request closed without merging is
+    refused too: it is not a fix, and linking it could only suppress the report.
     """
     _validate_report_id(report_id)
     if not pull_request_urls:
         return []
+    if not report_repository:
+        raise InvalidScoutReportError(
+            "pull requests can only be linked to a report with a repository; set `repository` in the same edit"
+        )
     linked = _linked_pull_request_keys(team_id, report_id)
     details: list[PullRequestDetails] = []
     for url in pull_request_urls:
         parsed = GitHubIntegrationBase.parse_pull_request_url(url)
-        if parsed is not None and (parsed.repository.lower(), parsed.number) in linked:
+        if parsed is None:
+            raise InvalidScoutReportError(f"pull request {url!r} is not a GitHub pull request URL")
+        if parsed.repository.lower() != report_repository.lower():
+            raise InvalidScoutReportError(
+                f"pull request {url!r} is not in the report's repository {report_repository!r}"
+            )
+        if (parsed.repository.lower(), parsed.number) in linked:
             continue
         try:
-            details.append(_pull_request_details(team_id, url))
+            pull_request = _pull_request_details(team_id, url)
         except InvalidPullRequestUrl as err:
             raise InvalidScoutReportError(f"pull request {url!r}: {err}")
+        if pull_request.state == SignalReportPullRequest.State.UNKNOWN:
+            raise InvalidScoutReportError(
+                f"pull request {url!r} could not be read from GitHub; retry later, or check that the team's "
+                "GitHub integration covers the repository"
+            )
+        if pull_request.state == SignalReportPullRequest.State.CLOSED:
+            raise InvalidScoutReportError(
+                f"pull request {url!r} was closed without merging, so it does not fix the report"
+            )
+        details.append(pull_request)
     return details
 
 
@@ -883,6 +912,11 @@ def link_scout_report_pull_requests(
     The link holds no claim and starts no reviewer side effects. A scout links a pull request that a
     person or another agent opened, so marking it ready for review, labelling it, or assigning its
     reviewers would change work that the scout does not own.
+
+    The stored link is attributed as an external agent with no task. Later workers read that
+    attribution, not this call's arguments: a task or system link gets reviewer assignment on each
+    webhook refresh and is closed when the report is suppressed or snoozed. Neither may touch a pull
+    request the scout did not open.
     """
     _validate_report_id(report_id)
     if not pull_requests:
@@ -895,7 +929,14 @@ def link_scout_report_pull_requests(
         linked = _linked_pull_request_keys(team_id, report_id)
         new = {(pr.repository, pr.number): pr for pr in pull_requests if (pr.repository, pr.number) not in linked}
         for _, pr in sorted(new.items()):
-            link_pull_request(report=report, details=pr, actor=attribution, claim_id=None, notify_reviewers=False)
+            stored = link_pull_request(
+                report=report, details=pr, actor=attribution, claim_id=None, notify_reviewers=False
+            )
+            SignalReportArtefact.objects.filter(
+                team_id=team_id, report_id=report_id, pull_request_id=stored.id, claim_id__isnull=True
+            ).filter(actor_kind__in=[SignalActorKind.TASK, SignalActorKind.SYSTEM]).update(
+                actor_kind=SignalActorKind.AGENT, actor_agent=SCOUT_PULL_REQUEST_LINK_AGENT, task_id=None
+            )
         if new:
             apply_report_completion(report)
     logger.info(

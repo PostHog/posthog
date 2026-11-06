@@ -1090,6 +1090,15 @@ def _build_pull_requests(pull_requests: list[str] | None) -> list[str]:
     return list(built.values())
 
 
+def _repository_after_edit(report_id: str, repository: str | None) -> str | None:
+    if repository == NO_REPO:
+        return None
+    if repository is not None:
+        return repository
+    selection = persisted_repo_selection(report_id)
+    return selection.repository if selection is not None else None
+
+
 def _build_metrics(metrics: list[ReportMetricInput] | None) -> list[ReportMetric]:
     if not metrics:
         return []
@@ -2705,7 +2714,12 @@ def _do_edit_report(
     # Read before the transaction opens, because each pull request the report does not link yet costs a
     # GitHub API call, and a lock held across that call would block every other write to the report.
     pull_request_details = (
-        resolve_scout_report_pull_requests(team_id=team.id, report_id=report_id, pull_request_urls=pull_requests)
+        resolve_scout_report_pull_requests(
+            team_id=team.id,
+            report_id=report_id,
+            pull_request_urls=pull_requests,
+            report_repository=_repository_after_edit(report_id, repository),
+        )
         if pull_requests
         else []
     )

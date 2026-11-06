@@ -37082,7 +37082,7 @@ export namespace Schemas {
          */
       source_issues?: SourceIssueWrite[];
       /**
-         * GitHub pull request URLs (`https://github.com/<owner>/<repo>/pull/<number>`) that fix what this report describes, when you found a fix that a person or another agent already opened. A linked pull request is the report's implementation: the report resolves on its own when every linked pull request is closed or merged and at least one merged, and a merged pull request resolves it at once. Additive: a pull request the report already links is skipped. Linking does not claim the report and does not change the pull request itself (no labels, reviewers, or ready-for-review). Link only a pull request whose diff targets this report's cause. At most 5 per call.
+         * GitHub pull request URLs (`https://github.com/<owner>/<repo>/pull/<number>`) that fix what this report describes, when you found a fix that a person or another agent already opened. A linked pull request is the report's implementation: the report resolves on its own when every linked pull request is closed or merged and at least one merged, and a merged pull request resolves it at once. Additive: a pull request the report already links is skipped. Linking does not claim the report and does not change the pull request itself (no labels, reviewers, or ready-for-review). Link only a pull request whose diff targets this report's cause. The edit refuses a pull request outside the report's repository, one GitHub cannot read, and one closed without merging. At most 5 per call.
          * @maxItems 5
          * @items.maxLength 2048
          */

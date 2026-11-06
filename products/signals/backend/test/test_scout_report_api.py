@@ -715,7 +715,7 @@ class TestScoutReportAPI(APIBaseTest):
                 with self.captureOnCommitCallbacks(execute=True):
                     edited = self.client.post(
                         self._edit_url(str(run.id)),
-                        data={"report_id": report_id, "pull_requests": pull_requests},
+                        data={"report_id": report_id, "repository": "acme/widgets", "pull_requests": pull_requests},
                         format="json",
                     )
                 assert edited.status_code == status.HTTP_200_OK, edited.json()
@@ -728,7 +728,40 @@ class TestScoutReportAPI(APIBaseTest):
         report = SignalReport.objects.get(id=report_id)
         assert report.status == expected_status
         links = SignalReportArtefact.objects.filter(report_id=report_id, pull_request__isnull=False)
-        assert [(link.pull_request.number, link.claim_id) for link in links] == [(7, None)]
+        assert list(links.values_list("pull_request__number", "claim_id", "actor_kind")) == [(7, None, "agent")]
+        assert not links.filter(task__isnull=False).exists()
+
+    @parameterized.expand(
+        [
+            ("another repository", "https://github.com/acme/gadgets/pull/7", {"success": True, "state": "open"}),
+            ("unreadable on GitHub", "https://github.com/acme/widgets/pull/7", {"success": False}),
+            ("closed without merging", "https://github.com/acme/widgets/pull/7", {"success": True, "state": "closed"}),
+        ]
+    )
+    def test_edit_report_refuses_a_pull_request_that_cannot_settle_the_report(
+        self, _name: str, pr_url: str, github_pr: dict
+    ) -> None:
+        run = _make_run(self.team)
+        github = MagicMock()
+        github.get_pull_request.return_value = {"url": pr_url, **github_pr}
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=github),
+        ):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(already_addressed=True), format="json"
+            )
+            assert created.status_code == status.HTTP_200_OK, created.json()
+            report_id = created.json()["report_id"]
+            edited = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "repository": "acme/widgets", "pull_requests": [pr_url]},
+                format="json",
+            )
+
+        assert edited.status_code == status.HTTP_400_BAD_REQUEST, edited.json()
+        assert not SignalReportArtefact.objects.filter(report_id=report_id, pull_request__isnull=False).exists()
 
     @parameterized.expand(
         [
