@@ -7,6 +7,10 @@ import {
     AvatarImage,
     Badge,
     Button,
+    Item,
+    ItemActions,
+    ItemContent,
+    ItemDescription,
     Skeleton,
     Text,
     Tooltip,
@@ -90,7 +94,8 @@ export function QuillPrCommentsSection({ report }: { report: SignalReport }): JS
             icon={<IconComment />}
             title="Comments"
             collapsible
-            defaultCollapsed
+            key={prCommentsError ? 'comments-error' : 'comments'}
+            defaultCollapsed={!prCommentsError}
             meta={
                 prComments && prComments.length > 0 ? (
                     <Text size="xxs" variant="muted" render={<span />} className="tabular-nums">
@@ -100,9 +105,22 @@ export function QuillPrCommentsSection({ report }: { report: SignalReport }): JS
             }
         >
             {prCommentsError ? (
-                <Text size="xs" variant="destructive" className="m-0 py-2">
-                    {prCommentsError}
-                </Text>
+                <Item variant="outline" tone="destructive" size="sm" className="flex-wrap">
+                    <ItemContent>
+                        <ItemDescription>{prCommentsError.message}</ItemDescription>
+                    </ItemContent>
+                    {prCommentsError.remediationUrl ? (
+                        <ItemActions>
+                            <Button
+                                variant="outline"
+                                render={<LinkPrimitive to={prCommentsError.remediationUrl} />}
+                                data-attr="inbox-pr-comments-settings"
+                            >
+                                Open GitHub integration settings
+                            </Button>
+                        </ItemActions>
+                    ) : null}
+                </Item>
             ) : prComments === null ? (
                 <div className="flex flex-col gap-3">
                     <Skeleton className="h-10 w-full" />
