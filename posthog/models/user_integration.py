@@ -395,13 +395,6 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         name = repository.rsplit("/", 1)[-1].casefold()
         return any(name == allowed.casefold() for allowed in repositories)
 
-    def list_cached_branches(
-        self, repo: str, *, search: str = "", limit: int = 100, offset: int = 0
-    ) -> tuple[list[str], str | None, bool]:
-        if not self.user_can_open_repository(repo):
-            return [], None, False
-        return super().list_cached_branches(repo, search=search, limit=limit, offset=offset)
-
     def refresh_access_token(self) -> None:
         super().refresh_access_token()
         cache.delete(self._scoped_access_token_cache_key())

@@ -2448,51 +2448,27 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_default_branch.assert_not_called()
         assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
 
-    @parameterized.expand(
-        [
-            ("user_can_open_the_repository", "posthog", ["main", "develop"], "main"),
-            ("user_cannot_open_the_repository", "other-repo", [], None),
-        ]
-    )
-    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    @patch("posthog.models.user_integration.github_request")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.get_default_branch")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_all_branches")
     def test_branch_cache_is_shared_across_rows_on_one_installation(
-        self,
-        _name: str,
-        user_repository: str,
-        expected_branches: list[str],
-        expected_default_branch: str | None,
-        mock_list_all_branches: MagicMock,
-        mock_default_branch: MagicMock,
-        mock_user_request: MagicMock,
-        mock_client_request: MagicMock,
+        self, mock_list_all_branches: MagicMock, mock_default_branch: MagicMock
     ) -> None:
         mock_list_all_branches.return_value = ["main", "develop"]
         mock_default_branch.return_value = "main"
-        mock_user_request.return_value = MagicMock(
-            status_code=200,
-            headers={},
-            json=lambda: {"total_count": 1, "repositories": [{"name": user_repository}]},
-        )
-        mock_client_request.return_value = MagicMock(status_code=201, json=lambda: {"token": "SCOPED_TOKEN"})
         repo = "posthog/posthog"
         integration = self.create_integration(
             {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
             {"access_token": "ACCESS_TOKEN"},
         )
         user_integration = self.create_user_integration("INSTALL")
-        user_integration.sensitive_config = {**user_integration.sensitive_config, "user_access_token": "USER_TOKEN"}
-        user_integration.save()
 
         GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_cached_branches(repo)
         branches, default_branch, _ = UserGitHubIntegration(
             user_integration, source="test", priority=Priority.CRITICAL
         ).list_cached_branches(repo)
 
-        assert branches == expected_branches
-        assert default_branch == expected_default_branch
+        assert branches == ["main", "develop"]
+        assert default_branch == "main"
         mock_list_all_branches.assert_called_once_with(repo, before_page=None)
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")

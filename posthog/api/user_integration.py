@@ -574,6 +574,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         integration = self._get_connected_github_integration(installation_id)
 
         github = UserGitHubIntegration(integration, source="github_branch_picker", priority=Priority.CRITICAL)
+        if not github.user_can_open_repository(repo):
+            raise exceptions.NotFound("Repository not found for this GitHub connection.")
         branches, default_branch, has_more = github.list_cached_branches(
             repo,
             search=search,
