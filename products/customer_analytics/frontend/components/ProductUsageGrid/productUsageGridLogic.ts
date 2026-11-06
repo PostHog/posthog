@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -764,12 +765,17 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
         })
     }),
     actionToUrl(({ values }) => ({
-        setControls: () => [
-            urls.customerAnalyticsProductActivity(),
-            { ...router.values.searchParams, activity: values.controls },
-            router.values.hashParams,
-            { replace: true },
-        ],
+        setControls: () => {
+            if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.customerAnalyticsProductActivity()) {
+                return
+            }
+            return [
+                urls.customerAnalyticsProductActivity(),
+                { ...router.values.searchParams, activity: values.controls },
+                router.values.hashParams,
+                { replace: true },
+            ]
+        },
     })),
     urlToAction(({ actions, values }) => ({
         [urls.customerAnalyticsProductActivity()]: (_, search) => {
