@@ -224,7 +224,9 @@ rules:
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |ExternalDataSourceDestination
+                              |ExternalDataSourceInputsBackup
                               |FeatureFlag
+                              |FeatureFlagCodeAnalysis
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
@@ -261,6 +263,7 @@ rules:
                               |HogFunctionRevision
                               |Hook
                               |Insight
+                              |InsightExplanation
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
@@ -313,6 +316,7 @@ rules:
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
+                              |MCPCustomHarness
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
@@ -403,6 +407,7 @@ rules:
                               |SharingConfiguration
                               |SignalEmissionRecord
                               |SignalFirstReportNotification
+                              |SignalRatedUsage
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
@@ -465,6 +470,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskRunGatewayRequest
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -735,7 +741,9 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
+                        |ExternalDataSourceInputsBackup
                         |FeatureFlag
+                        |FeatureFlagCodeAnalysis
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
@@ -772,6 +780,7 @@ rules:
                         |HogFunctionRevision
                         |Hook
                         |Insight
+                        |InsightExplanation
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
@@ -818,6 +827,7 @@ rules:
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |MCPAuditEvent
+                        |MCPCustomHarness
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
@@ -907,6 +917,7 @@ rules:
                         |SharingConfiguration
                         |SignalEmissionRecord
                         |SignalFirstReportNotification
+                        |SignalRatedUsage
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
@@ -969,6 +980,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskRunGatewayRequest
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig
@@ -1302,6 +1314,7 @@ rules:
                         |TeamDataQualityConfig
                         |TeamDataWarehouseConfig
                         |TeamDefaultEvaluationContext
+                        |TeamEventsPlanDeletion
                         |TeamEventsRetentionConfig
                         |TeamEventVolume
                         |TeamExperimentsConfig

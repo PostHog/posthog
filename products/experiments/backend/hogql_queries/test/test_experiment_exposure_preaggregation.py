@@ -3,7 +3,12 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import uuid4
 
-from posthog.test.base import _create_event, _create_person
+from posthog.test.base import (
+    _create_event,
+    _create_person,
+    create_person_id_override_by_distinct_id,
+    flush_persons_and_events,
+)
 from unittest.mock import patch
 
 from django.forms.models import model_to_dict
@@ -21,7 +26,11 @@ from posthog.schema import (
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentQueryResponse,
+    ExperimentRetentionMetric,
+    FunnelConversionWindowTimeUnit,
     IntervalType,
+    PersonsOnEventsMode,
+    StartHandling,
 )
 
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_default_hogql_global_settings
@@ -1034,3 +1043,105 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
 
         # A full pool is a retry signal, not a broken precompute path.
         mock_capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("mean", ExperimentMeanMetric(source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL))),
+            ("funnel", ExperimentFunnelMetric(series=[EventsNode(event="purchase")])),
+            (
+                "retention",
+                ExperimentRetentionMetric(
+                    start_event=EventsNode(event="signup"),
+                    completion_event=EventsNode(event="purchase"),
+                    retention_window_start=0,
+                    retention_window_end=7,
+                    retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+                    start_handling=StartHandling.FIRST_SEEN,
+                ),
+            ),
+        ]
+    )
+    def test_person_merged_after_the_build_counts_once(self, _name, metric):
+        self.enterContext(
+            patch(
+                "products.experiments.backend.hogql_queries.experiment_query_builder.precompute_person_resolution_enabled",
+                return_value=True,
+            )
+        )
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+        self.team.save()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 10),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        def create_user(distinct_id: str, variant: str | None, converts: bool) -> None:
+            _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+            if variant is not None:
+                self._create_exposure_event(distinct_id, feature_flag, variant, datetime(2024, 1, 2, 12, 0, tzinfo=UTC))
+            if converts:
+                for event, day in (("signup", 3), ("purchase", 4)):
+                    _create_event(
+                        team=self.team,
+                        event=event,
+                        distinct_id=distinct_id,
+                        timestamp=datetime(2024, 1, day, 12, 0, tzinfo=UTC),
+                    )
+
+        create_user("control_0", "control", converts=True)
+        create_user("control_1", "control", converts=True)
+        # Each pair is one user seen under two distinct ids, merged only after the build.
+        # The exposure is on the anonymous id and the conversion on the identified id.
+        create_user("anon_exposed", "test", converts=False)
+        create_user("identified_converts", None, converts=True)
+        # The conversion is on the anonymous id and the exposure on the identified id.
+        create_user("anon_converts", None, converts=True)
+        create_user("identified_exposed", "test", converts=False)
+        # Both ids are exposed, and only the identified id starts.
+        create_user("anon_exposed_twice", "test", converts=False)
+        create_user("identified_exposed_twice", "test", converts=False)
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id="identified_exposed_twice",
+            timestamp=datetime(2024, 1, 3, 12, 0, tzinfo=UTC),
+        )
+        flush_persons_and_events()
+
+        def run(use_precomputation: bool) -> ExperimentQueryResponse:
+            if use_precomputation:
+                self._enable_precomputation()
+            else:
+                self._disable_precomputation()
+            runner = ExperimentQueryRunner(
+                query=ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric),
+                team=self.team,
+            )
+            response = cast(ExperimentQueryResponse, runner.calculate())
+            assert runner._is_precomputed is use_precomputation
+            assert runner._metric_events_precomputed is use_precomputation
+            return response
+
+        run(use_precomputation=True)
+        jobs_after_build = set(PreaggregationJob.objects.values_list("id", flat=True))
+
+        for anonymous_id, identified_id in (
+            ("anon_exposed", "identified_converts"),
+            ("anon_converts", "identified_exposed"),
+            ("anon_exposed_twice", "identified_exposed_twice"),
+        ):
+            create_person_id_override_by_distinct_id(anonymous_id, identified_id, self.team.pk)
+
+        precomputed_result = run(use_precomputation=True)
+        assert set(PreaggregationJob.objects.values_list("id", flat=True)) == jobs_after_build
+        direct_result = run(use_precomputation=False)
+
+        for result in (precomputed_result, direct_result):
+            assert result.variant_results is not None
+            assert result.variant_results[0].number_of_samples == 3
+            assert result.variant_results[0].sum == 2

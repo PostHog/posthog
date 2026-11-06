@@ -8,6 +8,7 @@ from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, S
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 from urllib.parse import urlparse
@@ -213,6 +214,7 @@ from products.tasks.backend.repository_config_analytics import (
     capture_space_context_changed,
     repositories_differ,
 )
+from products.tasks.backend.task_profiles import SPACE_SETUP, USER, WIZARD
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_q, source_q
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
@@ -637,6 +639,7 @@ _TASK_RUN_AGENT_STATE_KEYS = frozenset(
         "end_run_when_done",
         "initial_prompt_override",
         "store_skills",
+        "store_skills_bridge",
         "systemPrompt",
     }
 )
@@ -2063,6 +2066,7 @@ def create_and_run_task(
     branch: str | None = None,
     signal_report_id: str | None = None,
     free_trial_enabled: bool | None = None,
+    continue_admitted_pipeline: bool = False,
     internal: bool | None = None,
     sandbox_environment_id: str | None = None,
     channel_id: str | UUID | None = None,
@@ -2083,6 +2087,10 @@ def create_and_run_task(
     that flag before it takes the report row lock, so handing the result over keeps the flag
     request out of the lock. Left NULL, the gate reads the flag itself.
 
+    ``continue_admitted_pipeline`` is for server-side report orchestration after admission.
+    It lets implementation finish an accepted report/scout pipeline when the spend cap changes.
+    New manual work leaves it false and checks the quota before creating a run.
+
     ``scheduled_at`` creates the run in NOT_STARTED and defers its workflow until the dispatcher
     materializes it at or after that time. The run still stores its complete execution settings.
 
@@ -2094,13 +2102,11 @@ def create_and_run_task(
     signal_report_id = columns.signal_report_id
     if columns.hog_flow_id is not None:
         extra["hog_flow_id"] = columns.hog_flow_id
-    # create_pr=False sessions (research, repo selection, custom agents) can never open the
-    # billable PR, so the quota gate must not block them.
+    # Research and repository selection continue an admitted pipeline; their caller owns
+    # admission. Direct implementation creation still needs its own quota check.
     if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
-        # Distinct stage from create_task's `manual_create`: the main caller here is the
-        # auto-start pipeline, whose over-quota hits must not pollute the manual-path
-        # dark-launch bucket.
-        enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
+        if not continue_admitted_pipeline:
+            enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
         enforce_self_driving_free_trial(
             team, report_id=signal_report_id, stage="task_create", enabled=free_trial_enabled
         )
@@ -2282,17 +2288,17 @@ def create_wizard_cloud_run(
         team=team,
         title="Set up PostHog",
         description=prompt,
-        origin_product=Task.OriginProduct.ONBOARDING,
+        profile=WIZARD,
         user_id=user_id,
         repository=repository,
+        options=TaskRunOptions(
+            adapter=WIZARD_CLOUD_RUN_RUNTIME_ADAPTER, model=WIZARD_CLOUD_RUN_MODEL, mcp_scopes="read_only"
+        ),
         create_pr=True,
         mode="background",
         branch=branch,
         wizard_config={},
         wizard_head_branch=head_branch,
-        posthog_mcp_scopes="read_only",
-        runtime_adapter=WIZARD_CLOUD_RUN_RUNTIME_ADAPTER,
-        model=WIZARD_CLOUD_RUN_MODEL,
         ai_stage=WIZARD_CLOUD_RUN_AI_STAGE,
         # The agent server boots idle; this is the message that actually kicks it off once ready
         # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
@@ -2383,7 +2389,7 @@ def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, t
     return create_task_without_run(
         team=Team.objects.get(id=team_id),
         user_id=user_id,
-        origin_product=Task.OriginProduct.USER_CREATED,
+        profile=USER,
         title=title,
         description=description,
         channel=channel,
@@ -3683,6 +3689,7 @@ def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, s
 
     from products.signals.backend.facade.self_driving import (  # noqa: PLC0415 — cross-product read kept off the api import path
         capture_signal_report_quota_paused,
+        self_driving_limit_name,
         self_driving_quota_gate,
     )
 
@@ -3691,8 +3698,9 @@ def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, s
         capture_signal_report_quota_paused(team, report_id=report_id, stage=stage, enforced=gate.enforced)
     if gate.enforced:
         raise QuotaLimitExceeded(
-            "Your organization reached its self-driving pull request limit. "
-            "Increase the limit from the Inbox usage widget, or ask an org admin to do so."
+            f"Your organization reached its self-driving {self_driving_limit_name(team)}. "
+            "New work is paused; work already underway will finish. "
+            "Increase the limit in Settings > Billing, or ask an organization admin to do so."
         )
 
 
@@ -8687,6 +8695,19 @@ def handoff_task(
         }
         locked.state[TASK_OWNERSHIP_VERSION_STATE_KEY] = str(uuid4())
         locked.save()
+        from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
+            queue_task_handoff_claims,
+        )
+
+        # After commit, so the report locks it takes are never waited on while this task row is locked.
+        transaction.on_commit(
+            partial(
+                queue_task_handoff_claims,
+                team_id=team_id,
+                task_id=str(locked.id),
+                previous_user_id=user_id,
+            )
+        )
         message = TaskThreadMessage.objects.for_team(team_id).create(
             team_id=team_id,
             task_id=locked.id,
@@ -11574,16 +11595,18 @@ def start_space_setup(
                 description=build_space_setup_prompt(
                     team_id=team.id, channel_id=str(channel.id), channel_name=channel.name, request=request
                 ),
-                origin_product=Task.OriginProduct.SPACE_SETUP,
+                profile=SPACE_SETUP,
                 user_id=user_id,
                 channel=channel,
                 repository=repository,
+                options=TaskRunOptions(
+                    adapter=SPACE_SETUP_RUNTIME_ADAPTER,
+                    model=SPACE_SETUP_MODEL,
+                    reasoning_effort=SPACE_SETUP_REASONING_EFFORT,
+                    mcp_scopes=[*contracts.SPACE_SETUP_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
+                    permission_mode="auto",
+                ),
                 create_pr=False,
-                posthog_mcp_scopes=[*contracts.SPACE_SETUP_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
-                runtime_adapter=SPACE_SETUP_RUNTIME_ADAPTER,
-                model=SPACE_SETUP_MODEL,
-                reasoning_effort=SPACE_SETUP_REASONING_EFFORT,
-                initial_permission_mode="auto",
                 client_provenance=client_provenance,
             )
         except ValueError as e:

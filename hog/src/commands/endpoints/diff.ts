@@ -1,6 +1,7 @@
 import { defineCommand } from '@/core/command'
-import { listEndpoints } from '@/endpoints/api'
+import { findEndpoints } from '@/endpoints/api'
 import { readEndpointFiles } from '@/endpoints/files'
+import type { Endpoint } from '@/endpoints/model'
 import { planPush } from '@/endpoints/plan'
 
 import { pushPlanLines } from './push'
@@ -27,9 +28,10 @@ export default defineCommand({
 
     async run({ args, ctx }) {
         const { endpoints, problems } = await readEndpointFiles(ctx.runtime, await endpointPaths(ctx, args.paths))
-        const remotes = endpoints.length > 0 ? await listEndpoints(await ctx.posthog()) : []
+        const names = endpoints.map((local) => local.file.name)
+        const remotes = names.length > 0 ? await findEndpoints(await ctx.posthog(), names) : new Map<string, Endpoint>()
         // Variable types live on the project, so a diff only compares which variables each query uses.
-        const plan = planPush(endpoints, remotes, []).map(({ file: _file, ...item }) => item)
+        const plan = planPush(endpoints, [...remotes.values()], []).map(({ file: _file, ...item }) => item)
         return { plan, problems }
     },
 

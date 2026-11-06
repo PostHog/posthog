@@ -179,6 +179,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.legacy_oauth import (
+    LegacyOAuthGrant,
+    LegacyOAuthGrantUnusable,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     CredentialAccountsMixin,
@@ -204,7 +208,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStorageError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
-    FEATURE_FLAG,
     KEYWORDS,
     discovery_options_from,
     file_option_fields,
@@ -436,7 +439,6 @@ __all__ = [
     "ExternalDataSource",
     "ExternalDataSourceType",
     "ExternalWebhookInfo",
-    "FEATURE_FLAG",
     "FILE_MODIFIED_AT_COLUMN",
     "FILE_PATH_COLUMN",
     "FORMAT_ERROR",
@@ -471,6 +473,8 @@ __all__ = [
     "JSONResponseCursorPaginatorConfig",
     "JSONResponsePaginator",
     "KEYWORDS",
+    "LegacyOAuthGrant",
+    "LegacyOAuthGrantUnusable",
     "MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP",
     "MAX_EXCEL_FILE_BYTES",
     "MetaAdsIntegration",

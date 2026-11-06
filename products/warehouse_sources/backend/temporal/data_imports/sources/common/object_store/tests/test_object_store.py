@@ -7,7 +7,7 @@ import tempfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import IO, Any, Literal, cast
 
 import pytest
 from unittest.mock import MagicMock, call, patch
@@ -104,6 +104,22 @@ LOGGER = structlog.get_logger()
 
 def stored(path: str) -> StoredObject:
     return StoredObject(path=path, size=10, modified_at=MODIFIED_AT)
+
+
+class _FsspecLikeFile:
+    """Like an fsspec file, `readline` takes no size."""
+
+    def __init__(self, content: bytes) -> None:
+        self._buffer = io.BytesIO(content)
+
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int = -1) -> bytes:
+        return self._buffer.read(size)
+
+    def readline(self) -> bytes:
+        return self._buffer.readline()
 
 
 def local_store(root: Path) -> ObjectStore:
@@ -1145,6 +1161,21 @@ class TestFileSelection:
         assert len(tables) == 2
         assert [number for table in tables for number in table["_file_row_number"].to_pylist()] == list(range(rows))
 
+    @parameterized.expand(
+        [
+            ("csv", "orders.csv", b"id,name\n1,a\n2,b\n", "csv"),
+            ("jsonl", "orders.jsonl", b'{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n', "jsonl"),
+        ]
+    )
+    def test_reads_a_stream_whose_readline_takes_no_size(
+        self, _name: str, path: str, content: bytes, file_format: Literal["csv", "jsonl"]
+    ) -> None:
+        stream = cast(IO[bytes], _FsspecLikeFile(content))
+
+        tables = list(iter_file_tables(stream, stored(path), file_format, CsvOptions()))
+
+        assert [str(value) for table in tables for value in table["id"].to_pylist()] == ["1", "2"]
+
     def test_row_numbers_continue_across_the_batches_of_a_gzipped_parquet_file(self) -> None:
         rows = PARQUET_BATCH_ROWS + 3
         buffer = io.BytesIO()
@@ -1435,6 +1466,70 @@ def _source_with_store(store: ObjectStore) -> FakeObjectStorageSource:
     source = FakeObjectStorageSource()
     source.open_store = MagicMock(return_value=store)  # type: ignore[method-assign]
     return source
+
+
+def _forbidden_os_error() -> OSError:
+    error = OSError("Forbidden")
+    error.__cause__ = ClientError(
+        cast(Any, {"Error": {"Code": "403", "Message": "Forbidden"}, "ResponseMetadata": {"HTTPStatusCode": 403}}),
+        "ListObjectsV2",
+    )
+    return error
+
+
+class TestAccessDeniedMessage:
+    GENERIC_WIZARD_MESSAGE = f"{ACCESS_DENIED_ERROR} 'example-bucket'. Check that these credentials can list and read objects in this bucket."
+    GENERIC_SYNC_MESSAGE = (
+        "The storage provider rejected these credentials. Check that they can list and read the bucket, "
+        "then reconnect the source."
+    )
+    PROVIDER_MESSAGE = "This provider denied access. Grant the role on the bucket, then reconnect."
+
+    @pytest.mark.parametrize(
+        "override, wizard_message, sync_message",
+        [
+            pytest.param(None, GENERIC_WIZARD_MESSAGE, GENERIC_SYNC_MESSAGE, id="default"),
+            pytest.param(PROVIDER_MESSAGE, PROVIDER_MESSAGE, PROVIDER_MESSAGE, id="provider_override"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "denial",
+        [
+            pytest.param(PermissionError("Access Denied"), id="permission_error"),
+            pytest.param(_forbidden_os_error(), id="bare_403"),
+        ],
+    )
+    def test_a_provider_can_replace_the_access_denied_text(
+        self,
+        denial: Exception,
+        override: str | None,
+        wizard_message: str,
+        sync_message: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = denial
+        source = _source_with_store(store)
+        monkeypatch.setattr(FakeObjectStorageSource, "access_denied_message", override)
+
+        valid, message = source.validate_credentials(BUCKET_ROOT_CONFIG, 1)
+
+        assert not valid
+        assert message == wizard_message
+        assert source.get_non_retryable_errors()[ACCESS_DENIED_ERROR] == sync_message
+
+    def test_other_errors_keep_their_text_when_a_provider_overrides_the_access_denied_text(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = FileNotFoundError("The specified bucket does not exist")
+        source = _source_with_store(store)
+        monkeypatch.setattr(FakeObjectStorageSource, "access_denied_message", self.PROVIDER_MESSAGE)
+
+        valid, message = source.validate_credentials(BUCKET_ROOT_CONFIG, 1)
+
+        assert not valid
+        assert message is not None and message.startswith(NO_SUCH_BUCKET_ERROR)
 
 
 BUCKET_ROOT_CONFIG = FakeObjectStorageConfig(

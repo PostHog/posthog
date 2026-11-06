@@ -124,6 +124,10 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     # The service whose self-managed warehouse tables this source can take over.
     self_managed_service: ClassVar[StorageService]
 
+    # Replaces the generic access-denied text, in the wizard and on a failed sync, for a provider
+    # where the user fixes the denial somewhere specific.
+    access_denied_message: ClassVar[str | None] = None
+
     @abstractmethod
     def self_managed_connection_inputs(
         self, location: SelfManagedLocation, credential: SelfManagedCredential
@@ -162,7 +166,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         return {
             INVALID_CONFIG_ERROR: None,
             BLOCKED_LOCATION_ERROR: None,
-            ACCESS_DENIED_ERROR: (
+            ACCESS_DENIED_ERROR: self.access_denied_message
+            or (
                 "The storage provider rejected these credentials. Check that they can list and read the bucket, "
                 "then reconnect the source."
             ),
@@ -202,6 +207,11 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             logger=logger,
         )
 
+    def _validation_message(self, message: str) -> str:
+        if self.access_denied_message and message.startswith(ACCESS_DENIED_ERROR):
+            return self.access_denied_message
+        return message
+
     def validate_credentials(
         self,
         config: ConfigType,
@@ -213,12 +223,13 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             store_config = self.object_store_config(config, team_id)
             tables = self._discover(self.open_store(store_config), store_config, config)
         except ObjectStorageError as e:
-            return False, str(e)
+            return False, self._validation_message(str(e))
         except OSError as e:
             # s3fs turns an S3 answer without a known error code, such as a bare 401 or a 500, into a plain OSError.
             status = _http_status(e)
             if status in (401, 403):
-                return False, str(translate_storage_error(PermissionError(), store_config.display_location))
+                denied = translate_storage_error(PermissionError(), store_config.display_location)
+                return False, self._validation_message(str(denied))
             message = probe_status_message(self.get_source_config.label or "The storage provider", status)
             if message is None:
                 raise

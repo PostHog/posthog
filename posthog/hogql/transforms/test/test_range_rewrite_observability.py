@@ -21,8 +21,7 @@ from posthog.hogql.observability import HogQLTypeObservability
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
-from posthog.models import PropertyDefinition
-
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import materialize

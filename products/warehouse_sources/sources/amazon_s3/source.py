@@ -5,7 +5,6 @@ from products.warehouse_sources.sources.amazon_s3._config import AmazonS3AwsAuth
 from products.warehouse_sources.sources.sdk import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
     AWS_FLAT_STORED_SELECTS,
-    FEATURE_FLAG,
     KEYWORDS,
     S3_EXAMPLE_URL,
     AwsAuthError,
@@ -87,7 +86,6 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
     )
 
     api_docs_url = "https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html"
-    requires_team_feature_flag = FEATURE_FLAG
     self_managed_service = "s3"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
@@ -156,7 +154,6 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
             ),
             iconPath="/static/services/aws-s3.png",
             releaseStatus=ReleaseStatus.ALPHA,
-            featureFlag=FEATURE_FLAG,
             fields=cast(
                 list[FieldType],
                 [
