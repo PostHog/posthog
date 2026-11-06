@@ -125,9 +125,15 @@ export function policyRequestFlow(
         reuse: same,
         refresh: async (existing) => {
             const current = await readRequest(api, existing)
-            return current.status === 'pending'
-                ? { ...existing, canApprove: current.can_approve, approvers: current.approvers }
-                : undefined
+            switch (current.status) {
+                case 'pending':
+                    return { ...existing, canApprove: current.can_approve, approvers: current.approvers }
+                case 'approved':
+                    // Nobody has to approve it again, and the first poll returns the policy.
+                    return { ...existing, canApprove: true }
+                default:
+                    return undefined
+            }
         },
         approver: (pending) => (pending.canApprove ? undefined : 'an organization admin'),
         approverNames: (pending) => pending.approvers,
