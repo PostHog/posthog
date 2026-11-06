@@ -7,6 +7,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { DeliveryStep, gapLabel } from './emailDeliverySteps'
 
+function StepDetail({ detail }: { detail: string }): JSX.Element {
+    const text = <span className="text-xs text-secondary truncate">{detail}</span>
+    return detail.length > 40 ? <Tooltip title={detail}>{text}</Tooltip> : text
+}
+
 /** One step of the delivery progress, and the line that leads to the next step. */
 export function TransactionalEmailDeliveryStep({
     step,
@@ -61,14 +66,7 @@ export function TransactionalEmailDeliveryStep({
                         </span>
                     )
                 )}
-                {step.detail &&
-                    (step.detail.length > 40 ? (
-                        <Tooltip title={step.detail}>
-                            <span className="text-xs text-secondary truncate">{step.detail}</span>
-                        </Tooltip>
-                    ) : (
-                        <span className="text-xs text-secondary">{step.detail}</span>
-                    ))}
+                {step.detail && step.state !== 'failed' && <StepDetail detail={step.detail} />}
             </div>
         </li>
     )
