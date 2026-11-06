@@ -792,6 +792,13 @@ CACHES["warehouse_destination_connect"] = {
     "LOCATION": REDIS_URL,
 }
 
+# AEO prompt suggestion jobs are polled right after the job is created. A lagging replica would report a new
+# job as unknown, and the client treats that as expired, so read from the writer.
+CACHES["aeo_prompt_suggestions"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -860,6 +867,7 @@ if TEST:
     CACHES["task_artifact_preview"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
     CACHES["warehouse_destination_connect"] = CACHES["default"]
+    CACHES["aeo_prompt_suggestions"] = CACHES["default"]
     CACHES["signup_throttle"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)

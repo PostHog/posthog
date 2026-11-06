@@ -250,6 +250,12 @@ impl Config {
         }
     }
 
+    pub fn changelog_cluster_names(&self) -> anyhow::Result<Vec<String>> {
+        let mut names: Vec<String> = self.changelog_clusters()?.into_keys().collect();
+        names.sort();
+        Ok(names)
+    }
+
     pub fn changelog_cluster(&self, name: &str) -> anyhow::Result<ClusterEndpoint> {
         let spec = self
             .changelog_clusters()?

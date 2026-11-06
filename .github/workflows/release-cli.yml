@@ -5,6 +5,7 @@ on:
         branches: [master]
         paths:
             - 'cli/.sampo/changesets/*.md'
+    workflow_dispatch:
 
 permissions:
     contents: read
@@ -24,7 +25,7 @@ concurrency:
 jobs:
     check-changesets:
         name: Check for CLI changesets
-        if: github.repository == 'PostHog/posthog'
+        if: github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         outputs:

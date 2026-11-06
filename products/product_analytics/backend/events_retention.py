@@ -170,8 +170,8 @@ def project_events_retention(team: Team) -> ProjectEventsRetention:
     )
 
 
-def _next_cleanup_cutoff(months: int) -> datetime:
-    return whole_month_cutoff(datetime.combine(next_cleanup_on(), time()), months).replace(tzinfo=UTC)
+def _cutoff_on(deletes_on: date, months: int) -> datetime:
+    return whole_month_cutoff(datetime.combine(deletes_on, time()), months).replace(tzinfo=UTC)
 
 
 def _events_before(team: Team, cutoff: datetime, seconds: int, concurrency_slots: ConcurrencySlots) -> int:
@@ -194,17 +194,36 @@ def _events_before(team: Team, cutoff: datetime, seconds: int, concurrency_slots
     return count
 
 
+def _teams_events_before(teams: Iterable[Team], cutoff: datetime, concurrency_slots: ConcurrencySlots) -> int:
+    deadline = monotonic() + EVENTS_DELETED_QUERY_SECONDS
+    return sum(_events_before(team, cutoff, math.ceil(deadline - monotonic()), concurrency_slots) for team in teams)
+
+
 def project_events_deleted(team: Team, months: int, *, concurrency_slots: ConcurrencySlots) -> int:
-    return _events_before(team, _next_cleanup_cutoff(months), EVENTS_DELETED_QUERY_SECONDS, concurrency_slots)
+    return _events_before(team, _cutoff_on(next_cleanup_on(), months), EVENTS_DELETED_QUERY_SECONDS, concurrency_slots)
 
 
 def organization_events_deleted(organization: Organization, months: int, *, concurrency_slots: ConcurrencySlots) -> int:
-    cutoff = _next_cleanup_cutoff(months)
-    deadline = monotonic() + EVENTS_DELETED_QUERY_SECONDS
     teams = Team.objects.filter(organization_id=organization.id).exclude(
         id__in=TeamEventsRetentionConfig.objects.filter(events_retention_months__isnull=False).values("team_id")
     )
-    return sum(_events_before(team, cutoff, math.ceil(deadline - monotonic()), concurrency_slots) for team in teams)
+    return _teams_events_before(teams, _cutoff_on(next_cleanup_on(), months), concurrency_slots)
+
+
+def organization_downgrade_events_deleted(
+    organization: Organization, months: int, *, concurrency_slots: ConcurrencySlots
+) -> int:
+    teams = list(Team.objects.filter(organization_id=organization.id))
+    kept = {
+        setting.team_id
+        for setting in effective_events_retention(team_ids=[team.id for team in teams])
+        if setting.months <= months
+    }
+    return _teams_events_before(
+        [team for team in teams if team.id not in kept],
+        _cutoff_on(next_pass_on(cleanup_date()), months),
+        concurrency_slots,
+    )
 
 
 def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -> None:

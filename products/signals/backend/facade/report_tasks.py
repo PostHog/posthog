@@ -15,6 +15,7 @@ __all__ = [
     "delete_report_task_artefact",
     "enforce_report_implementation_rerun_cap",
     "enforce_report_task_cap",
+    "queue_task_handoff_claims",
     "is_pull_request_run_request",
     "is_report_implementation_task",
     "record_report_task",
@@ -73,6 +74,13 @@ def is_report_implementation_task(*, team_id: int, report_id: str, task_id: str)
 
 def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, task_id: str) -> None:
     task_run_artefacts.enforce_report_implementation_rerun_cap(team_id=team_id, report_id=report_id, task_id=task_id)
+
+
+def queue_task_handoff_claims(*, team_id: int, task_id: str, previous_user_id: int) -> None:
+    """Queue moving the report claims a handed-off task works under to its owner. Call after the handoff commits."""
+    from products.signals.backend.handoff_claim_tasks import reconcile_task_handoff_claims
+
+    reconcile_task_handoff_claims.delay(team_id=team_id, task_id=task_id, previous_user_id=previous_user_id)
 
 
 def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> list[str]:

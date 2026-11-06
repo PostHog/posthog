@@ -165,7 +165,7 @@ database "posthog" {
     }
     column "timestamp_arr" {
       type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
-      codec = "DoubleDelta, Default"
+      codec = "Delta(8), Default"
     }
     column "observed_timestamp_arr" {
       type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"

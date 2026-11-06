@@ -67,6 +67,15 @@ export const WarehouseSuggestionsAcceptCreateParams = () => zod.object({
         ),
 })
 
+export const WarehouseSuggestionsAcceptCreateQueryParams = () => zod.object({
+    surface: zod
+        .enum(['models', 'catalog'])
+        .optional()
+        .describe(
+            'Page the decision was made on. Only recorded on the analytics event.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
+        ),
+})
+
 export const warehouseSuggestionsAcceptCreateBodyRefreshIntervalSecondsMax = 2592000
 
 export const warehouseSuggestionsAcceptCreateBodyLookbackSecondsMin = 0
@@ -154,6 +163,15 @@ export const WarehouseSuggestionsDismissCreateParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseSuggestionsDismissCreateQueryParams = () => zod.object({
+    surface: zod
+        .enum(['models', 'catalog'])
+        .optional()
+        .describe(
+            'Page the decision was made on. Only recorded on the analytics event.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
         ),
 })
 

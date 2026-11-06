@@ -31,6 +31,7 @@ import type {
     InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
+    MonthlyUsageApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportCheckListApi,
@@ -148,6 +149,7 @@ import type {
     SignalsActivitySummaryVersionsRetrieveParams,
     SignalsAnomaliesInsightRetrieveParams,
     SignalsAnomaliesSearchRetrieveParams,
+    SignalsMonthlyUsageParams,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportChecksListParams,
@@ -3409,6 +3411,33 @@ export const getSignalsSpendOverviewUrl = (projectId: string) => {
 
 export const signalsSpendOverview = async (projectId: string, options?: RequestInit): Promise<SpendOverviewApi> => {
     return apiMutator<SpendOverviewApi>(getSignalsSpendOverviewUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsMonthlyUsageUrl = (projectId: string, params?: SignalsMonthlyUsageParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/usage/`
+}
+
+export const signalsMonthlyUsage = async (
+    projectId: string,
+    params?: SignalsMonthlyUsageParams,
+    options?: RequestInit
+): Promise<MonthlyUsageApi> => {
+    return apiMutator<MonthlyUsageApi>(getSignalsMonthlyUsageUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

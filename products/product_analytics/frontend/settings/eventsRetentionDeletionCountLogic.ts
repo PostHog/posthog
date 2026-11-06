@@ -8,8 +8,10 @@ import * as api from 'products/product_analytics/frontend/generated/api'
 
 export type EventsRetentionLevel = 'project' | 'organization'
 
+export type EventsRetentionDeletionCountKind = EventsRetentionLevel | 'downgrade'
+
 export interface EventsRetentionDeletionCountLogicProps {
-    level: EventsRetentionLevel
+    count: EventsRetentionDeletionCountKind
     months: number
 }
 
@@ -55,7 +57,7 @@ export type eventsRetentionDeletionCountLogicType = MakeLogicType<
 export const eventsRetentionDeletionCountLogic: LogicWrapper<eventsRetentionDeletionCountLogicType> =
     kea<eventsRetentionDeletionCountLogicType>([
         props({} as EventsRetentionDeletionCountLogicProps),
-        key(({ level, months }) => `${level}-${months}`),
+        key(({ count, months }) => `${count}-${months}`),
         path((key) => [
             'products',
             'product_analytics',
@@ -73,14 +75,18 @@ export const eventsRetentionDeletionCountLogic: LogicWrapper<eventsRetentionDele
                 {
                     loadEventsDeleted: async () => {
                         const params = { retention_months: props.months }
+                        const countEventsDeleted = {
+                            project: () => api.eventsRetentionDeletionCount(String(values.currentTeamId), params),
+                            organization: () =>
+                                api.organizationEventsRetentionDeletionCount(values.currentOrganizationId, params),
+                            downgrade: () =>
+                                api.organizationEventsRetentionDowngradeDeletionCount(
+                                    values.currentOrganizationId,
+                                    params
+                                ),
+                        }[props.count]
                         try {
-                            const response =
-                                props.level === 'project'
-                                    ? await api.eventsRetentionDeletionCount(String(values.currentTeamId), params)
-                                    : await api.organizationEventsRetentionDeletionCount(
-                                          values.currentOrganizationId,
-                                          params
-                                      )
+                            const response = await countEventsDeleted()
                             return response.events_deleted
                         } catch {
                             return null

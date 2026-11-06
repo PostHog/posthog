@@ -33,7 +33,7 @@ export function EventsRetentionChangeNote({
     return (
         <div className="flex flex-col gap-2">
             <p className="mb-0">{`${scope} that are older than ${period} will be deleted, and deleted events can't be restored.`}</p>
-            {deletion.monthly && <EventsRetentionDeletionCount level={level} months={months} />}
+            {deletion.monthly && <EventsRetentionDeletionCount count={level} months={months} />}
             <p className="mb-0">{deletionTiming(period, deletion)}</p>
         </div>
     )

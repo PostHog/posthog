@@ -185,35 +185,6 @@ database "posthog" {
     }
   }
 
-  table "writable_metrics_kafka_metrics" {
-    column "_partition" {
-      type = "UInt32"
-    }
-    column "_topic" {
-      type = "String"
-    }
-    column "max_offset" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    column "max_observed_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_created_at" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_lag" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    engine "distributed" {
-      cluster_name    = "logs"
-      remote_database = "posthog"
-      remote_table    = "metrics_kafka_metrics"
-    }
-  }
-
   table "writable_trace_spans" {
     column "time_bucket" {
       type         = "DateTime"
