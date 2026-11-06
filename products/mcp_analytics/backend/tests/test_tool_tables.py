@@ -707,24 +707,36 @@ class TestMCPToolNeighborsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhou
 
     @parameterized.expand(
         [
-            ("before", NeighborDirection.BEFORE, "tool_a"),
-            ("after", NeighborDirection.AFTER, "tool_b"),
+            ("before", NeighborDirection.BEFORE, {"tool_a": 1, "tool_b": 1}),
+            ("after", NeighborDirection.AFTER, {"tool_b": 1, "tool_c": 1}),
         ]
     )
-    def test_finds_adjacent_tool_in_conversation(
-        self, _name: str, direction: NeighborDirection, expected_neighbor: str
+    def test_counts_adjacent_tools_per_occurrence_within_each_conversation(
+        self, _name: str, direction: NeighborDirection, expected: dict[str, int]
     ) -> None:
         now = datetime.now(tz=UTC)
-        _emit_tool_call(self.team, tool_name="tool_a", session_id="conv1", timestamp=now - timedelta(minutes=2))
-        _emit_tool_call(self.team, tool_name="query_run", session_id="conv1", timestamp=now - timedelta(minutes=1))
-        _emit_tool_call(self.team, tool_name="tool_b", session_id="conv1", timestamp=now)
+        conversations = {
+            # The target repeats, back to back and again at the end: each occurrence counts, but
+            # never as its own neighbor.
+            "conv1": ["tool_a", "query_run", "query_run", "tool_b", "query_run"],
+            # The target opens the conversation, so it has nothing before it.
+            "conv2": ["query_run", "tool_c"],
+            # Never calls the target, so its pairs must not leak into the counts.
+            "conv3": ["tool_b", "tool_d"],
+        }
+        for session_id, tools in conversations.items():
+            for position, tool in enumerate(tools):
+                _emit_tool_call(
+                    self.team,
+                    tool_name=tool,
+                    session_id=session_id,
+                    timestamp=now - timedelta(minutes=len(tools) - position),
+                )
         flush_persons_and_events()
 
         rows = self._run(direction)
 
-        assert len(rows) == 1
-        assert rows[0].neighbor_tool == expected_neighbor
-        assert rows[0].co_occurrences == 1
+        assert {row.neighbor_tool: row.co_occurrences for row in rows} == expected
 
 
 # Shaped so every table on the tool detail page has a row to drop once the filters apply.
