@@ -26,6 +26,7 @@ def _turn(trace_id: str, text: str) -> SampledTrace:
         held_out=False,
         spans_days=False,
         segments={},
+        segment_values={},
         raw_segments={},
         final_text=text,
         turn_text=text,

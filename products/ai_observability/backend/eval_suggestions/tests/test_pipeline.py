@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 import httpx
-from openai import APIConnectionError
+from openai import APIConnectionError, RateLimitError
 from parameterized import parameterized
 
 from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
@@ -27,6 +27,7 @@ from products.ai_observability.backend.eval_suggestions.pipeline import (
     create_run,
     dedupe,
     execute_run,
+    fail_run,
     paid_draft,
     run_pipeline,
 )
@@ -91,6 +92,8 @@ def _chat_traffic(team: Team, end: datetime) -> None:
             at += timedelta(seconds=2)
             _event(team, "$ai_span", at, {**trace, "$ai_span_name": "run_action"})
             messages = [*messages, assistant, {"role": "tool", "tool_call_id": call["id"], "content": "ok"}]
+        # The last action's own span, or the approval pause, comes after the earlier spans, never at the same instant.
+        at += timedelta(seconds=1)
         if index % 20 == 7:
             _event(
                 team,
@@ -275,6 +278,56 @@ class TestDraftingBudget(BaseTest):
         # The failed call tried flex and then the standard tier, and the refused one never reached the provider.
         assert client.chat.completions.create.call_count == 3
 
+    @parameterized.expand([("lost_response_may_have_billed", False), ("capacity_refusal_never_bills", True)])
+    def test_a_failed_flex_attempt_keeps_its_spend_unless_refused(self, _name: str, refused: bool) -> None:
+        brief = json.dumps({"field": "findings[].priority"})
+        served_cost = 1000 * drafting.INPUT_PRICE_PER_TOKEN + 500 * drafting.OUTPUT_PRICE_PER_TOKEN
+        request = httpx.Request("POST", "https://gateway.example.com")
+        flex_error = (
+            RateLimitError("busy", response=httpx.Response(429, request=request), body=None)
+            if refused
+            else APIConnectionError(request=request)
+        )
+        client = MagicMock()
+        client.with_options.return_value = client
+        client.chat.completions.create.side_effect = [
+            flex_error,
+            _completion(json.dumps({"evaluation_type": "hog", "name": "n", "description": "d", "body": "return true"})),
+        ]
+
+        with patch.object(drafting, "build_openai_client", return_value=client):
+            call = drafting.draft_check(self.team.pk, brief)
+
+        unsettled = 0.0 if refused else drafting.max_cost_usd(brief) / (2 + drafting.STANDARD_MAX_RETRIES)
+        assert call.cost_usd == pytest.approx(served_cost + unsettled)
+
+
+class TestRunRecords(BaseTest):
+    def test_a_retried_start_reuses_its_run(self) -> None:
+        run_id = "0f2c6a5e-1d7b-5a3e-9c1f-2b8e4d6a7c90"
+        first = create_run(self.team, "scheduled", run_id=run_id)
+        second = create_run(self.team, "scheduled", run_id=run_id)
+
+        assert str(first.id) == str(second.id) == run_id
+        assert EvalSuggestionRun.objects.for_team(self.team.pk).count() == 1
+
+    @parameterized.expand(
+        [
+            ("running_run_fails", EvalSuggestionRunStatus.RUNNING, EvalSuggestionRunStatus.FAILED),
+            ("published_run_stays", EvalSuggestionRunStatus.COMPLETED, EvalSuggestionRunStatus.COMPLETED),
+        ]
+    )
+    def test_exhausted_attempts_mark_the_run_failed_unless_it_published(
+        self, _name: str, before: str, after: str
+    ) -> None:
+        run = create_run(self.team, "scheduled")
+        EvalSuggestionRun.objects.for_team(self.team.pk).filter(id=run.id).update(status=before)
+
+        fail_run(str(run.id), "Activity task timed out")
+
+        run.refresh_from_db()
+        assert run.status == after
+
 
 def _existing(**overrides: Any) -> ExistingEval:
     fields: dict[str, Any] = {
@@ -394,3 +447,24 @@ def test_a_draft_replaces_the_templated_card_for_its_gap(_name: str, evaluation_
         )
 
     assert [p.dedupe_key for p in result] == [templated.dedupe_key]
+
+
+def test_a_drafted_check_stops_at_the_first_trace_that_runs_too_long() -> None:
+    templated = _candidate("gap:review_lens=security:findings[].priority", [SECURITY_LENS], GAP_PROMPT)
+    draft = drafting.Draft(evaluation_type="hog", name="Drafted", description="d", body="return true")
+    sample = MagicMock(traces=[MagicMock(held_out=False) for _ in range(20)])
+    passing = MagicMock(failed=False, reasoning="ok")
+    timed_out = MagicMock(failed=None, reasoning="Execution timed out (10s limit exceeded)")
+    stages = pipeline._Stages()
+    with (
+        patch.object(pipeline.drafting, "gap_brief", return_value="brief"),
+        patch.object(pipeline, "paid_draft", return_value=drafting.DraftCall(draft=draft, cost_usd=0.01)),
+        patch.object(pipeline, "run_check", side_effect=[[passing]] * 7 + [[timed_out]]) as run_check,
+    ):
+        result = pipeline._drafted_proposals(
+            MagicMock(), MagicMock(), [(MagicMock(), templated)], sample, MagicMock(), SuggestionSettings(), stages
+        )
+
+    assert result == []
+    assert run_check.call_count == 8
+    assert stages.record["drafting"] == {"status": "failed", "detail": "drafted Hog runs too long"}

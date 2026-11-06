@@ -1,10 +1,12 @@
 """Weekly coordinator and per-team workflow. Activities pass ids and counts, never trace content."""
 
+import uuid
 import asyncio
 from datetime import timedelta
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
@@ -17,7 +19,7 @@ with workflow.unsafe.imports_passed_through():
     from .client import COORDINATOR_WORKFLOW_NAME, TEAM_TIMEOUT, TEAM_WORKFLOW_NAME, CoordinatorInputs, TeamRunInputs
     from .config import load_settings
     from .eligibility import eligible_team_ids
-    from .pipeline import create_run, execute_run
+    from .pipeline import create_run, execute_run, fail_run
 
 RUN_ATTEMPT_TIMEOUT = timedelta(minutes=15)
 
@@ -34,6 +36,19 @@ class ExecuteRunInputs:
     include_paid: bool
 
 
+@frozen
+class StartRunInputs:
+    run: TeamRunInputs
+    # Derived from the workflow run, so a retried start finds the run an earlier attempt created.
+    run_id: str
+
+
+@frozen
+class FailRunInputs:
+    run_id: str
+    error: str
+
+
 @activity.defn(name="llma-eval-suggestions-plan")
 async def plan_eval_suggestions_activity() -> CoordinatorPlan:
     async with Heartbeater():
@@ -42,14 +57,19 @@ async def plan_eval_suggestions_activity() -> CoordinatorPlan:
     return CoordinatorPlan(team_ids=team_ids, max_concurrent_teams=suggestion_settings.max_concurrent_teams)
 
 
-def _start_run(inputs: TeamRunInputs) -> str:
-    team = Team.objects.get(id=inputs.team_id)
-    return str(create_run(team, inputs.trigger, inputs.batch_id).id)
+def _start_run(inputs: StartRunInputs) -> str:
+    team = Team.objects.get(id=inputs.run.team_id)
+    return str(create_run(team, inputs.run.trigger, inputs.run.batch_id, run_id=inputs.run_id).id)
 
 
 @activity.defn(name="llma-eval-suggestions-start-run")
-async def start_eval_suggestions_run_activity(inputs: TeamRunInputs) -> str:
+async def start_eval_suggestions_run_activity(inputs: StartRunInputs) -> str:
     return await on_asyncify_pool(_start_run)(inputs)
+
+
+@activity.defn(name="llma-eval-suggestions-fail-run")
+async def fail_eval_suggestions_run_activity(inputs: FailRunInputs) -> None:
+    await on_asyncify_pool(fail_run)(inputs.run_id, inputs.error)
 
 
 @activity.defn(name="llma-eval-suggestions-execute-run")
@@ -67,19 +87,30 @@ class EvalSuggestionsTeamWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: TeamRunInputs) -> int:
+        info = workflow.info()
         run_id = await workflow.execute_activity(
             start_eval_suggestions_run_activity,
-            inputs,
+            StartRunInputs(run=inputs, run_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{info.workflow_id}/{info.run_id}"))),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-        return await workflow.execute_activity(
-            execute_eval_suggestions_run_activity,
-            ExecuteRunInputs(run_id=run_id, include_paid=inputs.include_paid),
-            start_to_close_timeout=RUN_ATTEMPT_TIMEOUT,
-            heartbeat_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
-        )
+        try:
+            return await workflow.execute_activity(
+                execute_eval_suggestions_run_activity,
+                ExecuteRunInputs(run_id=run_id, include_paid=inputs.include_paid),
+                start_to_close_timeout=RUN_ATTEMPT_TIMEOUT,
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+            )
+        except ActivityError as error:
+            # A worker that died or timed out never reached execute_run's own failure handling.
+            await workflow.execute_activity(
+                fail_eval_suggestions_run_activity,
+                FailRunInputs(run_id=run_id, error=str(error.cause or error)),
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            raise
 
 
 @workflow.defn(name=COORDINATOR_WORKFLOW_NAME)
@@ -132,4 +163,5 @@ ACTIVITIES = [
     plan_eval_suggestions_activity,
     start_eval_suggestions_run_activity,
     execute_eval_suggestions_run_activity,
+    fail_eval_suggestions_run_activity,
 ]

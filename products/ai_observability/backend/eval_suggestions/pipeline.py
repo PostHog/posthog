@@ -34,11 +34,11 @@ from . import (
     ranking,
     screening,
 )
-from .adapters import AdaptedCheck
+from .adapters import AdaptedCheck, compile_check
 from .applicability import applicable, content_profile
 from .config import SuggestionSettings
 from .coverage import Coverage
-from .measure import TraceSample, fetch_sample, measure, structured_outputs
+from .measure import Measurement, Outcome, TraceSample, fetch_sample, measure, run_check, structured_outputs
 from .profile import ProfileWindow, StructuredGap, TeamProfile, fetch_profile, find_structured_gaps, gap_holds
 from .ranking import Proposal
 
@@ -47,7 +47,6 @@ logger = structlog.get_logger(__name__)
 WINDOW = timedelta(days=7)
 # Traces younger than this may still be receiving events, so the window stops short of now.
 SETTLE = timedelta(minutes=30)
-DRAFT_PROBE_TRACES = 5
 DRAFT_ABORT_ERRORS = ("Execution timed out", "Memory limit exceeded")
 # Dedupe asks the model about each hand-written evaluation, so a team with many pays for this many at most.
 MAX_DEDUPED_EVALS = 50
@@ -181,15 +180,20 @@ def _drafted_proposals(
         severity=ranking.SEVERITY["structured_output_gap"],
     )
     try:
-        # A drafted body can loop until the 10s Hog limit, so it proves itself on a few traces before the rest.
-        probe = measure([check], TraceSample(main=list(sample.main[:DRAFT_PROBE_TRACES]), held_out=[]))
-        if any(o.failed is None and o.reasoning.startswith(DRAFT_ABORT_ERRORS) for o in probe[0].main):
-            stages.set("drafting", "failed", detail="drafted Hog runs too long")
-            return []
-        measured = measure([check], sample)
+        bytecode = compile_check(check)
     except Exception:
         stages.set("drafting", "failed", detail="drafted Hog does not compile")
         return []
+    # A drafted body can loop until the 10s Hog limit on some inputs and not others, so the first trace that
+    # times out or runs out of memory stops the whole measurement.
+    outcomes: dict[bool, list[Outcome]] = {False: [], True: []}
+    for sampled in sample.traces:
+        [outcome] = run_check(bytecode, [sampled])
+        if outcome.failed is None and outcome.reasoning.startswith(DRAFT_ABORT_ERRORS):
+            stages.set("drafting", "failed", detail="drafted Hog runs too long")
+            return []
+        outcomes[sampled.held_out].append(outcome)
+    measured = [Measurement(check=check, main=outcomes[False], held_out=outcomes[True])]
     proposal = ranking.code_check_proposal(measured[0], sample, profile, similar_evaluation_id=None)
     # The draft replaces the templated card for the same gap, so it shares its key and dismissals.
     return [replace(proposal, dedupe_key=templated.dedupe_key)] if proposal else []
@@ -393,8 +397,20 @@ def publish(run: EvalSuggestionRun, proposals: Sequence[Proposal], stages: dict[
     return rows
 
 
-def create_run(team: Team, trigger: str, batch_id: str = "") -> EvalSuggestionRun:
-    return EvalSuggestionRun.objects.for_team(team.pk).create(team=team, trigger=trigger, batch_id=batch_id)
+def create_run(team: Team, trigger: str, batch_id: str = "", run_id: str | None = None) -> EvalSuggestionRun:
+    """A new run, or with `run_id` the run a retried start already created, so a retry never leaves one orphaned."""
+    runs = EvalSuggestionRun.objects.for_team(team.pk)
+    if run_id is None:
+        return runs.create(team=team, trigger=trigger, batch_id=batch_id)
+    run, _ = runs.get_or_create(id=run_id, defaults={"team": team, "trigger": trigger, "batch_id": batch_id})
+    return run
+
+
+def fail_run(run_id: str, error: str) -> None:
+    """Mark a run failed when its attempts ran out outside the process, unless an attempt already published."""
+    EvalSuggestionRun.objects.unscoped().filter(id=run_id).exclude(status=EvalSuggestionRunStatus.COMPLETED).update(
+        status=EvalSuggestionRunStatus.FAILED, error=error[:2000], completed_at=timezone.now()
+    )
 
 
 def execute_run(run_id: str, *, include_paid: bool, settings: SuggestionSettings) -> int:
