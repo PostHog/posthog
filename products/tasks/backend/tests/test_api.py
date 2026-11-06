@@ -13439,6 +13439,9 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         )
         run = task.create_run(extra_state={"resume_from_run_id": str(original.id)})
         assert run.state["analytics_query_context"] == [query]
+        Task.objects.filter(pk=task.pk).update(
+            status=Task.Status.IDLE, status_reason=Task.StatusReason.UNEXPECTED_FAILURE, status_detail="Protected error"
+        )
         raw_key = generate_random_token_personal()
         key = PersonalAPIKey.objects.create(
             label="Trace reader", user=self.user, secure_value=hash_key_value(raw_key), scopes=["task:read"]
@@ -13455,6 +13458,7 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
             assert denied.json()["results"][0]["latest_run"]["task_summary"] is None
             redacted = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
             assert redacted.json()["latest_run"]["task_summary"] is None
+            assert redacted.json()["status_detail"] is None
             key.scopes = ["task:read", "query:read", "event_definition:read"]
             key.save(update_fields=["scopes"])
             self._seed_log(task, original, [self._make_posthog_entry("_posthog/user_message", "2026-01-01T00:00:00Z")])
@@ -13465,6 +13469,9 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
             assert readable.json()["results"][0]["latest_run"]["task_summary"] == "Protected metric findings"
             readable_run = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
             assert readable_run.json()["task_summary"] == "Protected metric findings"
+            assert (
+                self.client.get(f"/api/projects/@current/tasks/{task.id}/").json()["status_detail"] == "Protected error"
+            )
         detail = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         assert detail.status_code == status.HTTP_200_OK
         assert detail.json()["latest_run"]["log_url"] is None

@@ -1146,7 +1146,7 @@ def _task_detail_to_dto(
         channel=task.channel_id,
         status=task.status,
         status_reason=task.status_reason,
-        status_detail=task.status_detail,
+        status_detail=task.status_detail if resolved_latest_run is not None and may_read_latest_context else None,
         slack_thread_references=_task_slack_thread_references(task),
         origin_key=None if task.is_scout_experiment else task.stored_idempotency_key,
         client_provenance=task.client_provenance,
