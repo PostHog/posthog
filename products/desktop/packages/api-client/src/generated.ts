@@ -11488,7 +11488,7 @@ export namespace Schemas {
          */
         drop_history_table?: boolean | undefined;
         /**
-         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve endpoint, and on an update that sent `drop_history_table`, where a name means the history table was kept, for example because a sync started meanwhile. `null` elsewhere.
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
          */
         registered_history_table_name: string | null;
         /**
