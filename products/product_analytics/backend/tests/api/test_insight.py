@@ -69,7 +69,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query, insight_query
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -679,7 +679,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # never execute the body of. A 200 alone doesn't prove this: insight_result's
         # broad except Exception swallows calculation crashes into a query_status error
         # and still renders 200, so assert the embedded result actually computed.
-        action = Action.objects.create(team=self.team, name="Viewed a page", steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, name="Viewed a page", steps_json=[{"event": "$pageview"}])
         query = default_pageview_query()
         query["source"]["series"] = [{"kind": "ActionsNode", "id": action.id}]
         insight_id, _ = self.dashboard_api.create_insight({"name": "insight", "query": query})
@@ -4472,7 +4472,7 @@ class TestInsightExportCacheShortcut(APIBaseTest):
     def test_an_entry_cached_without_action_names_takes_them_from_the_query(
         self, mock_query_cache: mock.MagicMock
     ) -> None:
-        action = Action.objects.create(team=self.team, name="Completed checkout")
+        action = create_action(team=self.team, name="Completed checkout")
         query = default_pageview_query()
         query["source"]["series"] = [{"kind": "ActionsNode", "id": action.id}]
         insight = Insight.objects.create(team=self.team, query=query)

@@ -121,6 +121,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.task_profiles import CLEANUP
 from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
 from products.experiments.backend.warehouse_native_sources import (
     validate_experiment_warehouse_native_sources,
@@ -2789,7 +2790,7 @@ class ExperimentService:
                         team=team,
                         title=title,
                         description=description,
-                        origin_product=tasks_facade.TaskOriginProduct.EXPERIMENTS,
+                        profile=CLEANUP,
                         user_id=user_id,
                         repository=repository,
                         create_pr=True,
@@ -2845,19 +2846,9 @@ class ExperimentService:
         # request import path.
         from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
 
-        # team_only: the candidates are shown to any experiment viewer with Code access, and the
-        # cleanup PR is opened by the team installation's bot identity — a personal-connection
-        # fallback would both leak someone's private repo names and target a repo the bot can't use.
-        github = tasks_repo_selection.resolve_team_github_integration(
-            experiment.team_id, team=experiment.team, team_only=True
-        )
-        if github is None:
+        cached = tasks_repo_selection.team_repository_names(experiment.team_id, team=experiment.team)
+        if cached is None:
             return {"repository": None, "source": "no_integration", "candidates": []}
-        cached = {
-            full_name.lower(): full_name
-            for repo in github.list_all_cached_repositories(max_repos=1000)
-            if (full_name := repo.get("full_name"))
-        }
         candidates = sorted(cached.values(), key=str.lower)
         if not cached:
             # An integration with nothing to target is as good as none — without this, a

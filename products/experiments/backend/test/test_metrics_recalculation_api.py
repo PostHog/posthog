@@ -136,7 +136,6 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             "experiment-metrics-recalculation-workflow",
             ExperimentMetricsRecalculationWorkflowInputs(
                 recalculation_id=body["id"],
-                fairness_key=str(self.organization.id),
                 activity_task_queue=expected_activity_task_queue,
                 calculation_key_version=key_version,
             ),

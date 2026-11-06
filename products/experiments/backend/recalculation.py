@@ -302,9 +302,9 @@ def cancel_recalculation_workflow(recalculation_id: str) -> None:
 def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int, organization_id: str) -> None:
     """Dispatch the recalculation Temporal workflow for a row that request_recalculation just created.
 
-    Start every recalculation workflow through this function, so the workflow name and id, the task queue,
-    the org-scoped fairness key and the rollback stay in one place. If the start fails, the row is marked
-    FAILED when it is safe to do so, and the exception propagates to the caller.
+    Start every recalculation workflow through this function, so the workflow name and id, the task queues
+    and the rollback stay in one place. If the start fails, the row is marked FAILED when it is safe to do so,
+    and the exception propagates to the caller.
     """
     try:
         # The run's activities take the key version from these inputs, so a flag change mid-run keeps one version.
@@ -315,7 +315,6 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
                 METRICS_RECALCULATION_WORKFLOW_NAME,
                 ExperimentMetricsRecalculationWorkflowInputs(
                     recalculation_id=recalculation_id,
-                    fairness_key=organization_id,
                     activity_task_queue=_activity_task_queue(organization_id),
                     calculation_key_version=calculation_key_version,
                 ),

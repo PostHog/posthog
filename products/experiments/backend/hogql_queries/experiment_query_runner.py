@@ -733,6 +733,11 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         payload = super().get_cache_payload()
         payload["experiment_response_version"] = 2
         payload["stats_method"] = self.stats_method
+        # The window ends at the experiment's end date, which the query does not carry, so a new end date must miss
+        # the result of the earlier window. A running experiment adds nothing, so its key stays the same and the cache
+        # age limit refreshes its moving window end.
+        if self.experiment.end_date is not None:
+            payload["end_date"] = self.experiment.end_date.isoformat()
         # Version 1 leaves the payload as it was, so the release that adds version 2 keeps every cached response.
         calculation_config = self.calculation_config
         if calculation_config.settings.key_version == CALCULATION_KEY_VERSION:
