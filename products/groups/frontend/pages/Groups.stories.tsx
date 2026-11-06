@@ -99,7 +99,7 @@ export const GroupTypeOrigin: Story = {
     parameters: {
         pageUrl: urls.groups(1),
         testOptions: {
-            waitForSelector: '[data-attr="group-type-origin-view-source-events"]',
+            waitForSelector: 'a[href*="how-to-create-groups"]',
         },
     },
 }

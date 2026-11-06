@@ -26,7 +26,7 @@ import { GroupTypeIndex } from '~/types'
 
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 import { GroupsIntroduction } from 'products/groups/frontend/components/GroupsIntroduction'
-import { GroupTypeOriginBanner } from 'products/groups/frontend/components/GroupTypeOriginBanner'
+import { groupTypeSourceEventsUrl } from 'products/groups/frontend/components/groupTypeSourceEventsUrl'
 
 import { groupsListLogic } from '../logics/groupsListLogic'
 import { groupsSceneLogic } from '../logics/groupsSceneLogic'
@@ -87,10 +87,15 @@ export function GroupsScene(): JSX.Element {
             <SceneTitleSection
                 name={capitalizeFirstLetter(groupTypeNamePlural)}
                 description={
-                    groupType?.created_at
-                        ? `A catalog of all ${groupTypeNamePlural} for this project. PostHog created this group type automatically on ${dayjs(groupType.created_at).format('MMM D, YYYY')}.`
+                    groupType
+                        ? `A catalog of all ${groupTypeNamePlural} for this project. PostHog created this group type automatically${
+                              groupType.created_at ? ` on ${dayjs(groupType.created_at).format('MMM D, YYYY')},` : ''
+                          } when an event first referenced "${groupType.group_type}". [View the source events](${groupTypeSourceEventsUrl(
+                              groupType
+                          )}) or [learn how groups are created](https://posthog.com/docs/product-analytics/group-analytics#how-to-create-groups).`
                         : `A catalog of all ${groupTypeNamePlural} for this project`
                 }
+                markdown
                 resourceType={groupTitle?.resourceType ?? { type: 'cohort' }}
                 actions={
                     <>
@@ -117,8 +122,6 @@ export function GroupsScene(): JSX.Element {
                     </>
                 }
             />
-
-            {groupType && <GroupTypeOriginBanner groupType={groupType} />}
 
             <Query
                 uniqueKey="groups-query"
