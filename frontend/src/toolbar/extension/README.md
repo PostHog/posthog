@@ -71,16 +71,17 @@ node src/toolbar/extension/store-listing/generate.mjs [path/to/unpacked/extensio
 
 The path defaults to `dist/toolbar-extension/chrome`. Point it at the unzipped release build to show exactly what the store item ships.
 
-Each screenshot shows a browser window with a website on the left and the side panel on the right:
+The first screenshot is the marquee design at 1280×800.
+Each of the other four shows the PostHog logo and a headline above a browser window, with a website on the left and the side panel on the right:
 
 - The website comes from a capture of an invented site with the page tools running. The script downloads each capture from the `PostHog/pr-assets` repository and hides the old panel in it.
 - The panel is a fresh render of the built `panel.html` with a fake `browser` API, like `ExtensionPanel.stories.tsx`. `store-listing/panelStates.mjs` holds the state of each tool, and it matches what the capture shows.
 
 To change an image:
 
-- **Headline or caption:** edit `SCREENSHOTS` in `generate.mjs`.
+- **Headline, caption or order:** edit `SCREENSHOTS` in `generate.mjs`. The store shows the screenshots in the order you upload them, so keep the number in each file name.
 - **Panel UI:** rebuild the extension and run the script again. A change to the state shape of a tool also needs an update in `panelStates.mjs`.
-- **Tile color, tagline or hedgehog:** edit `TILE_COLOR`, `TILE_TAGLINE` or the `@posthog/brand` import in `generate.mjs`.
+- **Tile color, tagline or hedgehog:** edit `TILE_COLOR`, `TILE_TAGLINE` or the `@posthog/brand` import in `generate.mjs`. The change applies to the first screenshot and both promo tiles.
 - **Website side:** take a new capture with the extension on the site, upload it with `hogli pr:upload-image`, and replace the `capture` URL. A capture must be 1681×864 points at 2x, with a 44-point browser bar on top and the panel in the right 401 points.
 
 Upload the new images to the store item by hand. The store doesn't take them from this folder.

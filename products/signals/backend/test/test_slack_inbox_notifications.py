@@ -345,6 +345,7 @@ def _make_ready_report(
     summary: str = "Summary text",
     priority: str | None = None,
     actionability: str | None = ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+    already_addressed: bool = False,
     suggested_logins: list[str] | None = None,
 ) -> SignalReport:
     report = SignalReport.objects.create(
@@ -355,7 +356,7 @@ def _make_ready_report(
             team=team,
             report=report,
             type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-            content=json.dumps({"actionability": actionability}),
+            content=json.dumps({"actionability": actionability, "already_addressed": already_addressed}),
         )
     if priority:
         SignalReportArtefact.objects.create(
@@ -814,6 +815,34 @@ def test_dispatch_notifies_requires_human_input_report_without_priority(org_and_
 
     assert sent == 1
     assert fake_client.chat_postMessage.call_args.kwargs["channel"] == "CTEAM"
+
+
+@pytest.mark.django_db
+def test_dispatch_does_not_route_already_addressed_report_to_reviewer(org_and_team):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "handled-reviewer@example.com", "handled-reviewer")
+    integration = _make_slack_integration(team, reviewer)
+    _set_team_channel(team, "CTEAM|#team-inbox", integration)
+    SignalUserAutonomyConfig.objects.create(
+        user=reviewer,
+        slack_notification_integration=integration,
+        slack_notification_channel="CREVIEWER|#reviewer-inbox",
+    )
+    report = _make_ready_report(
+        team,
+        priority=AutonomyPriority.P2,
+        already_addressed=True,
+        suggested_logins=["handled-reviewer"],
+    )
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 1
+    assert fake_client.chat_postMessage.call_args.kwargs["channel"] == "CTEAM"
+    assert "Suggested owner" not in json.dumps(fake_client.chat_postMessage.call_args.kwargs["blocks"])
 
 
 @pytest.mark.django_db
