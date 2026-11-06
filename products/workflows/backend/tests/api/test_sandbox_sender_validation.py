@@ -96,7 +96,7 @@ class TestSandboxSenderValidation(APIBaseTest):
     @parameterized.expand(
         [
             (f"broadcast_{shape}_flag_{'on' if flag_on else 'off'}", "broadcasts", shape, flag_on, "broadcast")
-            for shape in ("integer", "float", "malformed_rotation")
+            for shape in ("integer", "float", "string", "malformed_rotation")
             for flag_on in (True, False)
         ]
         + [
@@ -119,6 +119,8 @@ class TestSandboxSenderValidation(APIBaseTest):
         sender = workflow["actions"][1]["config"]["inputs"]["email"]["value"]["from"]
         if sender_shape == "float":
             sender["integrationId"] = float(self.sender.id)
+        elif sender_shape == "string":
+            sender["integrationId"] = str(self.sender.id)
         elif sender_shape == "malformed_rotation":
             sender["integrationIds"] = self.sender.id
 
@@ -140,15 +142,49 @@ class TestSandboxSenderValidation(APIBaseTest):
         assert "sandbox sender" in response.json()["detail"].lower()
         assert "workflow email steps and test sends" in response.json()["detail"].lower()
 
-    @parameterized.expand([("disabled", {"enabled": False}), ("deleted", {"deleted": True})])
-    def test_stored_destination_with_the_sandbox_sender_can_still_be(self, _name: str, change: dict) -> None:
+    @parameterized.expand(
+        [
+            ("hog_in_a_broadcast", "hog", "{%d}", "hog_flows"),
+            ("liquid_in_a_destination", "liquid", "{{ %d }}", "hog_functions/"),
+        ]
+    )
+    def test_templated_sender_id_cannot_reach_the_sandbox_sender(
+        self, _name: str, templating: str, template: str, endpoint: str
+    ) -> None:
+        self.email_schema[0]["templating"] = templating
+        HogFunctionTemplate.objects.filter(template_id="template-email").update(inputs_schema=self.email_schema)
+        payload = self._workflow() if endpoint == "hog_flows" else self._function()
+        if endpoint == "hog_flows":
+            payload["origin_product"] = "broadcasts"
+            email = payload["actions"][1]["config"]["inputs"]["email"]["value"]
+        else:
+            email = payload["inputs"]["email"]["value"]
+        email["from"]["integrationId"] = template % self.sender.id
+
+        response = self.client.post(f"/api/projects/{self.team.id}/{endpoint}", payload)
+
+        assert response.status_code == 400, response.json()
+        assert "templated sender" in response.json()["detail"].lower()
+
+    @parameterized.expand(
+        [
+            (f"{name}{'_secret' if secret else ''}", change, secret)
+            for name, change in (("disabled", {"enabled": False}), ("deleted", {"deleted": True}))
+            for secret in (False, True)
+        ]
+    )
+    def test_stored_destination_with_the_sandbox_sender_can_still_be(
+        self, _name: str, change: dict, secret: bool
+    ) -> None:
+        stored_input = {"email": {"value": self._email()}}
         function = HogFunction.objects.create(
             team=self.team,
             name="Stored destination",
             type="destination",
             hog="return 1;",
-            inputs_schema=self.email_schema,
-            inputs={"email": {"value": self._email()}},
+            inputs_schema=[{**self.email_schema[0], "secret": secret}],
+            inputs={} if secret else stored_input,
+            encrypted_inputs=stored_input if secret else None,
             enabled=True,
         )
 
@@ -279,7 +315,7 @@ class TestSandboxSenderValidation(APIBaseTest):
             "integrationId": self.sender.id
         }
 
-    @parameterized.expand([("exit",), ("function",)])
+    @parameterized.expand([("exit",), ("function",), ("function_email",)])
     def test_inert_email_data_is_not_an_existing_sandbox_sender(self, action_type: str) -> None:
         workflow = self._workflow()
         action = workflow["actions"][1]
@@ -289,6 +325,10 @@ class TestSandboxSenderValidation(APIBaseTest):
         email["from"]["name"] = "New sender"
         email["replyTo"] = "reply@example.com"
         created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", workflow)
+        if action_type == "function_email":
+            assert created.status_code == 400, created.json()
+            assert "fixed From address and name" in created.json()["detail"]
+            return
         assert created.status_code == 201, created.json()
         action["type"] = "function_email"
         action["config"].pop("template_id")
@@ -350,12 +390,23 @@ class TestSandboxSenderValidation(APIBaseTest):
         assert "fixed From address and name" in response.json()["detail"]
         assert "Reply-To" in response.json()["detail"]
 
-    @parameterized.expand([("hog_flows",), ("hog_functions/",)])
-    def test_saves_skip_the_sandbox_checks_without_sandbox_settings(self, endpoint: str) -> None:
+    @parameterized.expand(
+        [
+            (f"{endpoint}_{name}", endpoint, setting)
+            for endpoint in ("hog_flows", "hog_functions/")
+            for name, setting in (
+                ("no_tenant", {"SES_SANDBOX_TENANT_NAME": ""}),
+                ("from_address_off_the_sandbox_domain", {"SES_SANDBOX_FROM_ADDRESS": "hello@example.org"}),
+            )
+        ]
+    )
+    def test_saves_skip_the_sandbox_checks_without_sandbox_settings(
+        self, _name: str, endpoint: str, setting: dict
+    ) -> None:
         payload = self._workflow() if endpoint == "hog_flows" else self._function()
 
         with (
-            override_settings(SES_SANDBOX_TENANT_NAME=""),
+            override_settings(**setting),
             CaptureQueriesContext(connection) as queries,
         ):
             response = self.client.post(f"/api/projects/{self.team.id}/{endpoint}", payload)
