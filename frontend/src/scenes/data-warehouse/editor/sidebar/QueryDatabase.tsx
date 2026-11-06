@@ -523,8 +523,8 @@ export const QueryDatabase = ({
                         }}
                     >
                         <div className="flex flex-row gap-1 justify-between">
-                            <div className="shrink-0 flex min-w-0 items-center gap-2">
-                                <span className="shrink-0 flex items-center gap-1">
+                            <div className="flex min-w-0 items-center gap-2">
+                                <span className="flex min-w-0 items-center gap-1">
                                     {item.record?.type === 'view' && item.record.isSavedQuery ? (
                                         <MaterializationStatusIcon view={item.record.view} />
                                     ) : null}
@@ -548,7 +548,7 @@ export const QueryDatabase = ({
                                                     item.record?.folderType === 'view-folder' &&
                                                     'font-semibold',
                                                 isColumn && 'font-mono text-xs',
-                                                'truncate shrink-0'
+                                                'truncate'
                                             )}
                                         >
                                             {item.displayName ?? item.name}
