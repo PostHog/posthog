@@ -13,9 +13,12 @@ import { EventHeaders, IncomingEvent, PipelineEvent } from '~/types'
 
 export const v1OptionsAppliedTotal = new Counter({
     name: 'ingestion_v1_options_applied_total',
-    help: 'Capture v1 outbound options applied to event properties, by option key and outcome',
-    labelNames: ['key', 'outcome'],
+    help: 'Capture v1 outbound options applied to event properties, by option key, outcome, and whether capture also spliced them into the properties',
+    labelNames: ['key', 'outcome', 'splice'],
 })
+
+/** Capture v1 sets this Kafka header only while it also splices the option values into the properties. */
+const LEGACY_PROPERTY_SPLICE_HEADER = 'legacy_property_splice'
 
 /** Capture v1 option keys that always override the matching client property. The key names are the capture contract. */
 const CAPTURE_OPTION_OVERRIDES: ReadonlyArray<[key: string, property: string, type: 'string' | 'boolean']> = [
@@ -78,7 +81,7 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
             // Use sanitize-only normalization here. Full normalization (including
             // personInitialAndUTMProperties) happens after transformations in normalizeEventStep.
             const parsed = parsePipelineEvent(combinedEvent)
-            applyCaptureOptions(options, parsed.properties!)
+            applyCaptureOptions(options, parsed.properties!, message.headers)
             const event: PipelineEvent = sanitizeEvent(parsed)
 
             return Promise.resolve(ok({ ...input, event: { event } }))
@@ -95,48 +98,57 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
  * Applies the server-side values that capture v1 publishes in the outer message's `options`.
  * Only the outer message is read: `data` is client-controlled, and `/i/v0/ai` puts the whole client event there.
  */
-function applyCaptureOptions(options: unknown, properties: Properties): void {
+function applyCaptureOptions(options: unknown, properties: Properties, headers: Message['headers']): void {
     if (options === undefined) {
         return
     }
+    const splice = headers?.some((header) => header[LEGACY_PROPERTY_SPLICE_HEADER]?.toString() === 'true')
+        ? 'on'
+        : 'off'
+    const count = (key: string, outcome: string): void => {
+        v1OptionsAppliedTotal.labels({ key, outcome, splice }).inc()
+    }
     if (typeof options !== 'object' || options === null || Array.isArray(options)) {
-        v1OptionsAppliedTotal.labels({ key: 'options', outcome: 'invalid_type' }).inc()
+        count('options', 'invalid_type')
         return
     }
     const values = options as Record<string, unknown>
 
     for (const [key, property, type] of CAPTURE_OPTION_OVERRIDES) {
+        if (!Object.hasOwn(values, key)) {
+            continue
+        }
         const value = values[key]
-        if (value === undefined) {
-            continue
-        }
         if (typeof value !== type) {
-            v1OptionsAppliedTotal.labels({ key, outcome: 'invalid_type' }).inc()
+            count(key, 'invalid_type')
             continue
         }
-        const outcome = properties[property] === value ? 'override_same' : 'override_diff'
-        v1OptionsAppliedTotal.labels({ key, outcome }).inc()
+        const current = properties[property]
+        count(key, current == null ? 'filled' : current === value ? 'same' : 'overridden')
         properties[property] = value
     }
 
-    const lib = values.req_lib
-    const libVersion = values.req_lib_version
-    if (lib === undefined && libVersion === undefined) {
+    if (!Object.hasOwn(values, 'req_lib') && !Object.hasOwn(values, 'req_lib_version')) {
         return
     }
+    const lib = values.req_lib
+    const libVersion = values.req_lib_version
     if (typeof lib !== 'string' || typeof libVersion !== 'string') {
-        v1OptionsAppliedTotal.labels({ key: 'req_lib', outcome: 'invalid_type' }).inc()
+        count('req_lib', 'invalid_type')
         return
     }
     if (properties.$lib == null) {
         properties.$lib = lib
         properties.$lib_version = libVersion
-        v1OptionsAppliedTotal.labels({ key: 'req_lib', outcome: 'lib_filled' }).inc()
-        return
+        count('req_lib', 'filled')
+    } else if (properties.$lib !== lib) {
+        count('req_lib', 'kept')
+    } else if (properties.$lib_version == null) {
+        properties.$lib_version = libVersion
+        count('req_lib', 'version_filled')
+    } else {
+        count('req_lib', properties.$lib_version === libVersion ? 'same' : 'kept')
     }
-    const outcome =
-        properties.$lib === lib && properties.$lib_version === libVersion ? 'lib_kept_same' : 'lib_kept_diff'
-    v1OptionsAppliedTotal.labels({ key: 'req_lib', outcome }).inc()
 }
 
 function parsePipelineEvent(raw: Record<string, unknown>): PipelineEvent {

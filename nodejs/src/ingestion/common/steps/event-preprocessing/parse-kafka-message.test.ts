@@ -466,11 +466,17 @@ describe('createParseKafkaMessageStep', () => {
     })
 
     describe('capture v1 options', () => {
+        const SPLICED: Message['headers'] = [{ legacy_property_splice: Buffer.from('true') }]
+
         beforeEach(() => {
             v1OptionsAppliedTotal.reset()
         })
 
-        function makeMessage(data: Record<string, unknown>, outer: Record<string, unknown>): Message {
+        function makeMessage(
+            data: Record<string, unknown>,
+            outer: Record<string, unknown>,
+            headers?: Message['headers']
+        ): Message {
             return {
                 value: Buffer.from(
                     JSON.stringify({
@@ -479,21 +485,29 @@ describe('createParseKafkaMessageStep', () => {
                         ...outer,
                     })
                 ),
+                headers,
             } as Message
         }
 
-        async function parseProperties(
-            data: Record<string, unknown>,
-            outer: Record<string, unknown>
-        ): Promise<Record<string, unknown>> {
-            const result = await step({ message: makeMessage(data, outer) })
+        async function parseMessage(message: Message): Promise<Record<string, unknown>> {
+            const result = await step({ message })
             expect(result.type).toBe(PipelineResultType.OK)
             return (result as any).value.event.event.properties
         }
 
+        function parseProperties(
+            data: Record<string, unknown>,
+            outer: Record<string, unknown>,
+            headers?: Message['headers']
+        ): Promise<Record<string, unknown>> {
+            return parseMessage(makeMessage(data, outer, headers))
+        }
+
         async function countedOutcomes(): Promise<Record<string, number>> {
             const { values } = await v1OptionsAppliedTotal.get()
-            return Object.fromEntries(values.map(({ labels, value }) => [`${labels.key}:${labels.outcome}`, value]))
+            return Object.fromEntries(
+                values.map(({ labels, value }) => [`${labels.key}:${labels.outcome}:${labels.splice}`, value])
+            )
         }
 
         it.each([
@@ -511,7 +525,23 @@ describe('createParseKafkaMessageStep', () => {
             )
 
             expect(properties[property]).toBe(serverValue)
-            expect(await countedOutcomes()).toEqual({ [`${key}:override_diff`]: 1 })
+            expect(await countedOutcomes()).toEqual({ [`${key}:overridden:off`]: 1 })
+        })
+
+        it.each([
+            ['missing', {}],
+            ['null', { $session_id: null, $process_person_profile: null }],
+        ])('fills a property that is %s', async (_label, clientProperties) => {
+            const properties = await parseProperties(
+                { properties: clientProperties },
+                { options: { session_id: 'server-session', process_person_profile: false } }
+            )
+
+            expect(properties).toMatchObject({ $session_id: 'server-session', $process_person_profile: false })
+            expect(await countedOutcomes()).toEqual({
+                'session_id:filled:off': 1,
+                'process_person_profile:filled:off': 1,
+            })
         })
 
         it('counts an override that matches the client value as the same', async () => {
@@ -522,45 +552,72 @@ describe('createParseKafkaMessageStep', () => {
 
             expect(properties).toMatchObject({ $window_id: 'window', $process_person_profile: false })
             expect(await countedOutcomes()).toEqual({
-                'window_id:override_same': 1,
-                'process_person_profile:override_same': 1,
+                'window_id:same:off': 1,
+                'process_person_profile:same:off': 1,
             })
         })
 
         it.each([
-            ['missing', {}, { $lib: 'posthog-rs', $lib_version: '1.0.0' }, 'lib_filled'],
-            [
-                'null',
-                { $lib: null, $lib_version: '0.9.0' },
-                { $lib: 'posthog-rs', $lib_version: '1.0.0' },
-                'lib_filled',
-            ],
+            ['client sends none', {}],
+            ['client sends the same value', { $session_id: '0191C5B8-6F3A-7A41-9D2E-1B2C3D4E5F60' }],
+        ])('normalizes an uppercase UUID session id from options when the %s', async (_label, clientProperties) => {
+            const properties = await parseProperties(
+                { properties: clientProperties },
+                { options: { session_id: '0191C5B8-6F3A-7A41-9D2E-1B2C3D4E5F60' } }
+            )
+
+            expect(properties.$session_id).toBe('0191c5b8-6f3a-7a41-9d2e-1b2c3d4e5f60')
+        })
+
+        it.each([
+            ['missing', {}, { $lib: 'posthog-rs', $lib_version: '1.0.0' }, 'filled'],
+            ['null', { $lib: null, $lib_version: '0.9.0' }, { $lib: 'posthog-rs', $lib_version: '1.0.0' }, 'filled'],
             [
                 'equal to the header',
                 { $lib: 'posthog-rs', $lib_version: '1.0.0' },
                 { $lib: 'posthog-rs', $lib_version: '1.0.0' },
-                'lib_kept_same',
+                'same',
+            ],
+            [
+                'equal to the header without a version',
+                { $lib: 'posthog-rs' },
+                { $lib: 'posthog-rs', $lib_version: '1.0.0' },
+                'version_filled',
+            ],
+            [
+                'equal to the header with a null version',
+                { $lib: 'posthog-rs', $lib_version: null },
+                { $lib: 'posthog-rs', $lib_version: '1.0.0' },
+                'version_filled',
+            ],
+            [
+                'equal to the header with another version',
+                { $lib: 'posthog-rs', $lib_version: '0.9.0' },
+                { $lib: 'posthog-rs', $lib_version: '0.9.0' },
+                'kept',
             ],
             [
                 'set by the client',
                 { $lib: 'posthog-rs-mcp', $lib_version: '0.3.0' },
                 { $lib: 'posthog-rs-mcp', $lib_version: '0.3.0' },
-                'lib_kept_diff',
+                'kept',
             ],
             [
                 'set by the client without a version',
                 { $lib: 'custom' },
                 { $lib: 'custom', $lib_version: undefined },
-                'lib_kept_diff',
+                'kept',
             ],
-        ])('fills $lib from req_lib only when $lib is %s', async (_label, clientProperties, expected, outcome) => {
+            ['an empty string', { $lib: '' }, { $lib: '', $lib_version: undefined }, 'kept'],
+            ['not a string', { $lib: 5 }, { $lib: 5, $lib_version: undefined }, 'kept'],
+        ])('handles $lib that is %s', async (_label, clientProperties, expected, outcome) => {
             const properties = await parseProperties(
                 { properties: clientProperties },
                 { options: { req_lib: 'posthog-rs', req_lib_version: '1.0.0' } }
             )
 
             expect({ $lib: properties.$lib, $lib_version: properties.$lib_version }).toEqual(expected)
-            expect(await countedOutcomes()).toEqual({ [`req_lib:${outcome}`]: 1 })
+            expect(await countedOutcomes()).toEqual({ [`req_lib:${outcome}:off`]: 1 })
         })
 
         it.each([
@@ -568,6 +625,7 @@ describe('createParseKafkaMessageStep', () => {
             ['a bool option is a string', { cookieless_mode: 'true' }, 'cookieless_mode'],
             ['an option is null', { window_id: null }, 'window_id'],
             ['req_lib_version is missing', { req_lib: 'posthog-rs' }, 'req_lib'],
+            ['req_lib is missing', { req_lib_version: '1.0.0' }, 'req_lib'],
             ['req_lib is not a string', { req_lib: 1, req_lib_version: '1.0.0' }, 'req_lib'],
         ])('skips the value when %s', async (_label, options, key) => {
             const clientProperties = { $session_id: 'client', $cookieless_mode: false, $window_id: 'client' }
@@ -576,7 +634,7 @@ describe('createParseKafkaMessageStep', () => {
 
             expect(properties).toMatchObject(clientProperties)
             expect(properties.$lib).toBeUndefined()
-            expect(await countedOutcomes()).toEqual({ [`${key}:invalid_type`]: 1 })
+            expect(await countedOutcomes()).toEqual({ [`${key}:invalid_type:off`]: 1 })
         })
 
         it.each([
@@ -587,7 +645,7 @@ describe('createParseKafkaMessageStep', () => {
             const properties = await parseProperties({ properties: { $session_id: 'client' } }, { options })
 
             expect(properties.$session_id).toBe('client')
-            expect(await countedOutcomes()).toEqual({ 'options:invalid_type': 1 })
+            expect(await countedOutcomes()).toEqual({ 'options:invalid_type:off': 1 })
         })
 
         it('ignores options inside the client-controlled data field', async () => {
@@ -622,6 +680,55 @@ describe('createParseKafkaMessageStep', () => {
 
             expect(properties).toEqual({ a: 1 })
             expect(await countedOutcomes()).toEqual({})
+        })
+
+        it('does not count events without options, even with the splice header', async () => {
+            await parseProperties({ properties: { $session_id: 'client' } }, {}, SPLICED)
+
+            expect(await countedOutcomes()).toEqual({})
+        })
+
+        it('labels outcomes from spliced messages with splice on', async () => {
+            await parseProperties(
+                { properties: { $session_id: 'server-session' } },
+                { options: { session_id: 'server-session', window_id: 'server-window' } },
+                SPLICED
+            )
+
+            expect(await countedOutcomes()).toEqual({
+                'session_id:same:on': 1,
+                'window_id:filled:on': 1,
+            })
+        })
+
+        it('reads capture spliced bytes, with duplicate keys, as all same', async () => {
+            const data =
+                '{"event":"test_event","distinct_id":"test_user","properties":{"$lib":"client-lib","$session_id":"client-session",' +
+                '"$session_id":"server-session","$process_person_profile":false,"$lib":"posthog-rs","$lib_version":"1.0.0"}}'
+            const options = {
+                session_id: 'server-session',
+                process_person_profile: false,
+                req_lib: 'posthog-rs',
+                req_lib_version: '1.0.0',
+            }
+            const message = {
+                value: Buffer.from(JSON.stringify({ data, uuid: VALID_UUID, options })),
+                headers: SPLICED,
+            } as Message
+
+            const properties = await parseMessage(message)
+
+            expect(properties).toMatchObject({
+                $session_id: 'server-session',
+                $process_person_profile: false,
+                $lib: 'posthog-rs',
+                $lib_version: '1.0.0',
+            })
+            expect(await countedOutcomes()).toEqual({
+                'session_id:same:on': 1,
+                'process_person_profile:same:on': 1,
+                'req_lib:same:on': 1,
+            })
         })
     })
 
