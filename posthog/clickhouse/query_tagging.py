@@ -28,6 +28,7 @@ class AccessMethod(StrEnum):
     OAUTH = "oauth"
     SHARING_TOKEN = "sharing_token"
     ID_JAG = "id_jag"
+    OIDC_WORKLOAD = "oidc_workload"
     PROJECT_SECRET_API_KEY = "project_secret_api_key"
     TEAM_SECRET_TOKEN = "team_secret_token"
 
@@ -239,6 +240,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ERROR_TRACKING_ISSUE_EVENTS_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}
+        case NodeKind.INBOX_USAGE_QUERY:
+            return {"product": Product.SIGNALS}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:

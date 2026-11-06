@@ -14,7 +14,7 @@ import {
     MCP_ANALYTICS_VERSION,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import type { RequestProperties } from '@/lib/request-properties'
+import { type RequestProperties, sanitizeToolFilterNames } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { SkillInvocation } from '@/tools/exec-learn'
@@ -22,6 +22,7 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
+import { MCP_INBOX_FIRST_FLAG } from './constants'
 import { MCP_INTENT_PROMPT_FLAG } from './intent-prompt'
 import { interviewRecruitmentProperties } from './interview-recruitment'
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
@@ -105,6 +106,8 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
             : undefined
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
+        const requestedFeatures = sanitizeToolFilterNames(requestContext.features)
+        const requestedTools = sanitizeToolFilterNames(requestContext.tools)
 
         // Emits `$mcp_initialize`. The SDK maps `durationMs` → `$mcp_duration_ms`
         // and `sessionId` → `$session_id`; everything else rides on `properties`.
@@ -124,6 +127,9 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
                 has_project_id: !!requestContext.projectId,
                 read_only: !!requestContext.readOnly,
                 via_sse_redirect: !!requestContext.viaSseRedirect,
+                ...(requestedFeatures ? { requested_features: requestedFeatures } : {}),
+                ...(requestedTools ? { requested_tools: requestedTools } : {}),
+                ...(requestContext.excludeTools ? { requested_exclude_tools: requestContext.excludeTools } : {}),
             },
         })
     } catch {
@@ -235,6 +241,7 @@ export async function trackToolCall(
                 ...(gatewayServer ? { mcp_gateway_server: gatewayServer } : {}),
                 ...extraProperties,
                 [`$feature/${MCP_INTENT_PROMPT_FLAG}`]: state.toolFeatureFlags?.[MCP_INTENT_PROMPT_FLAG],
+                [`$feature/${MCP_INBOX_FIRST_FLAG}`]: state.toolFeatureFlags?.[MCP_INBOX_FIRST_FLAG],
                 is_impersonated: state.isImpersonated === true,
                 suppress_analytics: state.suppressAnalytics === true,
             },
@@ -340,8 +347,42 @@ const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
     'posthog-connection-forward',
 ])
 
+// A send's recipient address, subject and distinct ID are a customer's own customer data, and the list takes an
+// address as its search. Key-based redaction catches none of them. `$mcp_tool_call` still records the call.
+const EMAIL_RECIPIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
+    'workflows-transactional-emails-list',
+    'workflows-transactional-email-get',
+])
+
+const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'
+
+function sendsEmailContent(toolName: string, input: unknown): boolean {
+    if (toolName.startsWith(EMAIL_SEND_TOOL_PREFIX)) {
+        return true
+    }
+    // Match the whole exec command, not its parsed inner tool: a send forwarded through
+    // posthog-connection-call, or a command exec rejects, still carries the email body.
+    const command = (input as { command?: unknown } | null | undefined)?.command
+    return toolName === 'exec' && typeof command === 'string' && command.includes(EMAIL_SEND_TOOL_PREFIX)
+}
+
+function readsEmailRecipients(toolName: string, input: unknown): boolean {
+    if (EMAIL_RECIPIENT_TOOL_NAMES.has(toolName)) {
+        return true
+    }
+    const command = (input as { command?: unknown } | null | undefined)?.command
+    return (
+        toolName === 'exec' &&
+        typeof command === 'string' &&
+        [...EMAIL_RECIPIENT_TOOL_NAMES].some((name) => command.includes(name))
+    )
+}
+
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isPrivateScoutTrialTool(toolName)) {
+        return false
+    }
+    if (sendsEmailContent(toolName, input)) {
         return false
     }
     // A proxied third-party tool's args and result are the vendor's content — an issue
@@ -357,6 +398,9 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
         return false
     }
     if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {
+        return false
+    }
+    if (readsEmailRecipients(toolName, input)) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,

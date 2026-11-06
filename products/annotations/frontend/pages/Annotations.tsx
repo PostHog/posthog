@@ -4,7 +4,7 @@ import { IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -62,7 +62,7 @@ export function Annotations(): JSX.Element {
                 return (
                     <Tooltip
                         title={
-                            <TextContent
+                            <LazyTextContent
                                 text={annotation.content ?? ''}
                                 data-attr="annotation-scene-comment-title-rendered-content"
                             />

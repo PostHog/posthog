@@ -10,8 +10,10 @@ from typing import Any, Optional
 
 from django.db.models import Q
 
+import posthoganalytics
 from pydantic import BaseModel
 
+from posthog.constants import EXPERIMENTS_PRECOMPUTE_PERSON_RESOLUTION_FEATURE_FLAG_KEY
 from posthog.models.team.team import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -28,9 +30,19 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 # recomputable (18h, just under the ~24h warmer cadence) so the daily warmer
 # folds in late-arriving exposure events before a window freezes. Freezing too
 # early keeps a stale first_exposure_time and undercounts the metric window.
+#
+# A closed day changes only through late-arriving events and person merges, so
+# yesterday's window needs far fewer rebuilds than today's. A run rebuilds every
+# expired window before it reads it, and each rebuild scans raw events once per
+# metric. A TTL shorter than the usual gap between runs makes every run pay for
+# that scan.
+#
+# Exposures and metric events share this schedule. If exposures refreshed more
+# often than metric events, a run would count newly exposed users without their
+# conversions.
 DEFAULT_EXPOSURE_TTL_SECONDS = {
-    "0d": 15 * 60,  # 15 min
-    "1d": 60 * 60,  # 1 hour
+    "0d": 30 * 60,  # 30 min
+    "1d": 6 * 60 * 60,  # 6 hours
     "4d": 18 * 60 * 60,  # 18 hours; covers windows 2-4 days old
     "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
 }
@@ -58,6 +70,30 @@ PRECOMPUTE_TTL_JITTER_SECONDS = 14 * 24 * 60 * 60
 METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS = 90 * 24 * 60 * 60  # 90 days
 
 
+def precompute_person_resolution_enabled(team: Team) -> bool:
+    """
+    Whether a person-aggregated read of the precomputed tables resolves each row to its current
+    person through `person_distinct_id_overrides`.
+
+    The join aggregates all of the team's override rows on every read, and it can change only a
+    row that stores its distinct_id. Off, a read takes the person stored at build time and pays
+    no join. Default-off and fail-safe: an absent or unevaluable flag keeps the read without the join.
+    """
+    return bool(
+        posthoganalytics.feature_enabled(
+            EXPERIMENTS_PRECOMPUTE_PERSON_RESOLUTION_FEATURE_FLAG_KEY,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id), "uuid": str(team.uuid)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
+
+
 def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
     return parse_ttl_schedule(
         DEFAULT_EXPOSURE_TTL_SECONDS,
@@ -68,7 +104,7 @@ def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
 
 
 # Minimum experiment runtime before auto-enabling precomputation. The
-# today-window TTL (DEFAULT_EXPOSURE_TTL_SECONDS["0d"], 15 min) caches the
+# today-window TTL (DEFAULT_EXPOSURE_TTL_SECONDS["0d"], 30 min) caches the
 # entire current-day result, so for very young experiments freshly arriving
 # exposures stay invisible until that TTL elapses. The gate scopes that
 # trade-off to experiments where most of the data is already in past
@@ -76,7 +112,7 @@ def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
 # query override.
 #
 # Why 12h: it covers the workday in which users launch experiments. Users
-# refresh the results page most often then, so the 15-min cache lag is most
+# refresh the results page most often then, so that cache lag is most
 # noticeable. After that, refreshes drop off and the cost saving from
 # precomputation matters more than the freshness gap. 12h is also short enough
 # that experiments hit the precomputed (fast) path on day two.

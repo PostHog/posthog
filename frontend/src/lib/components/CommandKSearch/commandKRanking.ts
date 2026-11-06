@@ -3,7 +3,7 @@ const WORD = /[\p{L}\p{N}_]+/gu
 export type RankKey = number[]
 
 const MIN_ALIAS_QUERY_LENGTH = 3
-const MAX_LOCAL_QUERY_LENGTH = 200
+export const MAX_LOCAL_QUERY_LENGTH = 200
 const STARTS_WITH = 1
 
 export const searchWords = (text: string): string[] => text.toLowerCase().match(WORD) ?? []
@@ -165,19 +165,19 @@ interface LocalRank {
     matchedAlias: string | null
 }
 
-export function rankLocalItem(query: string, name: string, aliases: string[] = [], isTab = false): LocalRank | null {
+export function rankLocalItem(query: string, name: string, aliases: string[] = []): LocalRank | null {
     const normalized = query.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, MAX_LOCAL_QUERY_LENGTH)
     const tokens = searchWords(normalized)
     if (!tokens.length) {
         return null
     }
     let best: LocalRank | null = null
-    const byName = rankName(normalized, tokens, name, isTab ? 1 : 0)
+    const byName = rankName(normalized, tokens, name, 0)
     if (byName) {
         best = { rank: byName, matchedAlias: null }
     }
     for (const alias of normalized.length >= MIN_ALIAS_QUERY_LENGTH ? aliases : []) {
-        const byAlias = rankName(normalized, tokens, alias, isTab ? 2 : 1)
+        const byAlias = rankName(normalized, tokens, alias, 1)
         if (byAlias && (!best || compareRanks(byAlias, best.rank) < 0)) {
             best = { rank: byAlias, matchedAlias: alias }
         }
@@ -257,11 +257,6 @@ export interface RankCandidate {
     tierBoost?: number
 }
 
-interface CandidateRank {
-    rank: RankKey
-    matchedAlias: string | null
-}
-
 const MatchTier = {
     Exact: 0,
     ExactSingular: 1,
@@ -284,7 +279,6 @@ interface TokenHit {
     position: number
     field: Field
     wordStart: boolean
-    alias?: string
 }
 
 const MAX_POSITION_PENALTY = 3
@@ -317,7 +311,7 @@ function cleanHit(token: string, candidate: RankCandidate, name: Omit<TokenHit, 
     for (const alias of candidate.aliases ?? []) {
         const hit = hitInWords(token, unifiedWords(alias))
         if (hit && isClean(hit)) {
-            return { ...hit, position: MAX_POSITION_PENALTY, field: 'alias', alias }
+            return { ...hit, position: MAX_POSITION_PENALTY, field: 'alias' }
         }
     }
     const inIdentity = (candidate.identity ?? []).some((value) => value.toLowerCase().includes(token))
@@ -335,7 +329,7 @@ function tokenHit(token: string, candidate: RankCandidate, nameWords: string[]):
         ...(name ? [{ ...name, field: 'name' as const }] : []),
         ...(candidate.aliases ?? []).flatMap((alias) => {
             const hit = hitInWords(token, unifiedWords(alias))
-            return hit ? [{ ...hit, position: MAX_POSITION_PENALTY, field: 'alias' as const, alias }] : []
+            return hit ? [{ ...hit, position: MAX_POSITION_PENALTY, field: 'alias' as const }] : []
         }),
         ...(context ? [{ ...context, position: MAX_POSITION_PENALTY, field: 'context' as const }] : []),
         // The source already matched the whole search on fields the browser cannot see.
@@ -404,7 +398,7 @@ function proximityOf(positions: number[]): number {
 
 const usageTier = (frecency: number): number => (frecency >= 1 ? 0 : frecency > 0 ? 1 : 2)
 
-export function rankCandidate(query: string, candidate: RankCandidate): CandidateRank | null {
+export function rankCandidate(query: string, candidate: RankCandidate): RankKey | null {
     const normalizedQuery = query.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, MAX_LOCAL_QUERY_LENGTH)
     const tokens = [...new Set(unifiedWords(normalizedQuery))]
     if (!tokens.length) {
@@ -418,19 +412,33 @@ export function rankCandidate(query: string, candidate: RankCandidate): Candidat
     }
     const positions = found.filter((hit) => hit.field === 'name').map((hit) => hit.position)
     const frecency = candidate.frecency ?? 0
-    return {
-        rank: [
-            -found.length,
-            found.reduce((sum, hit) => sum + hit.typos, 0),
-            Math.max(matchTier(normalizedQuery, hits, candidate) - (candidate.tierBoost ?? 0), 0),
-            usageTier(frecency),
-            proximityOf(positions),
-            Math.min(...positions, MAX_POSITION_PENALTY),
-            candidate.typePrior ?? 1,
-            Number(!!candidate.indirect),
-            -Math.round(frecency * 1000),
-            -(candidate.createdAt ?? 0),
-        ],
-        matchedAlias: found.find((hit) => hit.field === 'alias')?.alias ?? null,
-    }
+    return [
+        -found.length,
+        found.reduce((sum, hit) => sum + hit.typos, 0),
+        Math.max(matchTier(normalizedQuery, hits, candidate) - (candidate.tierBoost ?? 0), 0),
+        usageTier(frecency),
+        proximityOf(positions),
+        Math.min(...positions, MAX_POSITION_PENALTY),
+        candidate.typePrior ?? 1,
+        Number(!!candidate.indirect),
+        -Math.round(frecency * 1000),
+        -(candidate.createdAt ?? 0),
+    ]
+}
+
+// The server matched words the browser cannot find, so the result ranks as a folder or type match.
+export function serverOnlyRank(serverRank: RankKey, candidate: RankCandidate): RankKey {
+    const frecency = candidate.frecency ?? 0
+    return [
+        serverRank[0],
+        serverRank[1],
+        MatchTier.Weak,
+        usageTier(frecency),
+        Math.min(serverRank[2], MAX_POSITION_PENALTY),
+        MAX_POSITION_PENALTY,
+        candidate.typePrior ?? 1,
+        1,
+        -Math.round(frecency * 1000),
+        -(candidate.createdAt ?? 0),
+    ]
 }

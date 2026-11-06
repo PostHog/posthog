@@ -23,7 +23,7 @@ from posthog.schema import (
 
 from posthog.test.test_journeys import journeys_for
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
@@ -849,10 +849,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         ff_property = f"$feature/{feature_flag.key}"
 
         # Create an action for purchase events
-        purchase_action = Action.objects.create(
-            name="Purchase Action", team=self.team, steps_json=[{"event": "purchase"}]
-        )
-        purchase_action.save()
+        purchase_action = create_action(name="Purchase Action", team=self.team, steps_json=[{"event": "purchase"}])
 
         # Create a ratio metric: action-based purchase revenue / event-based page views
         # This demonstrates using ActionsNode vs EventsNode as different source types

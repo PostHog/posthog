@@ -16,6 +16,7 @@ from posthog.schema import (
     CohortPropertyFilter,
     EventPropertyFilter,
     ExperimentEventExposureConfig,
+    ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
     PersonPropertyFilter,
     PropertyOperator,
@@ -179,6 +180,9 @@ class ReachableCondition:
     variant_property: VariantProperty | None
     # The cohorts whose members the condition matches. A `not_in` cohort filter matches the users outside the cohort.
     member_cohort_ids: frozenset[int] = frozenset()
+    # Whether the condition has no filters, or only filters that leave users out, so it includes nearly everyone who
+    # reaches it.
+    includes_everyone: bool = False
 
 
 @frozen
@@ -672,6 +676,30 @@ def _member_cohort_ids(condition: Mapping[str, Any]) -> frozenset[int]:
     )
 
 
+_EXCLUDING_OPERATORS = frozenset(
+    {
+        PropertyOperator.IS_NOT,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.NOT_STARTS_WITH,
+        PropertyOperator.NOT_ENDS_WITH,
+        PropertyOperator.NOT_REGEX,
+        PropertyOperator.NOT_BETWEEN,
+        PropertyOperator.NOT_IN,
+        PropertyOperator.IS_NOT_SET,
+        PropertyOperator.SEMVER_NEQ,
+        PropertyOperator.IS_CLEANED_PATH_NOT_EXACT,
+    }
+)
+
+
+def _includes_everyone(condition: Mapping[str, Any]) -> bool:
+    properties = condition.get("properties")
+    if not isinstance(properties, list) or not properties:
+        return True
+    return all(isinstance(prop, dict) and prop.get("operator") in _EXCLUDING_OPERATORS for prop in properties)
+
+
 def _reachable_condition(
     number: int, condition: Mapping[str, Any], variant_keys: set[str], flag_aggregation: int | None
 ) -> ReachableCondition:
@@ -681,6 +709,7 @@ def _reachable_condition(
         pinned_variant=pinned,
         variant_property=None if pinned is None else _variant_property(condition, pinned, flag_aggregation),
         member_cohort_ids=_member_cohort_ids(condition),
+        includes_everyone=_includes_everyone(condition),
     )
 
 
@@ -825,6 +854,9 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     try:
         criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
     except pydantic.ValidationError:
+        return None
+    if criteria is not None and isinstance(criteria.exposure_config, ExperimentWarehouseNativeExposureConfig):
+        # The exposures live in the customer's warehouse, so no event of this project describes them.
         return None
     # A deleted flag carries a tombstone in its key, and the exposure query reads the key without it.
     flag_key = experiment.feature_flag.key_without_tombstone() if experiment.feature_flag_id else None
