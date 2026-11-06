@@ -1671,6 +1671,9 @@ def _fetch_generation_events(
         select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
         where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+        # Ingestion is at least once, so a generation can be stored twice. One row per uuid keeps a judge test from
+        # paying for the same generation twice and from letting the copy push another sample past the limit.
+        limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["uuid"])]),
         limit=ast.Constant(value=sample_count),
     )
     tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
@@ -1751,6 +1754,8 @@ def _sample_unit_ids(
         select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
         where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+        # A generation stored twice is still one unit.
+        limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["uuid"])]),
         limit=ast.Constant(value=count),
     )
     response = query_ai_events(

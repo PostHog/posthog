@@ -2167,6 +2167,21 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
             }
             for name in ("a", "b")
         }
+        # At-least-once ingestion can store a generation twice; every preview must still count it once.
+        _create_event(
+            team=self.team,
+            event="$ai_generation",
+            event_uuid=self.units["a"]["generation"],
+            distinct_id="user-1",
+            timestamp=timestamp,
+            properties={
+                "$ai_model": "model-a",
+                "$ai_trace_id": "trace-a",
+                "$ai_session_id": "session-a",
+                "$ai_input": [{"role": "user", "content": "Question a"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "Answer a"}],
+            },
+        )
         flush_persons_and_events()
 
     @staticmethod
