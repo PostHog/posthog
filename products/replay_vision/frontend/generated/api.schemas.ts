@@ -2424,6 +2424,7 @@ export const SignalScoutConfigStatusEnumApi = {
  * * `repeated_failures` - Repeated failures
  * * `retired` - Retired
  * * `background_removed` - Background removed
+ * * `goal_ended` - Goal ended
  */
 export type SignalScoutConfigPauseReasonEnumApi =
     (typeof SignalScoutConfigPauseReasonEnumApi)[keyof typeof SignalScoutConfigPauseReasonEnumApi]
@@ -2434,6 +2435,7 @@ export const SignalScoutConfigPauseReasonEnumApi = {
     RepeatedFailures: 'repeated_failures',
     Retired: 'retired',
     BackgroundRemoved: 'background_removed',
+    GoalEnded: 'goal_ended',
 } as const
 
 /**
@@ -2517,7 +2519,8 @@ export interface SignalScoutConfigApi {
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
      * * `retired` - Retired
-     * * `background_removed` - Background removed */
+     * * `background_removed` - Background removed
+     * * `goal_ended` - Goal ended */
     readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
     /** Who controls this scout now. `team`: a person set it up or has changed it. `background`: PostHog runs it in the background and no person has edited it yet. Any edit through this API changes `background` to `team`.
      *

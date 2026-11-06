@@ -2948,6 +2948,356 @@ export const SignalsScoutConfigTrialEvaluationCreateBody = /* @__PURE__ */ zod.o
         ),
 })
 
+export const signalsScoutGoalsCreateBodyTitleMax = 160
+
+export const signalsScoutGoalsCreateBodyStatementMax = 10000
+
+export const signalsScoutGoalsCreateBodyAreaDefault = ``
+export const signalsScoutGoalsCreateBodyAreaMax = 50
+
+export const signalsScoutGoalsCreateBodyRepositoriesItemMax = 255
+
+export const signalsScoutGoalsCreateBodyRepositoriesItemRegExp = new RegExp('^[\\w.-]+\/[\\w.-]+$')
+export const signalsScoutGoalsCreateBodyRepositoriesMax = 10
+
+export const signalsScoutGoalsCreateBodyGoalInsightMax = 32
+
+export const signalsScoutGoalsCreateBodyGoalDescriptionMax = 2000
+
+export const signalsScoutGoalsCreateBodyGoalMetricMax = 255
+
+export const signalsScoutGoalsCreateBodyIdeasItemMax = 255
+
+export const signalsScoutGoalsCreateBodyIdeasMax = 5
+
+export const signalsScoutGoalsCreateBodySecondaryMetricsItemInsightMax = 32
+
+export const signalsScoutGoalsCreateBodySecondaryMetricsItemNameMax = 255
+
+export const signalsScoutGoalsCreateBodySecondaryMetricsItemDirectionDefault = `increase`
+export const signalsScoutGoalsCreateBodySecondaryMetricsItemMaxRegressionDefault = 0.05
+export const signalsScoutGoalsCreateBodySecondaryMetricsItemMaxRegressionMin = 0
+export const signalsScoutGoalsCreateBodySecondaryMetricsItemMaxRegressionMax = 1
+
+export const signalsScoutGoalsCreateBodyTargetRegExp = new RegExp('^-?\\d{0,16}(?:\\.\\d{0,4})?$')
+export const signalsScoutGoalsCreateBodyUnitMax = 32
+
+export const signalsScoutGoalsCreateBodyBudgetCentsMin = 0
+export const signalsScoutGoalsCreateBodyBudgetCentsMax = 1000000000
+
+export const SignalsScoutGoalsCreateBody = /* @__PURE__ */ zod.object({
+    title: zod.string().max(signalsScoutGoalsCreateBodyTitleMax).describe('Short name of the goal scout.'),
+    statement: zod
+        .string()
+        .max(signalsScoutGoalsCreateBodyStatementMax)
+        .describe('What you believe will improve and why.'),
+    area: zod
+        .string()
+        .max(signalsScoutGoalsCreateBodyAreaMax)
+        .default(signalsScoutGoalsCreateBodyAreaDefault)
+        .describe('Product area, stored as a scout tag.'),
+    repositories: zod
+        .array(
+            zod
+                .string()
+                .max(signalsScoutGoalsCreateBodyRepositoriesItemMax)
+                .regex(signalsScoutGoalsCreateBodyRepositoriesItemRegExp)
+        )
+        .max(signalsScoutGoalsCreateBodyRepositoriesMax)
+        .optional()
+        .describe('GitHub repositories in owner\/repository form. The first is where pull requests open.'),
+    goal_insight: zod
+        .string()
+        .max(signalsScoutGoalsCreateBodyGoalInsightMax)
+        .optional()
+        .describe(
+            'Saved insight with one series that measures the goal. Leave empty and describe the measure instead.'
+        ),
+    goal_description: zod
+        .string()
+        .max(signalsScoutGoalsCreateBodyGoalDescriptionMax)
+        .optional()
+        .describe('The measure in words when no saved insight fits. The tracking task finds or creates the insight.'),
+    goal_metric: zod.string().max(signalsScoutGoalsCreateBodyGoalMetricMax).describe('Name of the primary metric.'),
+    ideas: zod
+        .array(zod.string().max(signalsScoutGoalsCreateBodyIdeasItemMax))
+        .max(signalsScoutGoalsCreateBodyIdeasMax)
+        .optional()
+        .describe("The owner's own ideas. The scout checks each one against the data."),
+    secondary_metrics: zod
+        .array(
+            zod.object({
+                insight: zod
+                    .string()
+                    .max(signalsScoutGoalsCreateBodySecondaryMetricsItemInsightMax)
+                    .describe('Short ID of the saved insight used as a guardrail.'),
+                name: zod
+                    .string()
+                    .max(signalsScoutGoalsCreateBodySecondaryMetricsItemNameMax)
+                    .describe('Name of the guardrail metric.'),
+                direction: zod
+                    .enum(['increase', 'decrease'])
+                    .describe('\* `increase` - Higher is better\n\* `decrease` - Lower is better')
+                    .default(signalsScoutGoalsCreateBodySecondaryMetricsItemDirectionDefault)
+                    .describe(
+                        'Whether higher or lower is better.\n\n\* `increase` - Higher is better\n\* `decrease` - Lower is better'
+                    ),
+                max_regression: zod
+                    .number()
+                    .min(signalsScoutGoalsCreateBodySecondaryMetricsItemMaxRegressionMin)
+                    .max(signalsScoutGoalsCreateBodySecondaryMetricsItemMaxRegressionMax)
+                    .default(signalsScoutGoalsCreateBodySecondaryMetricsItemMaxRegressionDefault)
+                    .describe('Largest tolerated relative regression, 0.05 for 5%.'),
+            })
+        )
+        .optional()
+        .describe('Guardrails that must not get worse.'),
+    target: zod
+        .stringFormat('decimal', signalsScoutGoalsCreateBodyTargetRegExp)
+        .nullish()
+        .describe(
+            'Target value of the primary metric. Set it after the tracking task finds the insight of a described measure.'
+        ),
+    direction: zod
+        .enum(['increase', 'decrease'])
+        .describe('\* `increase` - Higher is better\n\* `decrease` - Lower is better')
+        .optional()
+        .describe(
+            'Whether higher or lower is better.\n\n\* `increase` - Higher is better\n\* `decrease` - Lower is better'
+        ),
+    unit: zod.string().max(signalsScoutGoalsCreateBodyUnitMax).optional().describe('Display unit, such as %.'),
+    budget_cents: zod
+        .number()
+        .min(signalsScoutGoalsCreateBodyBudgetCentsMin)
+        .max(signalsScoutGoalsCreateBodyBudgetCentsMax)
+        .describe('Budget for this goal in USD cents.'),
+})
+
+export const signalsScoutGoalsPartialUpdateBodyTitleMax = 160
+
+export const signalsScoutGoalsPartialUpdateBodyStatementMax = 10000
+
+export const signalsScoutGoalsPartialUpdateBodyAreaDefault = ``
+export const signalsScoutGoalsPartialUpdateBodyAreaMax = 50
+
+export const signalsScoutGoalsPartialUpdateBodyRepositoriesItemMax = 255
+
+export const signalsScoutGoalsPartialUpdateBodyRepositoriesItemRegExp = new RegExp('^[\\w.-]+\/[\\w.-]+$')
+export const signalsScoutGoalsPartialUpdateBodyRepositoriesMax = 10
+
+export const signalsScoutGoalsPartialUpdateBodyGoalInsightMax = 32
+
+export const signalsScoutGoalsPartialUpdateBodyGoalDescriptionMax = 2000
+
+export const signalsScoutGoalsPartialUpdateBodyGoalMetricMax = 255
+
+export const signalsScoutGoalsPartialUpdateBodyIdeasItemMax = 255
+
+export const signalsScoutGoalsPartialUpdateBodyIdeasMax = 5
+
+export const signalsScoutGoalsPartialUpdateBodySecondaryMetricsItemInsightMax = 32
+
+export const signalsScoutGoalsPartialUpdateBodySecondaryMetricsItemNameMax = 255
+
+export const signalsScoutGoalsPartialUpdateBodySecondaryMetricsItemDirectionDefault = `increase`
+export const signalsScoutGoalsPartialUpdateBodySecondaryMetricsItemMaxRegressionDefault = 0.05
+export const signalsScoutGoalsPartialUpdateBodySecondaryMetricsItemMaxRegressionMin = 0
+export const signalsScoutGoalsPartialUpdateBodySecondaryMetricsItemMaxRegressionMax = 1
+
+export const signalsScoutGoalsPartialUpdateBodyTargetRegExp = new RegExp('^-?\\d{0,16}(?:\\.\\d{0,4})?$')
+export const signalsScoutGoalsPartialUpdateBodyUnitMax = 32
+
+export const signalsScoutGoalsPartialUpdateBodyBudgetCentsMin = 0
+export const signalsScoutGoalsPartialUpdateBodyBudgetCentsMax = 1000000000
+
+export const SignalsScoutGoalsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    title: zod
+        .string()
+        .max(signalsScoutGoalsPartialUpdateBodyTitleMax)
+        .optional()
+        .describe('Short name of the goal scout.'),
+    statement: zod
+        .string()
+        .max(signalsScoutGoalsPartialUpdateBodyStatementMax)
+        .optional()
+        .describe('What you believe will improve and why.'),
+    area: zod
+        .string()
+        .max(signalsScoutGoalsPartialUpdateBodyAreaMax)
+        .default(signalsScoutGoalsPartialUpdateBodyAreaDefault)
+        .describe('Product area, stored as a scout tag.'),
+    repositories: zod
+        .array(
+            zod
+                .string()
+                .max(signalsScoutGoalsPartialUpdateBodyRepositoriesItemMax)
+                .regex(signalsScoutGoalsPartialUpdateBodyRepositoriesItemRegExp)
+        )
+        .max(signalsScoutGoalsPartialUpdateBodyRepositoriesMax)
+        .optional()
+        .describe('GitHub repositories in owner\/repository form. The first is where pull requests open.'),
+    goal_insight: zod
+        .string()
+        .max(signalsScoutGoalsPartialUpdateBodyGoalInsightMax)
+        .optional()
+        .describe(
+            'Saved insight with one series that measures the goal. Leave empty and describe the measure instead.'
+        ),
+    goal_description: zod
+        .string()
+        .max(signalsScoutGoalsPartialUpdateBodyGoalDescriptionMax)
+        .optional()
+        .describe('The measure in words when no saved insight fits. The tracking task finds or creates the insight.'),
+    goal_metric: zod
+        .string()
+        .max(signalsScoutGoalsPartialUpdateBodyGoalMetricMax)
+        .optional()
+        .describe('Name of the primary metric.'),
+    ideas: zod
+        .array(zod.string().max(signalsScoutGoalsPartialUpdateBodyIdeasItemMax))
+        .max(signalsScoutGoalsPartialUpdateBodyIdeasMax)
+        .optional()
+        .describe("The owner's own ideas. The scout checks each one against the data."),
+    secondary_metrics: zod
+        .array(
+            zod.object({
+                insight: zod
+                    .string()
+                    .max(signalsScoutGoalsPartialUpdateBodySecondaryMetricsItemInsightMax)
+                    .describe('Short ID of the saved insight used as a guardrail.'),
+                name: zod
+                    .string()
+                    .max(signalsScoutGoalsPartialUpdateBodySecondaryMetricsItemNameMax)
+                    .describe('Name of the guardrail metric.'),
+                direction: zod
+                    .enum(['increase', 'decrease'])
+                    .describe('\* `increase` - Higher is better\n\* `decrease` - Lower is better')
+                    .default(signalsScoutGoalsPartialUpdateBodySecondaryMetricsItemDirectionDefault)
+                    .describe(
+                        'Whether higher or lower is better.\n\n\* `increase` - Higher is better\n\* `decrease` - Lower is better'
+                    ),
+                max_regression: zod
+                    .number()
+                    .min(signalsScoutGoalsPartialUpdateBodySecondaryMetricsItemMaxRegressionMin)
+                    .max(signalsScoutGoalsPartialUpdateBodySecondaryMetricsItemMaxRegressionMax)
+                    .default(signalsScoutGoalsPartialUpdateBodySecondaryMetricsItemMaxRegressionDefault)
+                    .describe('Largest tolerated relative regression, 0.05 for 5%.'),
+            })
+        )
+        .optional()
+        .describe('Guardrails that must not get worse.'),
+    target: zod
+        .stringFormat('decimal', signalsScoutGoalsPartialUpdateBodyTargetRegExp)
+        .nullish()
+        .describe(
+            'Target value of the primary metric. Set it after the tracking task finds the insight of a described measure.'
+        ),
+    direction: zod
+        .enum(['increase', 'decrease'])
+        .describe('\* `increase` - Higher is better\n\* `decrease` - Lower is better')
+        .optional()
+        .describe(
+            'Whether higher or lower is better.\n\n\* `increase` - Higher is better\n\* `decrease` - Lower is better'
+        ),
+    unit: zod.string().max(signalsScoutGoalsPartialUpdateBodyUnitMax).optional().describe('Display unit, such as %.'),
+    budget_cents: zod
+        .number()
+        .min(signalsScoutGoalsPartialUpdateBodyBudgetCentsMin)
+        .max(signalsScoutGoalsPartialUpdateBodyBudgetCentsMax)
+        .optional()
+        .describe('Budget for this goal in USD cents.'),
+})
+
+export const signalsScoutGoalsActCreateBodyWorkIdMax = 64
+
+export const SignalsScoutGoalsActCreateBody = /* @__PURE__ */ zod.object({
+    work_id: zod
+        .string()
+        .max(signalsScoutGoalsActCreateBodyWorkIdMax)
+        .describe('Work ID of tracking or a built idea, or owner-<n> for an owner idea the scout has not checked yet.'),
+    action: zod
+        .enum(['retry', 'retry_cleanup', 'drop'])
+        .describe('\* `retry` - Retry\n\* `retry_cleanup` - Retry flag cleanup\n\* `drop` - Drop')
+        .describe(
+            'Retry stuck work, retry a failed flag cleanup, or drop an idea in progress or an owner idea that waits for the scout.\n\n\* `retry` - Retry\n\* `retry_cleanup` - Retry flag cleanup\n\* `drop` - Drop'
+        ),
+})
+
+export const signalsScoutGoalsBuildCreateBodyWorkIdMax = 64
+
+export const signalsScoutGoalsBuildCreateBodyPlanOneDaysMin = 2
+export const signalsScoutGoalsBuildCreateBodyPlanOneDaysMax = 365
+
+export const signalsScoutGoalsBuildCreateBodyPlanOneMdeMin = 0.1
+export const signalsScoutGoalsBuildCreateBodyPlanOneMdeMax = 100
+
+export const SignalsScoutGoalsBuildCreateBody = /* @__PURE__ */ zod.object({
+    work_id: zod
+        .string()
+        .max(signalsScoutGoalsBuildCreateBodyWorkIdMax)
+        .describe('Work ID of the proposed idea to build.'),
+    plan: zod
+        .union([
+            zod.object({
+                days: zod
+                    .number()
+                    .min(signalsScoutGoalsBuildCreateBodyPlanOneDaysMin)
+                    .max(signalsScoutGoalsBuildCreateBodyPlanOneDaysMax)
+                    .describe('Days the experiment runs.'),
+                mde: zod
+                    .number()
+                    .min(signalsScoutGoalsBuildCreateBodyPlanOneMdeMin)
+                    .max(signalsScoutGoalsBuildCreateBodyPlanOneMdeMax)
+                    .describe('Smallest change worth finding, in percent.'),
+                audience: zod.number().min(1).describe('People a day who see the change.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'The experiment plan the owner approves with the build. Without one, the test is planned from its traffic once it is live.'
+        ),
+})
+
+export const signalsScoutGoalsIdeasCreateBodyTitleMax = 255
+
+export const SignalsScoutGoalsIdeasCreateBody = /* @__PURE__ */ zod.object({
+    title: zod.string().max(signalsScoutGoalsIdeasCreateBodyTitleMax).describe("The owner's idea, in one sentence."),
+})
+
+export const signalsScoutGoalsGuardrailsCreateBodyGoalMax = 500
+
+export const signalsScoutGoalsGuardrailsCreateBodyMeasureMax = 32
+
+export const SignalsScoutGoalsGuardrailsCreateBody = /* @__PURE__ */ zod.object({
+    goal: zod
+        .string()
+        .max(signalsScoutGoalsGuardrailsCreateBodyGoalMax)
+        .describe('What the owner wants to change, in their own words.'),
+    measure: zod
+        .string()
+        .max(signalsScoutGoalsGuardrailsCreateBodyMeasureMax)
+        .describe('Short ID of the chosen measure.'),
+})
+
+export const signalsScoutGoalsLabelsCreateBodyBeliefMax = 10000
+
+export const SignalsScoutGoalsLabelsCreateBody = /* @__PURE__ */ zod.object({
+    belief: zod
+        .string()
+        .max(signalsScoutGoalsLabelsCreateBodyBeliefMax)
+        .describe("The owner's belief, in their own words."),
+})
+
+export const signalsScoutGoalsMeasuresCreateBodyGoalMax = 500
+
+export const SignalsScoutGoalsMeasuresCreateBody = /* @__PURE__ */ zod.object({
+    goal: zod
+        .string()
+        .max(signalsScoutGoalsMeasuresCreateBodyGoalMax)
+        .describe('What the owner wants to change, in their own words.'),
+})
+
 /**
  * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (a configured scout), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
  * @summary Leave a note for the scouts

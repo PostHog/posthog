@@ -24,10 +24,18 @@ const DOT_TOOLTIP: Record<ScoutGroupKey, string> = {
 }
 
 /** The state glyph at the head of a roster row, matching its group. */
-export function ScoutStatusDot({ group }: { group: ScoutGroupKey }): JSX.Element {
+export function ScoutStatusDot({
+    group,
+    tooltip,
+    className,
+}: {
+    group: ScoutGroupKey
+    tooltip?: string
+    className?: string
+}): JSX.Element {
     return (
-        <Tooltip title={DOT_TOOLTIP[group]}>
-            <span className={cn('size-2 shrink-0 rounded-full', DOT_CLASS[group])} />
+        <Tooltip title={tooltip ?? DOT_TOOLTIP[group]}>
+            <span className={cn('size-2 shrink-0 rounded-full', DOT_CLASS[group], className)} />
         </Tooltip>
     )
 }

@@ -771,6 +771,16 @@ Thin bridge from a Tasks `TaskRun` to the scout skill that ran inside it: one sc
 
 **Constraints:** None at the DB level today. Single-flight is a best-effort app-layer guard (`_has_running_run` against `task_run.status = IN_PROGRESS`). An earlier partial unique constraint on `(team, skill_name) WHERE status='running'` was dropped together with the bridge model's own status column; a `task_run.status`-based constraint plus active recovery of stranded `IN_PROGRESS` task runs (`_self_heal_stale_runs` is a no-op today) is a tracked follow-up.
 
+### `SignalScoutGoal` and `SignalScoutGoalIdea` (goal scouts)
+
+A goal scout is a scout config with a `SignalScoutGoal` row that shares its primary key. The goal holds a measure (a saved insight with one series, or a measure in words), a target, guardrails, a budget and the owner's ideas. The name, repositories and model stay on the config. The code lives in `backend/goal_scouts/`, and `/api/projects/:id/signals/scout/goals/` serves it behind the `goal-scouts` flag.
+
+- **Tracking first.** On create, the goal files a hidden `goal-tracking` report and starts its implementation task. The goal stays `setting_up` until tracking is done and the baseline is ready (the measure's events are present and fresh, with at least 300 observations over at least 2 days since the tracking pull request merged). A described measure takes the saved insight that the tracking task names in an `Insight: <short_id>` line.
+- **Scout gate.** `goal_scouts.scout.goal_run_gate` runs before every scout run. It refuses runs while the goal sets up, while an idea is tested and no owner idea waits for a check, after 10 dismissals in a row, during the empty-run backoff, and once spend reaches the budget. Otherwise it renders the `# Goal` section of the run prompt and the runner stamps `metadata.goal_id` on the run row.
+- **Ideas.** Proposed and dismissed ideas are the goal scout's own reports, classified by their tags (`goal-idea`, `owner-idea-N`, `supported`, `not-supported`) with a text fallback. A `SignalScoutGoalIdea` row exists only for the tracking check and for ideas someone built. A partial unique constraint keeps one open idea per goal.
+- **Build.** The owner's Build creates the row and starts the report's implementation task through `create_implementation_task_if_absent`, behind the flag `goal-<goal id>-<n>`. Neither auto-start nor the generic implementation start runs on goal reports (`scout_authorship.report_is_from_goal_scout`), and the inbox hides them.
+- **Sweep.** Celery beat runs `sweep_goal_scouts` every 5 minutes. For each live goal it reads pull request state, the experiment and its results, and the measure, then takes the goal row with `select_for_update(skip_locked=True)` and moves ideas through building, review, live and done. The verdict reads `experiments.get_experiment_results`, ships the winner or ends the experiment, and stores the flag cleanup task. The goal is reached when the last 3 points meet the target for 72 hours, and spent when real `SignalSpend` reaches the budget. Both pause the scout with the `goal_ended` pause reason.
+
 ### `SignalScratchpad`
 
 Narrow per-team scratchpad surface the scout fleet writes during runs and reads back on future runs (known issues, false positives, dedupe fingerprints, learned team quirks). Distinct from `SignalProjectProfile`: profile is _deterministic ground truth_, scratchpad is the _scout's inferred learnings_ (possibly wrong). MCP-readable across agents so PostHog AI and other scouts can see what the fleet has learned about a team.
@@ -1408,7 +1418,7 @@ The write edits only a pull request that the GitHub webhook confirmed in the run
 
 Some teams cannot merge a pull request unless a tracked work item points at it. `SignalTeamConfig.issue_tracking_integration` names the tracker (GitHub, GitLab, Linear, or Jira) and `issue_tracking_config` names the target inside it; a null integration means the team wants no tracker issues, so one field is both the switch and the target.
 
-`_create_implementation_task_if_absent` opens the issue after it creates the implementation task, outside the report lock because the call is network I/O. This order prevents an issue from outliving a task transaction that fails. A `SignalReportTrackerIssue` row per report keeps two evaluations from opening duplicate issues. Linear receives a direct attachment after the pull request opens, and the pull request body also links to the issue.
+`create_implementation_task_if_absent` opens the issue after it creates the implementation task, outside the report lock because the call is network I/O. This order prevents an issue from outliving a task transaction that fails. A `SignalReportTrackerIssue` row per report keeps two evaluations from opening duplicate issues. Linear receives a direct attachment after the pull request opens, and the pull request body also links to the issue.
 
 The create never raises. A provider failure is stored on the row as `status=failed` with a short reason, which the report surfaces next to the pull request, and the run opens its pull request either way.
 

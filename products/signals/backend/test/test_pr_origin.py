@@ -10,9 +10,16 @@ from parameterized import parameterized
 
 from posthog.models.integration import GitHubIntegration
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalScoutConfig,
+    SignalScoutGoal,
+    SignalScoutGoalIdea,
+)
 from products.signals.backend.pr_origin import (
     PullRequestOrigin,
+    RunStart,
     _scout_label,
     place_origin_section,
     write_origin_section,
@@ -88,6 +95,41 @@ class TestScoutLabel(SimpleTestCase):
             entity_ids=("run:1:finding:2",),
         )
         assert _scout_label([source]) == expected
+
+
+class TestRunStartLine(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("person", RunStart(automatic=False, priority=None), "- Task started by: a person, from the inbox"),
+            (
+                "auto_start",
+                RunStart(automatic=True, priority="P2"),
+                "- Task started by: auto-start, after the report was rated P2 and ready to fix",
+            ),
+            (
+                "goal_tracking",
+                RunStart(automatic=True, priority=None, goal_kind="tracking"),
+                "- Task started by: a goal scout, to check how its goal is measured",
+            ),
+            (
+                "goal_idea",
+                RunStart(automatic=True, priority="P2", goal_kind="idea"),
+                "- Task started by: a person, from a goal scout",
+            ),
+        ]
+    )
+    def test_names_who_started_the_task(self, _name: str, run_start: RunStart, expected: str) -> None:
+        origin = PullRequestOrigin(
+            report_id="r",
+            report_url="http://localhost/r",
+            sources=(),
+            issue_references=(),
+            scout_label=None,
+            first_seen=None,
+            cause_commit=None,
+            run_start=run_start,
+        )
+        assert expected in origin.render()
 
 
 class TestPullRequestOrigin(BaseTest):
@@ -205,6 +247,34 @@ class TestPullRequestOrigin(BaseTest):
         assert "private" not in section
         assert "secret-title" not in section
         assert "ENG-1" not in section
+
+    def test_a_goal_report_links_its_goal_scout_instead_of_the_hidden_inbox_report(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="t", summary="s")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="more-uploads")
+        goal = SignalScoutGoal.objects.create(
+            config=config, team=self.team, belief="b", budget_cents=500, metric_name="Uploads"
+        )
+        SignalScoutGoalIdea.objects.create(
+            team=self.team, goal=goal, report=report, kind=SignalScoutGoalIdea.Kind.IDEA, number=1
+        )
+        task = Task.objects.create(
+            team=self.team, title="task", description="desc", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        with (
+            patch("products.signals.backend.pr_origin.fetch_origin_sources_for_report", return_value=[]),
+            patch("products.signals.backend.pr_origin.fetch_source_references_for_report", return_value=[]),
+        ):
+            section = PullRequestOrigin.for_report(
+                team=self.team, report_id=str(report.id), task_id=str(task.id), repository="acme/web"
+            ).render()
+
+        assert (
+            f"- Goal scout: [open](http://localhost:8010/project/{self.team.id}/inbox/scouts/more-uploads)" in section
+        )
+        assert "Inbox report" not in section
+        assert "- Task started by: a person, from a goal scout" in section
 
     @parameterized.expand([("verified", True, BodyEditOutcome.WRITTEN), ("unverified", False, BodyEditOutcome.FAILED)])
     def test_edits_only_a_webhook_confirmed_pull_request(

@@ -3,6 +3,7 @@ from posthog.api.routing import RouterRegistry
 import products.signals.backend.views as signals
 from products.signals.backend.presentation.activity_summary import ActivitySummaryMembersViewSet, ActivitySummaryViewSet
 from products.signals.backend.presentation.anomalies import AnomalyViewSet
+from products.signals.backend.presentation.goal_scouts import SignalScoutGoalViewSet
 from products.signals.backend.presentation.inbox_summary import InboxSummaryViewSet
 from products.signals.backend.presentation.onboarding import InboxOnboardingViewSet
 from products.signals.backend.presentation.reviewer_exclusions import SignalReviewerExclusionViewSet
@@ -85,6 +86,9 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"signals/scout/runs", SignalScoutRunViewSet, "project_signals_scout_runs", ["team_id"])
     routers.projects.register(
         r"signals/scout/configs", SignalScoutConfigViewSet, "project_signals_scout_configs", ["team_id"]
+    )
+    routers.projects.register(
+        r"signals/scout/goals", SignalScoutGoalViewSet, "project_signals_scout_goals", ["team_id"]
     )
     routers.projects.register(
         r"signals/scout/scratchpad", SignalScratchpadViewSet, "project_signals_scout_scratchpad", ["team_id"]

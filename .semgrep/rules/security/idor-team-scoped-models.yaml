@@ -428,6 +428,8 @@ rules:
                               |SignalTeamConfig
                               |SignalSourceConfig
                               |SignalScoutConfig
+                              |SignalScoutGoal
+                              |SignalScoutGoalIdea
                               |SignalScoutRun
                               |SignalScoutEmission
                               |SignalScoutNote
@@ -938,6 +940,8 @@ rules:
                         |SignalTeamConfig
                         |SignalSourceConfig
                         |SignalScoutConfig
+                        |SignalScoutGoal
+                        |SignalScoutGoalIdea
                         |SignalScoutRun
                         |SignalScoutEmission
                         |SignalScoutNote

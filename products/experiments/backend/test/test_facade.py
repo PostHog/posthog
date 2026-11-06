@@ -23,6 +23,7 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.team import DEPRECATED_ATTRS
@@ -896,3 +897,42 @@ class TestTeamExperimentsSettings(BaseTest):
 
         assert (raised.value.field, str(raised.value)) == (field, message)
         assert api.get_team_experiments_settings(self.team.id) == before
+
+
+class TestActivityForExperiments(BaseTest):
+    def test_merges_the_listed_experiments_and_their_flags_newest_first(self) -> None:
+        now = timezone.now()
+        listed = Experiment.objects.create(
+            team=self.team,
+            name="Upload button",
+            feature_flag=FeatureFlag.objects.create(team=self.team, key="goal-1-1", created_by=self.user),
+        )
+        unlisted = Experiment.objects.create(
+            team=self.team,
+            name="Other",
+            feature_flag=FeatureFlag.objects.create(team=self.team, key="other", created_by=self.user),
+        )
+        for minutes_ago, scope, item_id, detail in [
+            (3, "Experiment", listed.id, {"changes": [{"field": "start_date", "after": "2026-11-01"}]}),
+            (2, "FeatureFlag", listed.feature_flag_id, {"changes": [{"field": "active", "after": True}]}),
+            (1, "Experiment", listed.id, {"type": "holdout"}),
+            (1, "Experiment", unlisted.id, {}),
+        ]:
+            row = ActivityLog.objects.create(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                scope=scope,
+                item_id=str(item_id),
+                activity="updated",
+                detail=detail,
+            )
+            ActivityLog.objects.filter(id=row.id).update(created_at=now - timedelta(minutes=minutes_ago))
+
+        events = api.activity_for_experiments(team=self.team, user=self.user, experiment_ids=[listed.id], limit=10)
+
+        assert [
+            (event.scope, event.name, event.changes[0]["field"]) for event in events if event.activity == "updated"
+        ] == [
+            ("FeatureFlag", "goal-1-1", "active"),
+            ("Experiment", "Upload button", "start_date"),
+        ]

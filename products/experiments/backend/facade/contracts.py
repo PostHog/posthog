@@ -898,3 +898,54 @@ class LinkedExperiment:
     id: int
     name: str
     is_running: bool
+
+
+class ExperimentActionRefused(Exception):
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+@frozen
+class ExperimentActivityEvent:
+    id: str
+    at: datetime
+    scope: Literal["Experiment", "FeatureFlag"]
+    item_id: str
+    name: str
+    activity: str
+    changes: tuple[Mapping[str, Any], ...]
+
+
+@frozen
+class ExperimentVariantEffect:
+    key: str
+    low: float | None
+    high: float | None
+    significant: bool
+
+
+@frozen
+class ExperimentMetricEffects:
+    name: str
+    variants: tuple[ExperimentVariantEffect, ...]
+
+
+@frozen
+class ExperimentResults:
+    start_date: datetime | None
+    variants: tuple[str, ...]
+    exposures: Mapping[str, float]
+    primary: tuple[ExperimentMetricEffects, ...]
+    secondary: tuple[ExperimentMetricEffects, ...]
+    finding_codes: tuple[ExperimentHealthFindingCode, ...]
+
+
+RunningTimeMetricType = Literal["funnel", "mean_count", "mean_sum_or_avg"]
+
+
+@frozen
+class ExperimentRunningTimeEstimate:
+    minimum_detectable_effect: float
+    sample_size: int
+    days: int | None

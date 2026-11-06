@@ -22,8 +22,8 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.auto_start import (
     ImplementationReportContent,
     ReportChangedDuringAutostart,
-    _create_implementation_task_if_absent,
     _resolve_supersede,
+    create_implementation_task_if_absent,
     maybe_autostart_implementation_task,
 )
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
@@ -170,7 +170,7 @@ class TestSupersedeHandover(BaseTest):
 
         with patch("products.signals.backend.auto_start.tasks_facade.create_and_run_task", side_effect=create):
             outcomes = [
-                _create_implementation_task_if_absent(
+                create_implementation_task_if_absent(
                     team_id=self.team.id,
                     report_id=str(self.report.id),
                     title="Replacement",
@@ -380,7 +380,7 @@ class TestSupersedeHandover(BaseTest):
             patch("products.signals.backend.auto_start.tasks_facade.create_and_run_task") as create,
             self.assertRaises(ReportChangedDuringAutostart) if change == "new_pass" else nullcontext(),
         ):
-            assert not _create_implementation_task_if_absent(
+            assert not create_implementation_task_if_absent(
                 team_id=self.team.id,
                 report_id=str(self.report.id),
                 title="t",

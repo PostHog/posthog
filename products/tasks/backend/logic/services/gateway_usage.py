@@ -316,7 +316,30 @@ def get_task_runs_spend(*, team_id: int, run_ids: Iterable[UUID]) -> list[TaskRu
     return [_run_spend(run, queued=run.id in queued) for run in runs]
 
 
+def _ended_before_sandbox(run: TaskRun) -> bool:
+    return (
+        run.environment == TaskRun.Environment.CLOUD
+        and run.status in (TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+        and not (run.state or {}).get("sandbox_id")
+    )
+
+
+def _never_used_a_model(run: TaskRun) -> bool:
+    state = run.state or {}
+    return (
+        _ended_before_sandbox(run)
+        and run.stage is None
+        and not state.get("unprocessed_request_ids")
+        and not state.get("token_cost")
+        and not state.get("token_cost_incomplete")
+        and not gateway_usage_enabled(run)
+        and not SandboxSession.objects.for_team(run.team_id).filter(task_run=run).exists()
+    )
+
+
 def _token_cost_microusd(run: TaskRun, *, queued: bool | None = None) -> int | None:
+    if _never_used_a_model(run):
+        return 0
     usage = _token_usage(run, queued=queued)
     return usage.cost_microusd if usage.complete else None
 
@@ -336,7 +359,7 @@ def _compute_cost_source(run: TaskRun, *, sessions: list[SandboxSession] | None 
     if sessions is None:
         sessions = list(SandboxSession.objects.for_team(run.team_id).filter(task_run=run))
     if not sessions:
-        return None
+        return Decimal(0) if _ended_before_sandbox(run) else None
     now = timezone.now()
     try:
         return sum((_session_compute_cost(session, now) for session in sessions), Decimal(0))

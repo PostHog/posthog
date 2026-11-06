@@ -252,6 +252,25 @@ class TestGatewayUsage(BaseTest):
         run.save(update_fields=["state"])
         assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost is None
 
+    @parameterized.expand(
+        [
+            ("failed_before_provisioning", TaskRun.Status.FAILED, {}, 0),
+            ("cancelled_before_provisioning", TaskRun.Status.CANCELLED, {}, 0),
+            ("still_starting", TaskRun.Status.QUEUED, {}, None),
+            ("sandbox_started", TaskRun.Status.FAILED, {"sandbox_id": "sandbox-test"}, None),
+            ("unsettled_request", TaskRun.Status.FAILED, {"unprocessed_request_ids": ["request-1"]}, None),
+            ("untracked_provider", TaskRun.Status.FAILED, {"token_cost_incomplete": True}, None),
+        ]
+    )
+    def test_runs_that_end_before_a_sandbox_cost_nothing(
+        self, _name: str, status: str, state: dict, expected: int | None
+    ) -> None:
+        task = Task.objects.create(team=self.team, title="Prelaunch failure", description="")
+        run = TaskRun.objects.create(
+            team=self.team, task=task, status=status, state=state, environment=TaskRun.Environment.CLOUD
+        )
+        assert get_task_run_cost(team_id=self.team.id, run_id=run.id).token_cost == expected
+
     @patch("aiohttp.ClientSession._request")
     def test_queued_callbacks_keep_usage_incomplete_until_they_are_costed(self, get: Mock) -> None:
         run = self._run()

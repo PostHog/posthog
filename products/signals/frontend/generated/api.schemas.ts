@@ -7337,6 +7337,7 @@ export const SignalScoutConfigStatusEnumApi = {
  * * `repeated_failures` - Repeated failures
  * * `retired` - Retired
  * * `background_removed` - Background removed
+ * * `goal_ended` - Goal ended
  */
 export type SignalScoutConfigPauseReasonEnumApi =
     (typeof SignalScoutConfigPauseReasonEnumApi)[keyof typeof SignalScoutConfigPauseReasonEnumApi]
@@ -7347,6 +7348,7 @@ export const SignalScoutConfigPauseReasonEnumApi = {
     RepeatedFailures: 'repeated_failures',
     Retired: 'retired',
     BackgroundRemoved: 'background_removed',
+    GoalEnded: 'goal_ended',
 } as const
 
 /**
@@ -7430,7 +7432,8 @@ export interface SignalScoutConfigApi {
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
      * * `retired` - Retired
-     * * `background_removed` - Background removed */
+     * * `background_removed` - Background removed
+     * * `goal_ended` - Goal ended */
     readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
     /** Who controls this scout now. `team`: a person set it up or has changed it. `background`: PostHog runs it in the background and no person has edited it yet. Any edit through this API changes `background` to `team`.
      *
@@ -8741,6 +8744,1013 @@ export interface ScoutToolCatalogueApi {
     presets: ScoutScopePresetApi[]
     /** The write scopes a person can grant to one scout from its settings. A scope outside this set can never be added to a scout's token. */
     grantable_write_scopes: string[]
+}
+
+/**
+ * * `increase` - Higher is better
+ * * `decrease` - Lower is better
+ */
+export type GoalScoutDirectionEnumApi = (typeof GoalScoutDirectionEnumApi)[keyof typeof GoalScoutDirectionEnumApi]
+
+export const GoalScoutDirectionEnumApi = {
+    Increase: 'increase',
+    Decrease: 'decrease',
+} as const
+
+export interface GoalScoutGuardrailApi {
+    /**
+     * Short ID of the saved insight used as a guardrail.
+     * @maxLength 32
+     */
+    insight: string
+    /**
+     * Name of the guardrail metric.
+     * @maxLength 255
+     */
+    name: string
+    /** Whether higher or lower is better.
+     *
+     * * `increase` - Higher is better
+     * * `decrease` - Lower is better */
+    direction?: GoalScoutDirectionEnumApi
+    /**
+     * Largest tolerated relative regression, 0.05 for 5%.
+     * @minimum 0
+     * @maximum 1
+     */
+    max_regression?: number
+}
+
+/**
+ * * `setting_up` - Setting up
+ * * `running` - Running
+ * * `paused` - Paused
+ * * `reached` - Goal reached
+ * * `spent` - Budget used
+ * * `closed` - Closed
+ */
+export type GoalScoutStatusEnumApi = (typeof GoalScoutStatusEnumApi)[keyof typeof GoalScoutStatusEnumApi]
+
+export const GoalScoutStatusEnumApi = {
+    SettingUp: 'setting_up',
+    Running: 'running',
+    Paused: 'paused',
+    Reached: 'reached',
+    Spent: 'spent',
+    Closed: 'closed',
+} as const
+
+export interface GoalScoutMoneyApi {
+    /** Budget of the goal in USD cents. */
+    allocated_cents: number
+    /** Recorded spend of the goal's runs and tasks in USD cents. */
+    spent_cents: number
+    /** Budget left in USD cents. */
+    available_cents: number
+}
+
+export interface GoalScoutMetricApi {
+    /** Display unit from the saved insight. */
+    unit: string
+    /** Values in chronological order. */
+    values: number[]
+    /** Dates of the values. */
+    dates: string[]
+    /**
+     * Latest complete value.
+     * @nullable
+     */
+    current: number | null
+    /** Why a measurement is unavailable. */
+    message: string
+}
+
+/**
+ * * `tracking` - Tracking
+ * * `measure` - Measure
+ * * `scout` - Scout
+ * * `idea` - Idea
+ * * `experiment` - Experiment
+ * * `pull_request` - Pull request
+ * * `problem` - Problem
+ * * `idle` - Idle
+ * * `paused` - Paused
+ * * `reached` - Reached
+ * * `ended` - Ended
+ */
+export type GoalScoutTileEnumApi = (typeof GoalScoutTileEnumApi)[keyof typeof GoalScoutTileEnumApi]
+
+export const GoalScoutTileEnumApi = {
+    Tracking: 'tracking',
+    Measure: 'measure',
+    Scout: 'scout',
+    Idea: 'idea',
+    Experiment: 'experiment',
+    PullRequest: 'pull_request',
+    Problem: 'problem',
+    Idle: 'idle',
+    Paused: 'paused',
+    Reached: 'reached',
+    Ended: 'ended',
+} as const
+
+/**
+ * * `ideas` - Ideas
+ * * `edit` - Edit
+ * * `pull_request` - Pull request
+ * * `work` - Work
+ * * `budget` - Budget
+ * * `settings` - Settings
+ */
+export type GoalScoutActionKindEnumApi = (typeof GoalScoutActionKindEnumApi)[keyof typeof GoalScoutActionKindEnumApi]
+
+export const GoalScoutActionKindEnumApi = {
+    Ideas: 'ideas',
+    Edit: 'edit',
+    PullRequest: 'pull_request',
+    Work: 'work',
+    Budget: 'budget',
+    Settings: 'settings',
+} as const
+
+/**
+ * * `retry` - Retry
+ * * `retry_cleanup` - Retry flag cleanup
+ * * `drop` - Drop
+ */
+export type GoalScoutWorkActionEnumApi = (typeof GoalScoutWorkActionEnumApi)[keyof typeof GoalScoutWorkActionEnumApi]
+
+export const GoalScoutWorkActionEnumApi = {
+    Retry: 'retry',
+    RetryCleanup: 'retry_cleanup',
+    Drop: 'drop',
+} as const
+
+export interface GoalScoutStateActionApi {
+    /** Button text. */
+    label: string
+    /** What the button opens or does.
+     *
+     * * `ideas` - Ideas
+     * * `edit` - Edit
+     * * `pull_request` - Pull request
+     * * `work` - Work
+     * * `budget` - Budget
+     * * `settings` - Settings */
+    kind: GoalScoutActionKindEnumApi
+    /**
+     * Work the button opens or acts on.
+     * @nullable
+     */
+    work_id: string | null
+    /** Action the button runs on the work, or empty.
+     *
+     * * `retry` - Retry
+     * * `retry_cleanup` - Retry flag cleanup
+     * * `drop` - Drop */
+    work_action: GoalScoutWorkActionEnumApi | null
+    /** Pull request to open. */
+    url: string
+}
+
+export interface GoalScoutStateApi {
+    /** Which part of the loop the status is about.
+     *
+     * * `tracking` - Tracking
+     * * `measure` - Measure
+     * * `scout` - Scout
+     * * `idea` - Idea
+     * * `experiment` - Experiment
+     * * `pull_request` - Pull request
+     * * `problem` - Problem
+     * * `idle` - Idle
+     * * `paused` - Paused
+     * * `reached` - Reached
+     * * `ended` - Ended */
+    tile: GoalScoutTileEnumApi
+    /** Main status line. */
+    headline: string
+    /** Second status line. */
+    detail: string
+    /** Whether the goal works on this step now. */
+    working: boolean
+    /** The owner's next step. */
+    action: GoalScoutStateActionApi | null
+    /** What the scout does now and why. */
+    scout_reason: string
+    /** Ideas ready for the owner to choose. */
+    ready_ideas: number
+    /** Why no idea can be built now, or empty. */
+    build_blocked: string
+    /** Whether the goal takes new owner ideas. */
+    can_add_idea: boolean
+    /** Whether the goal waits for the owner. */
+    needs_you: boolean
+}
+
+export interface GoalScoutEntryApi {
+    /** Goal ID, the same as the scout config ID. */
+    id: string
+    /** Scout name, used in the scout page URL. */
+    skill_name: string
+    /** Goal name. */
+    title: string
+    /** What we believe and why. */
+    statement: string
+    /** Product area. */
+    area: string
+    /** Connected repositories. The first is where pull requests open. */
+    repositories: string[]
+    /** Primary metric insight. */
+    goal_insight: string
+    /** The measure in words, when described. */
+    goal_description: string
+    /** Primary metric name. */
+    goal_metric: string
+    /** Guardrails. */
+    secondary_metrics: GoalScoutGuardrailApi[]
+    /**
+     * Primary metric target, empty until set.
+     * @nullable
+     * @pattern ^-?\d{0,16}(?:\.\d{0,4})?$
+     */
+    target: string | null
+    /** Whether higher or lower is better.
+     *
+     * * `increase` - Higher is better
+     * * `decrease` - Lower is better */
+    direction: GoalScoutDirectionEnumApi
+    /** Primary metric unit. */
+    unit: string
+    /** Goal lifecycle state.
+     *
+     * * `setting_up` - Setting up
+     * * `running` - Running
+     * * `paused` - Paused
+     * * `reached` - Goal reached
+     * * `spent` - Budget used
+     * * `closed` - Closed */
+    status: GoalScoutStatusEnumApi
+    /**
+     * Primary metric when the goal started running.
+     * @nullable
+     */
+    baseline_value: number | null
+    /**
+     * When the baseline was recorded.
+     * @nullable
+     */
+    baseline_at: string | null
+    /** Name of the person who created the goal. */
+    owner_name: string
+    /** Budget and real spend. */
+    money: GoalScoutMoneyApi
+    /** Primary metric history. */
+    metric: GoalScoutMetricApi
+    /** Ideas measured to a conclusion. */
+    ideas_tried: number
+    /** Ideas that improved the primary metric. */
+    ideas_won: number
+    /** What the goal does now and what it needs from the owner. */
+    state: GoalScoutStateApi
+}
+
+export interface GoalScoutWriteApi {
+    /**
+     * Short name of the goal scout.
+     * @maxLength 160
+     */
+    title: string
+    /**
+     * What you believe will improve and why.
+     * @maxLength 10000
+     */
+    statement: string
+    /**
+     * Product area, stored as a scout tag.
+     * @maxLength 50
+     */
+    area?: string
+    /**
+     * GitHub repositories in owner/repository form. The first is where pull requests open.
+     * @maxItems 10
+     * @items.maxLength 255
+     * @items.pattern ^[\w.-]+/[\w.-]+$
+     */
+    repositories?: string[]
+    /**
+     * Saved insight with one series that measures the goal. Leave empty and describe the measure instead.
+     * @maxLength 32
+     */
+    goal_insight?: string
+    /**
+     * The measure in words when no saved insight fits. The tracking task finds or creates the insight.
+     * @maxLength 2000
+     */
+    goal_description?: string
+    /**
+     * Name of the primary metric.
+     * @maxLength 255
+     */
+    goal_metric: string
+    /**
+     * The owner's own ideas. The scout checks each one against the data.
+     * @maxItems 5
+     * @items.maxLength 255
+     */
+    ideas?: string[]
+    /** Guardrails that must not get worse. */
+    secondary_metrics?: GoalScoutGuardrailApi[]
+    /**
+     * Target value of the primary metric. Set it after the tracking task finds the insight of a described measure.
+     * @nullable
+     * @pattern ^-?\d{0,16}(?:\.\d{0,4})?$
+     */
+    target?: string | null
+    /** Whether higher or lower is better.
+     *
+     * * `increase` - Higher is better
+     * * `decrease` - Lower is better */
+    direction?: GoalScoutDirectionEnumApi
+    /**
+     * Display unit, such as %.
+     * @maxLength 32
+     */
+    unit?: string
+    /**
+     * Budget for this goal in USD cents.
+     * @minimum 0
+     * @maximum 1000000000
+     */
+    budget_cents: number
+}
+
+export interface GoalScoutSpendApi {
+    /** Spend on finding ideas, in USD cents. */
+    scout_cents: number
+    /** Scout runs that recorded spend. */
+    scout_runs: number
+    /** Spend on building ideas, in USD cents. */
+    ideas_cents: number
+    /** Spend on the tracking check, in USD cents. */
+    tracking_cents: number
+    /** Budget left unused when the goal ended, in USD cents. */
+    returned_cents: number
+    /** Ideas that got a test result. */
+    tested_ideas: number
+    /**
+     * Total spend divided by tested ideas. Empty with no tests.
+     * @nullable
+     */
+    per_tested_idea_cents: number | null
+}
+
+export interface GoalScoutResultsApi {
+    /** When the goal started measuring. */
+    started_at: string
+    /**
+     * When the goal ended.
+     * @nullable
+     */
+    ended_at: string | null
+    /** Whether the goal met the target before any idea shipped. */
+    met_at_start: boolean
+    /** Where the budget went. */
+    spend: GoalScoutSpendApi
+}
+
+/**
+ * * `tracking` - Tracking check
+ * * `idea` - Idea to test
+ */
+export type GoalScoutWorkKindEnumApi = (typeof GoalScoutWorkKindEnumApi)[keyof typeof GoalScoutWorkKindEnumApi]
+
+export const GoalScoutWorkKindEnumApi = {
+    Tracking: 'tracking',
+    Idea: 'idea',
+} as const
+
+/**
+ * * `proposed` - Proposed
+ * * `dismissed` - Dismissed
+ * * `building` - Building
+ * * `review` - In review
+ * * `live` - Live
+ * * `done` - Done
+ * * `dropped` - Dropped
+ * * `stuck` - Stuck
+ */
+export type GoalScoutWorkStageEnumApi = (typeof GoalScoutWorkStageEnumApi)[keyof typeof GoalScoutWorkStageEnumApi]
+
+export const GoalScoutWorkStageEnumApi = {
+    Proposed: 'proposed',
+    Dismissed: 'dismissed',
+    Building: 'building',
+    Review: 'review',
+    Live: 'live',
+    Done: 'done',
+    Dropped: 'dropped',
+    Stuck: 'stuck',
+} as const
+
+/**
+ * * `` - No outcome yet
+ * * `won` - The idea won
+ * * `lost` - The idea lost
+ * * `flat` - No clear effect
+ * * `harmed` - A guardrail got worse
+ * * `broken` - The test was broken
+ * * `dropped` - The idea was dropped
+ */
+export type GoalScoutIdeaOutcomeEnumApi = (typeof GoalScoutIdeaOutcomeEnumApi)[keyof typeof GoalScoutIdeaOutcomeEnumApi]
+
+export const GoalScoutIdeaOutcomeEnumApi = {
+    Won: 'won',
+    Lost: 'lost',
+    Flat: 'flat',
+    Harmed: 'harmed',
+    Broken: 'broken',
+    Dropped: 'dropped',
+} as const
+
+/**
+ * People exposed per variant.
+ */
+export type GoalScoutIdeaResultApiExposures = { [key: string]: number }
+
+/**
+ * Relative effect interval on the primary metric per test variant.
+ */
+export type GoalScoutIdeaResultApiPrimary = { [key: string]: (number | null)[] | null }
+
+export interface GoalScoutIdeaResultApi {
+    /** Variant kept when the experiment ended. */
+    variant?: string
+    /** Why the experiment ended this way. */
+    verdict?: string
+    /** People exposed per variant. */
+    exposures?: GoalScoutIdeaResultApiExposures
+    /** Relative effect interval on the primary metric per test variant. */
+    primary?: GoalScoutIdeaResultApiPrimary
+    /** Guardrails that got worse. */
+    harmed_guardrails?: string[]
+}
+
+/**
+ * * `scout` - Scout
+ * * `owner` - Owner
+ */
+export type GoalScoutIdeaSourceEnumApi = (typeof GoalScoutIdeaSourceEnumApi)[keyof typeof GoalScoutIdeaSourceEnumApi]
+
+export const GoalScoutIdeaSourceEnumApi = {
+    Scout: 'scout',
+    Owner: 'owner',
+} as const
+
+/**
+ * * `` - None
+ * * `pending` - Pending
+ * * `supported` - Supported
+ * * `not_supported` - Not supported
+ */
+export type GoalScoutIdeaAssessmentEnumApi =
+    (typeof GoalScoutIdeaAssessmentEnumApi)[keyof typeof GoalScoutIdeaAssessmentEnumApi]
+
+export const GoalScoutIdeaAssessmentEnumApi = {
+    Pending: 'pending',
+    Supported: 'supported',
+    NotSupported: 'not_supported',
+} as const
+
+/**
+ * * `replay` - Session replay
+ * * `insight` - Insight
+ * * `chart` - Chart
+ * * `experiment` - Experiment
+ * * `error` - Error
+ * * `link` - Link
+ */
+export type GoalScoutEvidenceKindEnumApi =
+    (typeof GoalScoutEvidenceKindEnumApi)[keyof typeof GoalScoutEvidenceKindEnumApi]
+
+export const GoalScoutEvidenceKindEnumApi = {
+    Replay: 'replay',
+    Insight: 'insight',
+    Chart: 'chart',
+    Experiment: 'experiment',
+    Error: 'error',
+    Link: 'link',
+} as const
+
+export interface GoalScoutEvidenceApi {
+    /** What the evidence link points to.
+     *
+     * * `replay` - Session replay
+     * * `insight` - Insight
+     * * `chart` - Chart
+     * * `experiment` - Experiment
+     * * `error` - Error
+     * * `link` - Link */
+    kind: GoalScoutEvidenceKindEnumApi
+    /** Short text that describes the evidence. */
+    label: string
+    /** Link to the PostHog data, or chart:<id> for a chart in the report. */
+    url: string
+}
+
+export interface GoalScoutPlanApi {
+    /**
+     * Days the experiment runs before the verdict.
+     * @nullable
+     */
+    days: number | null
+    /**
+     * Smallest relative change, in percent, the test can find.
+     * @nullable
+     */
+    mde: number | null
+    /**
+     * People a day who see the change.
+     * @nullable
+     */
+    audience: number | null
+}
+
+export interface GoalScoutCleanupApi {
+    /** Task that removes the experiment's flag from the code. */
+    task_id: string
+    /** Status of the cleanup task's latest run. */
+    task_status: string
+    /** Pull request of the cleanup task. */
+    pr_url: string
+    /** State of the cleanup pull request. */
+    pr_state: string
+}
+
+export const GoalScoutWorkApiOutcome = { ...GoalScoutIdeaOutcomeEnumApi, ...BlankEnumApi } as const
+export const GoalScoutWorkApiAssessment = { ...GoalScoutIdeaAssessmentEnumApi, ...BlankEnumApi } as const
+export interface GoalScoutWorkApi {
+    /** Work ID: the idea row for tracking and built ideas, the report for proposed ideas, or owner-<n> for an owner idea the scout has not checked yet. */
+    id: string
+    /** Tracking check or idea.
+     *
+     * * `tracking` - Tracking check
+     * * `idea` - Idea to test */
+    kind: GoalScoutWorkKindEnumApi
+    /** Where this work is in its lifecycle.
+     *
+     * * `proposed` - Proposed
+     * * `dismissed` - Dismissed
+     * * `building` - Building
+     * * `review` - In review
+     * * `live` - Live
+     * * `done` - Done
+     * * `dropped` - Dropped
+     * * `stuck` - Stuck */
+    stage: GoalScoutWorkStageEnumApi
+    /** Work title. */
+    title: string
+    /** The report text behind the work. */
+    summary: string
+    /** Latest status in plain language. */
+    note: string
+    /** Pull request of the work's task. */
+    pr_url: string
+    /**
+     * Experiment that measures the idea.
+     * @nullable
+     */
+    experiment_id: number | null
+    /** How a built idea ended.
+     *
+     * * `` - No outcome yet
+     * * `won` - The idea won
+     * * `lost` - The idea lost
+     * * `flat` - No clear effect
+     * * `harmed` - A guardrail got worse
+     * * `broken` - The test was broken
+     * * `dropped` - The idea was dropped */
+    outcome: (typeof GoalScoutWorkApiOutcome)[keyof typeof GoalScoutWorkApiOutcome]
+    /** Measured facts: exposures, primary intervals, verdict. */
+    result: GoalScoutIdeaResultApi
+    /**
+     * Implementation task doing the work.
+     * @nullable
+     */
+    task_id: string | null
+    /** Status of the task's latest run. */
+    task_status: string
+    /** Recorded spend of this work in USD cents. */
+    spent_cents: number
+    /** When the work or report was created. */
+    created_at: string
+    /**
+     * When the work finished.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * Build number of the idea within the goal.
+     * @nullable
+     */
+    number: number | null
+    /**
+     * When someone chose to build the idea.
+     * @nullable
+     */
+    chosen_at: string | null
+    /**
+     * When the pull request merged.
+     * @nullable
+     */
+    merged_at: string | null
+    /**
+     * When the first people saw the change.
+     * @nullable
+     */
+    exposed_at: string | null
+    /** Who proposed the idea.
+     *
+     * * `scout` - Scout
+     * * `owner` - Owner */
+    source: GoalScoutIdeaSourceEnumApi
+    /** The scout's check of the idea against the data.
+     *
+     * * `` - None
+     * * `pending` - Pending
+     * * `supported` - Supported
+     * * `not_supported` - Not supported */
+    assessment: (typeof GoalScoutWorkApiAssessment)[keyof typeof GoalScoutWorkApiAssessment]
+    /** Links to the PostHog data behind the idea. */
+    evidence: GoalScoutEvidenceApi[]
+    /**
+     * Report that describes the work.
+     * @nullable
+     */
+    report_id: string | null
+    /** Why someone dismissed the idea. */
+    dismissed_reason: string
+    /** The metric the scout expects this idea to move. */
+    moves_metric: string
+    /** Experiment plan for an idea. */
+    plan: GoalScoutPlanApi
+    /** Flag cleanup task after the experiment ended. */
+    cleanup: GoalScoutCleanupApi | null
+}
+
+export interface GoalScoutSpendPointApi {
+    /** When the spend was recorded. */
+    at: string
+    /** Total spend up to this time, in USD cents. */
+    spent_cents: number
+}
+
+export interface GoalScoutPlanAnchorApi {
+    /** Smallest relative change, in percent, that sample_size detects. */
+    mde: number
+    /** Total people across both variants to detect mde. */
+    sample_size: number
+}
+
+export interface GoalScoutDetailApi {
+    /** Goal ID, the same as the scout config ID. */
+    id: string
+    /** Scout name, used in the scout page URL. */
+    skill_name: string
+    /** Goal name. */
+    title: string
+    /** What we believe and why. */
+    statement: string
+    /** Product area. */
+    area: string
+    /** Connected repositories. The first is where pull requests open. */
+    repositories: string[]
+    /** Primary metric insight. */
+    goal_insight: string
+    /** The measure in words, when described. */
+    goal_description: string
+    /** Primary metric name. */
+    goal_metric: string
+    /** Guardrails. */
+    secondary_metrics: GoalScoutGuardrailApi[]
+    /**
+     * Primary metric target, empty until set.
+     * @nullable
+     * @pattern ^-?\d{0,16}(?:\.\d{0,4})?$
+     */
+    target: string | null
+    /** Whether higher or lower is better.
+     *
+     * * `increase` - Higher is better
+     * * `decrease` - Lower is better */
+    direction: GoalScoutDirectionEnumApi
+    /** Primary metric unit. */
+    unit: string
+    /** Goal lifecycle state.
+     *
+     * * `setting_up` - Setting up
+     * * `running` - Running
+     * * `paused` - Paused
+     * * `reached` - Goal reached
+     * * `spent` - Budget used
+     * * `closed` - Closed */
+    status: GoalScoutStatusEnumApi
+    /**
+     * Primary metric when the goal started running.
+     * @nullable
+     */
+    baseline_value: number | null
+    /**
+     * When the baseline was recorded.
+     * @nullable
+     */
+    baseline_at: string | null
+    /** Name of the person who created the goal. */
+    owner_name: string
+    /** Budget and real spend. */
+    money: GoalScoutMoneyApi
+    /** Primary metric history. */
+    metric: GoalScoutMetricApi
+    /** Ideas measured to a conclusion. */
+    ideas_tried: number
+    /** Ideas that improved the primary metric. */
+    ideas_won: number
+    /** What the goal does now and what it needs from the owner. */
+    state: GoalScoutStateApi
+    /** Results summary, empty until the goal ends. */
+    results: GoalScoutResultsApi | null
+    /** Tracking checks and ideas, newest first. */
+    work: GoalScoutWorkApi[]
+    /** Cumulative spend over time. */
+    spend_history: GoalScoutSpendPointApi[]
+    /** Whether the viewer created this goal. */
+    is_owner: boolean
+    /** Current guardrail readings. */
+    secondary_values: GoalScoutMetricApi[]
+    /** Whether a scout run is in progress. */
+    scout_running: boolean
+    /** One experiment estimate to rescale for any smallest change and audience. */
+    plan_anchor: GoalScoutPlanAnchorApi | null
+}
+
+export interface PatchedGoalScoutWriteApi {
+    /**
+     * Short name of the goal scout.
+     * @maxLength 160
+     */
+    title?: string
+    /**
+     * What you believe will improve and why.
+     * @maxLength 10000
+     */
+    statement?: string
+    /**
+     * Product area, stored as a scout tag.
+     * @maxLength 50
+     */
+    area?: string
+    /**
+     * GitHub repositories in owner/repository form. The first is where pull requests open.
+     * @maxItems 10
+     * @items.maxLength 255
+     * @items.pattern ^[\w.-]+/[\w.-]+$
+     */
+    repositories?: string[]
+    /**
+     * Saved insight with one series that measures the goal. Leave empty and describe the measure instead.
+     * @maxLength 32
+     */
+    goal_insight?: string
+    /**
+     * The measure in words when no saved insight fits. The tracking task finds or creates the insight.
+     * @maxLength 2000
+     */
+    goal_description?: string
+    /**
+     * Name of the primary metric.
+     * @maxLength 255
+     */
+    goal_metric?: string
+    /**
+     * The owner's own ideas. The scout checks each one against the data.
+     * @maxItems 5
+     * @items.maxLength 255
+     */
+    ideas?: string[]
+    /** Guardrails that must not get worse. */
+    secondary_metrics?: GoalScoutGuardrailApi[]
+    /**
+     * Target value of the primary metric. Set it after the tracking task finds the insight of a described measure.
+     * @nullable
+     * @pattern ^-?\d{0,16}(?:\.\d{0,4})?$
+     */
+    target?: string | null
+    /** Whether higher or lower is better.
+     *
+     * * `increase` - Higher is better
+     * * `decrease` - Lower is better */
+    direction?: GoalScoutDirectionEnumApi
+    /**
+     * Display unit, such as %.
+     * @maxLength 32
+     */
+    unit?: string
+    /**
+     * Budget for this goal in USD cents.
+     * @minimum 0
+     * @maximum 1000000000
+     */
+    budget_cents?: number
+}
+
+export interface GoalScoutActApi {
+    /**
+     * Work ID of tracking or a built idea, or owner-<n> for an owner idea the scout has not checked yet.
+     * @maxLength 64
+     */
+    work_id: string
+    /** Retry stuck work, retry a failed flag cleanup, or drop an idea in progress or an owner idea that waits for the scout.
+     *
+     * * `retry` - Retry
+     * * `retry_cleanup` - Retry flag cleanup
+     * * `drop` - Drop */
+    action: GoalScoutWorkActionEnumApi
+}
+
+/**
+ * * `` - None
+ * * `task` - Task
+ * * `experiment` - Experiment
+ * * `flag` - Feature flag
+ * * `pull_request` - Pull request
+ */
+export type GoalScoutActivityResourceEnumApi =
+    (typeof GoalScoutActivityResourceEnumApi)[keyof typeof GoalScoutActivityResourceEnumApi]
+
+export const GoalScoutActivityResourceEnumApi = {
+    Task: 'task',
+    Experiment: 'experiment',
+    Flag: 'flag',
+    PullRequest: 'pull_request',
+} as const
+
+export const GoalScoutActivityApiResource = { ...GoalScoutActivityResourceEnumApi, ...BlankEnumApi } as const
+export interface GoalScoutActivityApi {
+    /** Stable activity entry identifier. */
+    id: string
+    /** When the event happened. */
+    at: string
+    /** Summary of the event. */
+    title: string
+    /** Related work, changed fields or amount. */
+    detail: string
+    /** Linked resource to open.
+     *
+     * * `` - None
+     * * `task` - Task
+     * * `experiment` - Experiment
+     * * `flag` - Feature flag
+     * * `pull_request` - Pull request */
+    resource: (typeof GoalScoutActivityApiResource)[keyof typeof GoalScoutActivityApiResource]
+    /** Identifier or URL of the linked resource. */
+    resource_id: string
+}
+
+export interface GoalScoutPlanInputApi {
+    /**
+     * Days the experiment runs.
+     * @minimum 2
+     * @maximum 365
+     */
+    days: number
+    /**
+     * Smallest change worth finding, in percent.
+     * @minimum 0.1
+     * @maximum 100
+     */
+    mde: number
+    /**
+     * People a day who see the change.
+     * @minimum 1
+     */
+    audience: number
+}
+
+export interface GoalScoutBuildApi {
+    /**
+     * Work ID of the proposed idea to build.
+     * @maxLength 64
+     */
+    work_id: string
+    /** The experiment plan the owner approves with the build. Without one, the test is planned from its traffic once it is live. */
+    plan?: GoalScoutPlanInputApi | null
+}
+
+export interface GoalScoutIdeaApi {
+    /**
+     * The owner's idea, in one sentence.
+     * @maxLength 255
+     */
+    title: string
+}
+
+export interface GoalScoutGuardrailRequestApi {
+    /**
+     * What the owner wants to change, in their own words.
+     * @maxLength 500
+     */
+    goal: string
+    /**
+     * Short ID of the chosen measure.
+     * @maxLength 32
+     */
+    measure: string
+}
+
+export interface GoalScoutGuardrailOptionApi {
+    /** Short ID of the insight for this guardrail. */
+    insight: string
+    /** Name of the guardrail measure. */
+    name: string
+    /** What the guardrail counts. */
+    definition: string
+    /** Which way is better for this guardrail.
+     *
+     * * `increase` - Higher is better
+     * * `decrease` - Lower is better */
+    direction: GoalScoutDirectionEnumApi
+}
+
+export interface GoalScoutLabelsRequestApi {
+    /**
+     * The owner's belief, in their own words.
+     * @maxLength 10000
+     */
+    belief: string
+}
+
+export interface GoalScoutLabelsApi {
+    /** A short suggested name, or empty. */
+    name: string
+    /** A suggested product area, or empty. */
+    area: string
+}
+
+export interface GoalScoutMeasureRequestApi {
+    /**
+     * What the owner wants to change, in their own words.
+     * @maxLength 500
+     */
+    goal: string
+}
+
+/**
+ * * `existing` - Existing insight
+ * * `new` - New measure
+ */
+export type GoalScoutMeasureSourceEnumApi =
+    (typeof GoalScoutMeasureSourceEnumApi)[keyof typeof GoalScoutMeasureSourceEnumApi]
+
+export const GoalScoutMeasureSourceEnumApi = {
+    Existing: 'existing',
+    New: 'new',
+} as const
+
+export interface GoalScoutMeasureOptionApi {
+    /** Short ID of the insight that measures this option. */
+    insight: string
+    /** Name of the measure. */
+    name: string
+    /** A saved insight, or a new measure.
+     *
+     * * `existing` - Existing insight
+     * * `new` - New measure */
+    source: GoalScoutMeasureSourceEnumApi
+    /** What the measure counts. */
+    definition: string
+    /**
+     * The latest complete value.
+     * @nullable
+     */
+    current: number | null
+    /** Unit of the value, such as %. */
+    unit: string
+    /**
+     * Planned days for one experiment on it.
+     * @nullable
+     */
+    test_days: number | null
+    /** Recent values, oldest first. */
+    values: number[]
+    /** Dates of the recent values. */
+    dates: string[]
+}
+
+export interface GoalScoutMeasureSearchApi {
+    /** Measures that fit the goal, best first. */
+    options: GoalScoutMeasureOptionApi[]
+    /** One sentence that defines the best measure. */
+    draft: string
 }
 
 /**
@@ -11888,6 +12898,15 @@ export const SignalsScoutConfigSyncSurface = {
     Wizard: 'wizard',
     Onboarding: 'onboarding',
 } as const
+
+export type SignalsScoutGoalsMetricPreviewRetrieveParams = {
+    /**
+     * Short ID of the saved insight to preview.
+     * @minLength 1
+     * @maxLength 32
+     */
+    insight: string
+}
 
 export type SignalsScoutMembersListParams = {
     /**

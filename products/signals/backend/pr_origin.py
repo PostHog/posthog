@@ -23,6 +23,7 @@ from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.utils import absolute_uri
 
 from products.signals.backend.artefact_schemas import (
     PriorityAssessment,
@@ -31,9 +32,9 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
 )
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
-from products.signals.backend.models import SignalReportArtefact
+from products.signals.backend.models import SignalReportArtefact, SignalScoutGoalIdea
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
-from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url, scout_path
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names
 from products.signals.backend.signal_metadata import (
     OriginSource,
@@ -174,9 +175,19 @@ class RunStart:
     automatic: bool
     # The priority when the run started. A later judgment did not trigger this run.
     priority: str | None
+    goal_kind: str | None = None
 
 
-def _run_start(team_id: int, report_id: str, task_id: str) -> RunStart | None:
+def _goal_idea(team_id: int, report_id: str) -> tuple[str, str] | None:
+    return (
+        SignalScoutGoalIdea.objects.for_team(team_id)
+        .filter(report_id=report_id)
+        .values_list("kind", "goal__config__skill_name")
+        .first()
+    )
+
+
+def _run_start(team_id: int, report_id: str, task_id: str, goal_kind: str | None) -> RunStart | None:
     """How this run started. None when the report has no record of the run."""
     artefacts = SignalReportArtefact.objects.filter(
         team_id=team_id, report_id=report_id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task_id
@@ -192,6 +203,7 @@ def _run_start(team_id: int, report_id: str, task_id: str) -> RunStart | None:
         return RunStart(
             automatic=task_run.automation_branch is not None,
             priority=judgment.priority.value if judgment else None,
+            goal_kind=goal_kind,
         )
     return None
 
@@ -232,10 +244,12 @@ class PullRequestOrigin:
     first_seen: date | None
     cause_commit: OriginLink | None
     run_start: RunStart | None
+    goal_url: str | None = None
 
     @classmethod
     def for_report(cls, *, team: Team, report_id: str, task_id: str, repository: str) -> PullRequestOrigin:
         sources = fetch_origin_sources_for_report(team, report_id)
+        goal = _goal_idea(team.pk, report_id)
         return cls(
             report_id=report_id,
             report_url=build_report_url(team.pk, report_id, ReportLinkSource.GITHUB_PR),
@@ -246,12 +260,17 @@ class PullRequestOrigin:
             scout_label=_scout_label(sources),
             first_seen=min(source.first_seen for source in sources).date() if sources else None,
             cause_commit=_cause_commit(team.pk, report_id, repository),
-            run_start=_run_start(team.pk, report_id, task_id),
+            run_start=_run_start(team.pk, report_id, task_id, goal[0] if goal else None),
+            goal_url=absolute_uri(scout_path(team.pk, goal[1])) if goal else None,
         )
 
     def _started_line(self) -> str | None:
         if self.run_start is None:
             return None
+        if self.run_start.goal_kind == SignalScoutGoalIdea.Kind.TRACKING:
+            return "- Task started by: a goal scout, to check how its goal is measured"
+        if self.run_start.goal_kind == SignalScoutGoalIdea.Kind.IDEA:
+            return "- Task started by: a person, from a goal scout"
         if not self.run_start.automatic:
             return "- Task started by: a person, from the inbox"
         if self.run_start.priority:
@@ -268,7 +287,10 @@ class PullRequestOrigin:
             lines.append(f"- Scout: {self.scout_label}")
         if self.first_seen:
             lines.append(f"- First signal: {self.first_seen.isoformat()}")
-        lines.append(f"- Inbox report: [open]({self.report_url})")
+        if self.goal_url:
+            lines.append(f"- Goal scout: [open]({self.goal_url})")
+        else:
+            lines.append(f"- Inbox report: [open]({self.report_url})")
         if self.cause_commit:
             lines.append(f"- Likely cause: {self.cause_commit.render()}")
         started = self._started_line()

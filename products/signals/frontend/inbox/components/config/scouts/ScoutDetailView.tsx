@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconArrowLeft } from '@posthog/icons'
+import { IconArrowLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,7 +16,9 @@ import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutNotesLogic } from '../../../logics/scoutNotesLogic'
 import { entriesForSkill, scratchpadLogic } from '../../../logics/scratchpadLogic'
+import { goalReportTitle } from '../../../utils/goal/format'
 import { ScoutRunFilter, SCOUT_RUNS_PER_SCOUT_LABEL, scoutDisplayName } from '../../../utils/scoutRunsWindow'
+import { GoalScoutPanel } from './goal/GoalScoutPanel'
 import { ScoutAskAiComposer } from './ScoutAskAiComposer'
 import { ScoutAttentionBanner, ScoutDetailHeader } from './ScoutDetailHeader'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
@@ -37,7 +39,7 @@ import { ScoutTrials } from './trials/ScoutTrials'
  * first screen.
  */
 export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Element {
-    const { scoutConfigs, scoutConfigsLoading, rollups } = useValues(scoutFleetLogic)
+    const { scoutConfigs, scoutConfigsLoading, rollups, goalsById, goalScoutsPending } = useValues(scoutFleetLogic)
     const { startRunsPolling, stopRunsPolling, loadScoutConfigs } = useActions(scoutFleetLogic)
     const { scoutEntries } = useValues(scratchpadLogic)
     const { loadScoutEntries } = useActions(scratchpadLogic)
@@ -47,6 +49,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     const { currentTeamId } = useValues(teamLogic)
     const { setScoutDetailTab } = useActions(inboxSceneLogic)
     const [runFilter, setRunFilter] = useState<ScoutRunFilter>('all')
+    const [goalDetailsOpen, setGoalDetailsOpen] = useState(false)
 
     // Deep-linking straight to a scout (or a narrow viewport where the roster isn't mounted)
     // means nobody else is polling the runs window, so the header + rollup would read empty
@@ -61,6 +64,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     }, [skillName, loadScoutEntries])
 
     const config = scoutConfigs?.find((c) => c.skill_name === skillName) ?? null
+    const goalId = config && config.id in goalsById ? config.id : null
     const rollup = rollups.get(skillName)
     const learnedCount = entriesForSkill(scoutEntries, skillName)?.length ?? 0
     const reportCount = touchedReports.length
@@ -114,7 +118,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
         })
     }, [skillName, config, scoutRunsLoadedOnce, tab])
 
-    if (scoutConfigs === null) {
+    if (scoutConfigs === null || (config && goalScoutsPending)) {
         // Configs unresolved — never an empty fleet, which is `[]`. While the fetch is in flight
         // (the fleet logic starts it on mount, so a fresh deep link is loading from its first
         // render), hold a skeleton so "Scout not found" can't flash before we have the fleet to
@@ -124,7 +128,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                 <div className="flex">
                     <BackToScouts />
                 </div>
-                {scoutConfigsLoading ? (
+                {scoutConfigsLoading || goalScoutsPending ? (
                     <>
                         <LemonSkeleton className="h-24 w-full rounded" />
                         <LemonSkeleton className="h-40 w-full rounded" />
@@ -205,33 +209,61 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
 
             <div className="flex min-w-0 flex-col gap-4 px-4 py-4">
                 <ScoutAttentionBanner config={config} />
+                {goalId && <GoalScoutPanel goalId={goalId} />}
 
-                <div className="flex flex-col gap-1">
-                    {/* The right slot does not shrink. In a narrow pane it would pin over the tab
-                        strip and hide the last tabs, so there the pills get their own row. */}
-                    <LemonTabs
-                        activeKey={tab}
-                        onChange={switchTab}
-                        size="small"
-                        tabs={tabs}
-                        rightSlot={tab === 'runs' ? runFilterPills : undefined}
-                        rightSlotClassName="hidden @4xl:flex"
-                    />
-                    {tab === 'runs' && <div className="@4xl:hidden">{runFilterPills}</div>}
-                </div>
+                {goalId && (
+                    <div className="mt-2 border-t border-primary pt-4">
+                        <button
+                            type="button"
+                            className="flex w-fit cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-xs text-secondary hover:text-primary"
+                            aria-expanded={goalDetailsOpen}
+                            onClick={() => setGoalDetailsOpen(!goalDetailsOpen)}
+                            data-attr="goal-scout-details-toggle"
+                        >
+                            <IconChevronRight
+                                className={`size-3.5 transition-transform ${goalDetailsOpen ? 'rotate-90' : ''}`}
+                            />
+                            <span className="font-semibold">Scout details</span>
+                            <span className="text-tertiary">
+                                {runCount} {runCount === 1 ? 'run' : 'runs'} · {reportCount}{' '}
+                                {reportCount === 1 ? 'report' : 'reports'} · {learnedCount} learned
+                            </span>
+                        </button>
+                    </div>
+                )}
+                {(!goalId || goalDetailsOpen) && (
+                    <>
+                        <div className="flex flex-col gap-1">
+                            {/* The right slot does not shrink. In a narrow pane it would pin over the tab
+                            strip and hide the last tabs, so there the pills get their own row. */}
+                            <LemonTabs
+                                activeKey={tab}
+                                onChange={switchTab}
+                                size="small"
+                                tabs={tabs}
+                                rightSlot={tab === 'runs' ? runFilterPills : undefined}
+                                rightSlotClassName="hidden @4xl:flex"
+                            />
+                            {tab === 'runs' && <div className="@4xl:hidden">{runFilterPills}</div>}
+                        </div>
 
-                {tab === 'runs' ? (
-                    <ScoutRunHistorySection skillName={skillName} filter={runFilter} />
-                ) : tab === 'trials' && canAccessTrials ? (
-                    <ScoutTrials configId={config.id} />
-                ) : tab === 'signals' ? (
-                    <ScoutSignalsPanel skillName={skillName} />
-                ) : tab === 'told' ? (
-                    <ScoutNotesPanel skillName={skillName} />
-                ) : tab === 'learned' ? (
-                    <ScoutLearnedPanel skillName={skillName} />
-                ) : (
-                    <ScoutReportsPanel skillName={skillName} />
+                        {tab === 'runs' ? (
+                            <ScoutRunHistorySection skillName={skillName} filter={runFilter} />
+                        ) : tab === 'trials' && canAccessTrials ? (
+                            <ScoutTrials configId={config.id} />
+                        ) : tab === 'signals' ? (
+                            <ScoutSignalsPanel skillName={skillName} />
+                        ) : tab === 'told' ? (
+                            <ScoutNotesPanel skillName={skillName} />
+                        ) : tab === 'learned' ? (
+                            <ScoutLearnedPanel skillName={skillName} />
+                        ) : (
+                            <ScoutReportsPanel
+                                skillName={skillName}
+                                formatTitle={goalId ? goalReportTitle : undefined}
+                            />
+                        )}
+                    </>
                 )}
             </div>
         </div>
@@ -253,7 +285,13 @@ function BackToScouts(): JSX.Element {
  * trimmed for length, because the tab keeps it from pushing anything away, but the per-id fetch
  * behind it is capped, so the panel says how many of the tab's count it is holding.
  */
-function ScoutReportsPanel({ skillName }: { skillName: string }): JSX.Element {
+function ScoutReportsPanel({
+    skillName,
+    formatTitle,
+}: {
+    skillName: string
+    formatTitle?: (title: string) => string
+}): JSX.Element {
     const { reportRows, touchedReports, scoutReportsLoading, scoutRunsLoadedOnce } = useValues(
         scoutDetailLogic({ skillName })
     )
@@ -299,7 +337,11 @@ function ScoutReportsPanel({ skillName }: { skillName: string }): JSX.Element {
                 </span>
             )}
             {reportRows.map(({ report, action }) => (
-                <ScoutReportCard key={report.id} report={report} action={action} />
+                <ScoutReportCard
+                    key={report.id}
+                    report={formatTitle && report.title ? { ...report, title: formatTitle(report.title) } : report}
+                    action={action}
+                />
             ))}
         </div>
     )

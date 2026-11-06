@@ -128,6 +128,7 @@ from products.signals.backend.facade.tasks import (
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
     sweep_first_report_notifications,
+    sweep_goal_scouts,
     sweep_implementation_dispatches,
     sweep_monitoring_research_requests,
     sweep_monitoring_tracker_issues,
@@ -478,6 +479,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/5"),
         sweep_first_report_notifications.s(),
         name="send first self-driving report emails",
+        expires_seconds=5 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        sweep_goal_scouts.s(),
+        name="advance signals goal scouts",
         expires_seconds=5 * 60,
     )
 

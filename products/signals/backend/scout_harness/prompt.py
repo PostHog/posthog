@@ -1638,6 +1638,16 @@ def _precheck_result_section(precheck_rows: str | None) -> str:
     return _PRECHECK_RESULT_TEMPLATE.format(rows=rows)
 
 
+def _goal_context_section(goal_context: str | None) -> str:
+    if not goal_context:
+        return ""
+    return f"""# Goal
+
+This scout works for one goal. The goal, its ideas so far and the mode of this run are below. Your skill body says what each mode asks of you.
+
+{goal_context}"""
+
+
 def build_run_prompt(
     skill: LoadedSkill,
     *,
@@ -1661,6 +1671,7 @@ def build_run_prompt(
     precheck_rows: str | None = None,
     report_tags_in_use: Sequence[str] | None = None,
     strict_reviewer_selection: bool = False,
+    goal_context: str | None = None,
 ) -> str:
     """Render the opening prompt for one scout run.
 
@@ -1843,6 +1854,7 @@ def build_run_prompt(
             structured_output_section,
             run_identity,
             _precheck_result_section(precheck_rows),
+            _goal_context_section(goal_context),
             # Last, because it is the most per-run value in the prompt.
             run_note_section,
         )

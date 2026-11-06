@@ -126,7 +126,7 @@ class ExperimentSummaryDataService:
         self._team = team
         self._user = user
 
-    async def fetch_experiment_data(self, experiment_id: int) -> ExperimentSummaryData:
+    async def fetch_experiment_data(self, experiment_id: int, *, fresh: bool = False) -> ExperimentSummaryData:
         """Fetch experiment data from the database and run cached queries concurrently."""
         team_id = self._team.id
 
@@ -156,7 +156,9 @@ class ExperimentSummaryDataService:
         # PostHog AI gets one shot at the data — unlike the frontend it can't poll, so a
         # stale metric returned as "pending" is silently dropped from the summary. Always
         # block on stale cache so every metric resolves inline.
-        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        execution_mode = (
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS if fresh else ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        )
 
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES)
 

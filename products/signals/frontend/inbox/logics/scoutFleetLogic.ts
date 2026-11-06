@@ -16,8 +16,9 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api-error'
-import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
+import { FEATURE_FLAGS, FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { reconcileById } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -32,6 +33,7 @@ import {
     signalsScoutConfigRun,
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
+    signalsScoutGoalsList,
     signalsScoutMetadataGet,
     signalsScoutRunsFindingsSummary,
     signalsScoutRunsList,
@@ -39,6 +41,7 @@ import {
 } from 'products/signals/frontend/generated/api'
 import type {
     FleetFindingsSummaryApi,
+    GoalScoutEntryApi,
     PatchedSignalScoutConfigUpdateApi,
     ScoutMetadataApi,
     SignalScoutConfigApi,
@@ -58,10 +61,12 @@ import {
 } from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
+import { goalRank, GoalRosterSections } from '../utils/goal/status'
 import { compareScoutsByName, SCOUT_GROUP_ORDER, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
 import { selfDrivingSpendLogic } from './selfDrivingSpendLogic'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
+export type ScoutKindFilter = 'all' | 'goals' | 'watching'
 export type ScoutRosterSort = 'name' | 'status' | 'created' | 'updated' | 'last_run'
 import type { BreakPointFunction } from 'kea'
 
@@ -210,6 +215,7 @@ const ROSTER_SEARCH_DEBOUNCE_MS = 600
 interface RosterFilterState {
     scoutSearch: string
     scoutEnabledFilter: ScoutEnabledFilter
+    scoutKindFilter: ScoutKindFilter
     selectedScoutTags: string[]
     selectedScoutOwner: string | null
 }
@@ -228,6 +234,11 @@ function rosterFilterSearchParams(base: Record<string, any>, filters: RosterFilt
         params.scoutEnabled = filters.scoutEnabledFilter
     } else {
         delete params.scoutEnabled
+    }
+    if (filters.scoutKindFilter !== 'all') {
+        params.scoutKind = filters.scoutKindFilter
+    } else {
+        delete params.scoutKind
     }
     if (filters.selectedScoutTags.length > 0) {
         params.scoutTags = filters.selectedScoutTags.join(',')
@@ -263,6 +274,10 @@ function parseRosterFilterSearchParams(searchParams: Record<string, any>): Roste
             searchParams.scoutEnabled === 'enabled' || searchParams.scoutEnabled === 'disabled'
                 ? searchParams.scoutEnabled
                 : 'all',
+        scoutKindFilter:
+            searchParams.scoutKind === 'goals' || searchParams.scoutKind === 'watching'
+                ? searchParams.scoutKind
+                : 'all',
         selectedScoutTags: tags ? tags.split(',').filter(Boolean) : [],
         selectedScoutOwner: readTextParam(searchParams.scoutOwner) || null,
     }
@@ -276,6 +291,7 @@ function rosterFilterUrlState(values: scoutFleetLogicValues): RosterFilterState 
     return {
         scoutSearch: values.scoutSearch,
         scoutEnabledFilter: values.scoutEnabledFilter,
+        scoutKindFilter: values.scoutKindFilter,
         selectedScoutTags: unresolvedFleet ? values.selectedScoutTags : values.activeScoutTags,
         selectedScoutOwner: unresolvedFleet ? values.selectedScoutOwner : values.activeScoutOwner,
     }
@@ -322,6 +338,7 @@ export interface ScoutChatRequest {
 export interface scoutFleetLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     activeScoutOwner: string | null
     activeScoutTags: string[]
     aiConsentDisabledReason: string | null
@@ -340,6 +357,12 @@ export interface scoutFleetLogicValues {
     fleetFindingsSummaryLoadedOnce: boolean
     fleetFindingsSummaryLoading: boolean
     fleetSummary: FleetSummary | null
+    goalScoutsEnabled: boolean
+    goalScoutsPending: boolean
+    goals: GoalScoutEntryApi[] | null
+    goalsById: Record<string, GoalScoutEntryApi>
+    goalsLoading: boolean
+    hasGoalScouts: boolean
     isStaff: boolean
     lastRunAt: string | null
     manualRunScoutIds: string[]
@@ -353,6 +376,7 @@ export interface scoutFleetLogicValues {
     rosterGroupCounts: Record<ScoutGroupKey, number>
     rosterScouts: ScoutRosterRow[]
     rosterScoutsBeforeSearch: ScoutRosterRow[]
+    rosterSections: GoalRosterSections
     runNoteDrafts: Record<string, string>
     runNotePopoverConfigId: string | null
     runningChatType: ScoutChatType | null
@@ -372,6 +396,7 @@ export interface scoutFleetLogicValues {
     scoutFleetSyncRequested: boolean
     scoutFleetSyncSurface: SignalsScoutConfigSyncSurface
     scoutFleetSynced: boolean
+    scoutKindFilter: ScoutKindFilter
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
     scoutOwnerOptions: ScoutOwnerOption[]
@@ -403,9 +428,11 @@ export interface scoutFleetLogicActions {
         search: string,
         filter: ScoutEnabledFilter,
         tags: string[],
-        owner: string | null
+        owner: string | null,
+        kind: ScoutKindFilter
     ) => {
         filter: ScoutEnabledFilter
+        kind: ScoutKindFilter
         owner: string | null
         search: string
         tags: string[]
@@ -424,6 +451,21 @@ export interface scoutFleetLogicActions {
     ) => {
         fleetFindingsSummary: FleetFindingsSummaryApi | null
         payload?: any
+    }
+    loadGoals: (_: void) => void
+    loadGoalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadGoalsSuccess: (
+        goals: GoalScoutEntryApi[] | null,
+        payload?: void
+    ) => {
+        goals: GoalScoutEntryApi[] | null
+        payload?: void
     }
     loadRunsWindow: (_: void) => void
     loadRunsWindowFailure: (
@@ -568,6 +610,9 @@ export interface scoutFleetLogicActions {
     setScoutFleetSyncOutcome: (outcome: ScoutFleetSyncOutcome) => {
         outcome: ScoutFleetSyncOutcome
     }
+    setScoutKindFilter: (kind: ScoutKindFilter) => {
+        kind: ScoutKindFilter
+    }
     setScoutOwnerFilter: (owner: string | null) => {
         owner: string | null
     }
@@ -666,6 +711,10 @@ export interface scoutFleetLogicMeta {
         activeScoutTags: (selectedScoutTags: string[], scoutTagOptions: ScoutTagOption[]) => string[]
         scoutOwnerOptions: (scoutConfigs: SignalScoutConfigApi[] | null) => ScoutOwnerOption[]
         activeScoutOwner: (selectedScoutOwner: string | null, scoutOwnerOptions: ScoutOwnerOption[]) => string | null
+        goalsById: (goals: GoalScoutEntryApi[] | null) => Record<string, GoalScoutEntryApi>
+        hasGoalScouts: (goals: GoalScoutEntryApi[] | null) => boolean
+        goalScoutsEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        goalScoutsPending: (goalScoutsEnabled: any, goals: GoalScoutEntryApi[] | null, goalsLoading: boolean) => boolean
         rosterScoutsBeforeSearch: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>,
@@ -673,9 +722,15 @@ export interface scoutFleetLogicMeta {
             activeScoutTags: string[],
             activeScoutOwner: string | null,
             scoutEnabledFilter: ScoutEnabledFilter,
+            scoutKindFilter: ScoutKindFilter,
+            goalsById: Record<string, GoalScoutEntryApi>,
             scoutRosterSort: ScoutRosterSort
         ) => ScoutRosterRow[]
         rosterScouts: (rosterScoutsBeforeSearch: ScoutRosterRow[], scoutSearch: string) => ScoutRosterRow[]
+        rosterSections: (
+            rosterScouts: ScoutRosterRow[],
+            goalsById: Record<string, GoalScoutEntryApi>
+        ) => GoalRosterSections
         rosterGroupCounts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>,
@@ -719,7 +774,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     path(['scenes', 'inbox', 'logics', 'scoutFleetLogic']),
 
     connect({
-        values: [aiConsentLogic, ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason']],
+        values: [
+            aiConsentLogic,
+            ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     }),
 
     actions({
@@ -741,14 +801,22 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         setRosterEvaluatedAt: (evaluatedAt: number) => ({ evaluatedAt }),
         setScoutEnabledFilter: (filter: ScoutEnabledFilter) => ({ filter }),
         setScoutOwnerFilter: (owner: string | null) => ({ owner }),
+        setScoutKindFilter: (kind: ScoutKindFilter) => ({ kind }),
         setScoutRosterSort: (sort: ScoutRosterSort) => ({ sort }),
         // Bulk-applies the roster filters from the URL. Kept out of `actionToUrl` so hydrating from a
         // link does not echo the same URL back as a fresh history entry.
-        hydrateRosterFilters: (search: string, filter: ScoutEnabledFilter, tags: string[], owner: string | null) => ({
+        hydrateRosterFilters: (
+            search: string,
+            filter: ScoutEnabledFilter,
+            tags: string[],
+            owner: string | null,
+            kind: ScoutKindFilter
+        ) => ({
             search,
             filter,
             tags,
             owner,
+            kind,
         }),
         runScoutNow: (configId: string, note?: string) => ({ configId, note }),
         runScoutNowFinished: (configId: string) => ({ configId }),
@@ -849,6 +917,20 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         }
                         throw error
                     }
+                },
+            },
+        ],
+        goals: [
+            null as GoalScoutEntryApi[] | null,
+            {
+                loadGoals: async (_: void, breakpoint) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || !values.goalScoutsEnabled) {
+                        return null
+                    }
+                    const goals = await signalsScoutGoalsList(String(teamId))
+                    breakpoint()
+                    return reconcileById(values.goals ?? [], goals, (goal) => goal.id)
                 },
             },
         ],
@@ -1080,6 +1162,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 hydrateRosterFilters: (_, { owner }) => owner,
             },
         ],
+        scoutKindFilter: [
+            'all' as ScoutKindFilter,
+            {
+                setScoutKindFilter: (_, { kind }) => kind,
+                hydrateRosterFilters: (_, { kind }) => kind,
+            },
+        ],
         scoutRosterSort: [
             'name' as ScoutRosterSort,
             { persist: true },
@@ -1305,6 +1394,22 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
          * Search sits in `rosterScouts` on top of this, so a keystroke only re-runs a name match:
          * the sort does not run again, and every row that still matches keeps its object identity.
          */
+        goalsById: [
+            (s) => [s.goals],
+            (goals: GoalScoutEntryApi[] | null): Record<string, GoalScoutEntryApi> =>
+                Object.fromEntries((goals ?? []).map((goal) => [goal.id, goal])),
+        ],
+        hasGoalScouts: [(s) => [s.goals], (goals: GoalScoutEntryApi[] | null): boolean => (goals ?? []).length > 0],
+        goalScoutsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.GOAL_SCOUTS] && !!featureFlags[FEATURE_FLAGS.PRODUCT_AUTONOMY],
+        ],
+        goalScoutsPending: [
+            (s) => [s.goalScoutsEnabled, s.goals, s.goalsLoading],
+            (goalScoutsEnabled: boolean, goals: GoalScoutEntryApi[] | null, goalsLoading: boolean): boolean =>
+                goalScoutsEnabled && goals === null && goalsLoading,
+        ],
         rosterScoutsBeforeSearch: [
             (s) => [
                 s.scoutConfigs,
@@ -1313,6 +1418,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 s.activeScoutTags,
                 s.activeScoutOwner,
                 s.scoutEnabledFilter,
+                s.scoutKindFilter,
+                s.goalsById,
                 s.scoutRosterSort,
             ],
             (
@@ -1322,16 +1429,23 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 activeScoutTags: string[],
                 activeScoutOwner: string | null,
                 scoutEnabledFilter: ScoutEnabledFilter,
+                scoutKindFilter: ScoutKindFilter,
+                goalsById: Record<string, GoalScoutEntryApi>,
                 scoutRosterSort: ScoutRosterSort
             ): ScoutRosterRow[] => {
                 const now = new Date(rosterEvaluatedAt)
+                const isGoal = (config: SignalScoutConfig): boolean => config.id in goalsById
+                const kindFilter = Object.keys(goalsById).length > 0 ? scoutKindFilter : 'all'
                 const rows = [...(scoutConfigs ?? [])]
                     .filter((config) => configMatchesScoutTags(config, activeScoutTags))
                     .filter((config) => configMatchesScoutOwner(config, activeScoutOwner))
                     .filter(
                         (config) =>
-                            scoutEnabledFilter === 'all' || config.enabled === (scoutEnabledFilter === 'enabled')
+                            isGoal(config) ||
+                            scoutEnabledFilter === 'all' ||
+                            config.enabled === (scoutEnabledFilter === 'enabled')
                     )
+                    .filter((config) => kindFilter === 'all' || isGoal(config) === (kindFilter === 'goals'))
                     .sort(compareScoutsByName)
                     .map((config) => ({ config, group: scoutGroup(config, rollups.get(config.skill_name), now) }))
                 // Both re-sorts are stable: rows are already A to Z, so equal keys keep their name order.
@@ -1360,6 +1474,19 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 return rosterScoutsBeforeSearch.filter((row) =>
                     scoutDisplayName(row.config).toLowerCase().includes(query)
                 )
+            },
+        ],
+        rosterSections: [
+            (s) => [s.rosterScouts, s.goalsById],
+            (rosterScouts: ScoutRosterRow[], goalsById: Record<string, GoalScoutEntryApi>): GoalRosterSections => {
+                const goals = rosterScouts
+                    .filter((row) => row.config.id in goalsById)
+                    .sort((a, b) => goalRank(goalsById[a.config.id]) - goalRank(goalsById[b.config.id]))
+                return {
+                    openGoals: goals.filter((row) => goalsById[row.config.id].status !== 'closed'),
+                    closedGoals: goals.filter((row) => goalsById[row.config.id].status === 'closed'),
+                    scouts: rosterScouts.filter((row) => !(row.config.id in goalsById)),
+                }
             },
         ],
         /**
@@ -1486,6 +1613,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         ? (values.scoutConfigs ?? []).filter((config) => configMatchesScoutTags(config, tags)).length
                         : undefined,
                 },
+            })
+        },
+        setScoutKindFilter: ({ kind }) => {
+            captureScoutAction({
+                actionType: 'filter_kind',
+                surface: 'fleet_list',
+                extra: { filter: kind, filter_match_count: values.rosterScouts.length },
             })
         },
         setScoutEnabledFilter: ({ filter }) => {
@@ -1816,8 +1950,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         // The roster can open while the first config read is still in flight. Syncing on top of it
         // would let the older read land last and blank the roster again, so the sync waits for the
         // read to settle and starts from here instead.
-        loadScoutConfigsSuccess: sharedListeners.syncScoutFleetIfOwed,
+        loadScoutConfigsSuccess: (payload, breakpoint, action, previousState) => {
+            sharedListeners.syncScoutFleetIfOwed(payload, breakpoint, action, previousState)
+            actions.loadGoals()
+        },
         loadScoutConfigsFailure: sharedListeners.syncScoutFleetIfOwed,
+        syncScoutFleetSuccess: () => actions.loadGoals(),
         startRunsPolling: () => {
             // Fetch once immediately, then a slow poll keeps "running now" + recent emissions
             // fresh. The keyed disposable is torn down on stopRunsPolling / unmount / tab hide.
@@ -1868,6 +2006,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             setScoutEnabledFilter: toUrl,
             setScoutTagFilter: toUrl,
             setScoutOwnerFilter: toUrl,
+            setScoutKindFilter: toUrl,
         }
     }),
 
@@ -1881,6 +2020,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             const hasRosterParams =
                 'scoutSearch' in searchParams ||
                 'scoutEnabled' in searchParams ||
+                'scoutKind' in searchParams ||
                 'scoutTags' in searchParams ||
                 'scoutOwner' in searchParams
             if (!hasRosterParams) {
@@ -1893,10 +2033,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     if (
                         values.scoutSearch !== '' ||
                         values.scoutEnabledFilter !== 'all' ||
+                        values.scoutKindFilter !== 'all' ||
                         values.selectedScoutTags.length > 0 ||
                         values.selectedScoutOwner !== null
                     ) {
-                        actions.hydrateRosterFilters('', 'all', [], null)
+                        actions.hydrateRosterFilters('', 'all', [], null, 'all')
                     }
                     return
                 }
@@ -1926,6 +2067,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             if (
                 parsed.scoutSearch.trim() === values.scoutSearch.trim() &&
                 parsed.scoutEnabledFilter === values.scoutEnabledFilter &&
+                parsed.scoutKindFilter === values.scoutKindFilter &&
                 sameTags(parsed.selectedScoutTags, values.selectedScoutTags) &&
                 parsed.selectedScoutOwner === values.selectedScoutOwner
             ) {
@@ -1935,7 +2077,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 parsed.scoutSearch,
                 parsed.scoutEnabledFilter,
                 parsed.selectedScoutTags,
-                parsed.selectedScoutOwner
+                parsed.selectedScoutOwner,
+                parsed.scoutKindFilter
             )
         }
         return {

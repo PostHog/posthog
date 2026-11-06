@@ -92,6 +92,7 @@ from products.signals.backend.models import (
     SignalReportCheck,
     SignalScoutConfig,
     SignalScoutEmission,
+    SignalScoutGoalIdea,
     SignalScoutNote,
     SignalScoutRun,
 )
@@ -4005,6 +4006,12 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
                 "This scout watches the self-driving system itself, so it can't be deleted. "
                 "Switch it off in its settings if you need it to stop running."
             )
+        if (
+            SignalScoutGoalIdea.objects.for_team(team_id)
+            .filter(goal_id=config.id, stage__in=SignalScoutGoalIdea.OPEN_STAGES)
+            .exists()
+        ):
+            raise exceptions.ValidationError("Close the goal first. It ends its running test.")
         if config.lifecycle_locked:
             assert_can_change_scout_lifecycle(
                 request=request,

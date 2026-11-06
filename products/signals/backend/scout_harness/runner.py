@@ -41,8 +41,10 @@ from products.signals.backend.first_report_experiment import FirstReportExperime
 from products.signals.backend.first_report_scout import set_first_report_state
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult
 from products.signals.backend.github_optional import ResearchAccessPolicy
+from products.signals.backend.goal_scouts.scout import goal_run_gate
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_content_gates import team_research_reviewer_selection_enabled
+from products.signals.backend.scout_authorship import GOAL_RUN_METADATA_KEY
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
@@ -380,6 +382,23 @@ async def _arun_signals_scout(
         config.write_scopes = []
         skill = replace(skill, body=trial.skill_body)
 
+    goal_gate = (
+        await database_sync_to_async(goal_run_gate, thread_sensitive=False)(team.parent_team_id or team.id, config.pk)
+        if trial is None
+        else None
+    )
+    if goal_gate is not None and goal_gate.refusal:
+        return RunResult(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            last_message=None,
+            runtime_s=0.0,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            skip_reason=goal_gate.refusal,
+        )
+
     # Stale-run recovery, before the skip-if-running guard below. A scout run writes its own
     # terminal `task_run.status` from inside the activity; if the worker/sandbox dies hard
     # mid-run that write never lands, leaving the TaskRun stuck `IN_PROGRESS` — which would
@@ -585,6 +604,7 @@ async def _arun_signals_scout(
             check_id=check_id,
             precheck_rows=precheck_rows,
             precheck_query_source=precheck_query_source,
+            goal_context=goal_gate.context if goal_gate is not None else None,
         )
         trial_status = tasks_facade.TaskRunStatus.COMPLETED.value
         runtime_s = time.monotonic() - started
@@ -1046,6 +1066,7 @@ async def _spawn_and_run(
     check_id: str | None = None,
     precheck_rows: str | None = None,
     precheck_query_source: str | None = None,
+    goal_context: str | None = None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
@@ -1182,6 +1203,7 @@ async def _spawn_and_run(
         is_private_trial=trial is not None,
         precheck_rows=precheck_rows,
         report_tags_in_use=report_tags_in_use,
+        goal_context=goal_context,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -1220,6 +1242,7 @@ async def _spawn_and_run(
             check_id=check_id,
             precheck_query_source=precheck_query_source,
             mcp_tool_allowlist=mcp_tool_allowlist,
+            goal_id=str(config.pk) if goal_context is not None else None,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -1531,6 +1554,7 @@ def _create_run_row(
     check_id: str | None = None,
     precheck_query_source: str | None = None,
     mcp_tool_allowlist: list[str] | None = None,
+    goal_id: str | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
     # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
@@ -1640,6 +1664,8 @@ def _create_run_row(
     # by it. Absent when no pre-check ran.
     if precheck_query_source:
         metadata["precheck_query_source"] = precheck_query_source
+    if goal_id:
+        metadata[GOAL_RUN_METADATA_KEY] = goal_id
     with transaction.atomic():
         run = SignalScoutRun.objects.for_team(team.id).create(
             id=run_id,
