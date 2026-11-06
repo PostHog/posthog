@@ -3,7 +3,8 @@ the worker resolves into a function's inputs.
 
 An origin is `scheme://host[:port]` with the default port left out, as `secret_origins.url_origin`
 returns it. A kind's origins are either fixed, or the integration's own instance, read from one config
-key. Integration config cannot be edited after creation, so it is a trusted anchor.
+key. Integration config cannot be edited after creation, so it is a trusted anchor. A kind can also
+name the worker functions that take the connection itself, such as `sendPushNotification`.
 
 A kind missing from `INTEGRATION_ORIGINS` is unlisted, and the API treats it like a secret whose
 origins are unknown: a save may keep the config it already had, and any other save that sends it
@@ -38,36 +39,60 @@ def _https_origin(url: str) -> str | None:
     return origin if origin and origin.startswith("https://") else None
 
 
-INTEGRATION_ORIGINS: dict[str, frozenset[str] | InstanceOrigin] = {
-    "apns": frozenset({"https://api.push.apple.com", "https://api.sandbox.push.apple.com"}),
-    "clickup": frozenset({"https://api.clickup.com"}),
-    "email": frozenset(),
-    "firebase": frozenset({"https://fcm.googleapis.com"}),
-    "github": frozenset({"https://api.github.com"}),
+@frozen
+class KindRule:
+    origins: frozenset[str] | InstanceOrigin
+    # First-party worker functions that take the connection and resolve its credentials themselves. Code
+    # that hands the connection to one of them does not choose where the credentials go.
+    worker_calls: frozenset[str] = frozenset()
+
+
+def _fixed(*origins: str) -> KindRule:
+    return KindRule(origins=frozenset(origins))
+
+
+_PUSH_CALLS = frozenset({"sendPushNotification"})
+
+INTEGRATION_ORIGINS: dict[str, KindRule] = {
+    "apns": KindRule(
+        origins=frozenset({"https://api.push.apple.com", "https://api.sandbox.push.apple.com"}),
+        worker_calls=_PUSH_CALLS,
+    ),
+    "clickup": _fixed("https://api.clickup.com"),
+    "email": _fixed(),
+    "firebase": KindRule(origins=frozenset({"https://fcm.googleapis.com"}), worker_calls=_PUSH_CALLS),
+    "github": _fixed("https://api.github.com"),
     # GitLab can be self-hosted, so any HTTPS host the connection was made to is its own.
-    "gitlab": InstanceOrigin(config_key="hostname", origin=_https_origin),
-    "google-ads": frozenset({"https://googleads.googleapis.com"}),
-    "google-cloud-storage": frozenset({"https://storage.googleapis.com"}),
-    "google-pubsub": frozenset({"https://pubsub.googleapis.com"}),
-    "google-sheets": frozenset({"https://sheets.googleapis.com"}),
-    "hubspot": frozenset({"https://api.hubapi.com"}),
-    "intercom": frozenset({"https://api.intercom.io", "https://api.eu.intercom.io", "https://api.au.intercom.io"}),
-    "linear": frozenset({"https://api.linear.app"}),
-    "linkedin-ads": frozenset({"https://api.linkedin.com"}),
-    "salesforce": InstanceOrigin(config_key="instance_url", origin=salesforce_instance_host),
-    "slack": frozenset({"https://slack.com"}),
-    "snapchat": frozenset({"https://tr.snapchat.com"}),
-    "twilio": frozenset({"https://api.twilio.com"}),
+    "gitlab": KindRule(origins=InstanceOrigin(config_key="hostname", origin=_https_origin)),
+    "google-ads": _fixed("https://googleads.googleapis.com"),
+    "google-cloud-storage": _fixed("https://storage.googleapis.com"),
+    "google-pubsub": _fixed("https://pubsub.googleapis.com"),
+    "google-sheets": _fixed("https://sheets.googleapis.com"),
+    "hubspot": _fixed("https://api.hubapi.com"),
+    "intercom": _fixed("https://api.intercom.io", "https://api.eu.intercom.io", "https://api.au.intercom.io"),
+    "linear": _fixed("https://api.linear.app"),
+    "linkedin-ads": _fixed("https://api.linkedin.com"),
+    "salesforce": KindRule(origins=InstanceOrigin(config_key="instance_url", origin=salesforce_instance_host)),
+    "slack": _fixed("https://slack.com"),
+    "snapchat": _fixed("https://tr.snapchat.com"),
+    "twilio": _fixed("https://api.twilio.com"),
 }
 
 
 def integration_origins(kind: str, config: Mapping[str, Any]) -> frozenset[str] | None:
     rule = INTEGRATION_ORIGINS.get(kind)
-    if rule is None or isinstance(rule, frozenset):
-        return rule
-    value = config.get(rule.config_key)
-    origin = rule.origin(value) if isinstance(value, str) else None
+    if rule is None:
+        return None
+    if isinstance(rule.origins, frozenset):
+        return rule.origins
+    value = config.get(rule.origins.config_key)
+    origin = rule.origins.origin(value) if isinstance(value, str) else None
     return frozenset({origin}) if origin else frozenset()
+
+
+def integration_worker_calls(kind: str) -> frozenset[str]:
+    rule = INTEGRATION_ORIGINS.get(kind)
+    return rule.worker_calls if rule else frozenset()
 
 
 def _integration_ids(value: Any) -> Iterable[int]:

