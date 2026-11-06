@@ -61,7 +61,6 @@ export function LoginCodeStep(): JSX.Element {
                         <span>Code sent</span>
                     </p>
                 )}
-                {/* The error banner's "Need help?" needs a wrong code, so this is the only path when no code arrives */}
                 {codeResendAttempted && preflight?.cloud && (
                     <p className="text-xs text-secondary mb-0">
                         <span>Still nothing? </span>
@@ -72,7 +71,6 @@ export function LoginCodeStep(): JSX.Element {
                                 openSupportForm({
                                     kind: 'support',
                                     email: codeVerificationEmail ?? undefined,
-                                    // Keep a draft the person already started
                                     message: sendSupportRequest.message
                                         ? undefined
                                         : `I need help logging in.\nI haven't received the emailed verification code.${

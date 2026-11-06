@@ -386,7 +386,6 @@ export const loginLogic = kea<loginLogicType>([
                 exitCodeVerification: () => null,
             },
         ],
-        // Separate from `resendResponse`, which the loader nulls on a throttled resend
         codeResendAttempted: [
             false,
             {
