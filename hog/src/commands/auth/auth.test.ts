@@ -882,6 +882,12 @@ describe('hog auth login', () => {
         ],
         ['a scope PostHog does not have', ['insight:admin'], {}, { code: 'unknown_scope' }],
         [
+            'a scope this hog does not know',
+            ['newthing:read'],
+            {},
+            { code: 'unknown_scope', hint: expect.stringContaining('update hog') },
+        ],
+        [
             'a personal API key',
             ['insight:write'],
             { HOG_PERSONAL_API_KEY: 'phx_secret', HOG_PROJECT_ID: '42' },
