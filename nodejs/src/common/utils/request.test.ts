@@ -536,7 +536,6 @@ describe('busiest origin metric', () => {
                     request.fetch(url(busyOrigin)),
                     request.fetch(url(quietOrigin)),
                 ]
-                // Two requests to the busy origin hold its connections, so its third request waits behind the cap.
                 await waitForExpect(() => expect(held).toHaveLength(3))
 
                 const sampler = setIntervalSpy.mock.calls.find(([, delay]) => delay === 1000)![0] as () => void
