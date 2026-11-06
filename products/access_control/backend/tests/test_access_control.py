@@ -2637,7 +2637,9 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
 
     def test_object_names_resolve_with_raw_id_fallback(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Growth dashboard", created_by=self.user)
-        insight = Insight.objects.create(team=self.team, derived_name="Weekly signups", created_by=self.user)
+        insight = Insight.objects.create(
+            id=dashboard.id, team=self.team, derived_name="Weekly signups", created_by=self.user
+        )
         AccessControl.objects.create(
             team=self.team, resource="dashboard", resource_id=str(dashboard.id), access_level="editor"
         )
@@ -2654,15 +2656,15 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
 
         res = self.client.get("/api/projects/@current/access_control_default_objects")
         assert res.status_code == status.HTTP_200_OK, res.json()
-        rows = {r["resource_id"]: r for r in res.json()["results"]}
-        assert rows[str(dashboard.id)]["name"] == "Growth dashboard"
+        rows = {(r["resource"], r["resource_id"]): r for r in res.json()["results"]}
+        assert rows[("dashboard", str(dashboard.id))]["name"] == "Growth dashboard"
         # Insight.name is empty, so the derived name shows, with short_id alongside for linking
-        assert rows[str(insight.id)]["name"] == "Weekly signups"
-        assert rows[str(insight.id)]["short_id"] == insight.short_id
+        assert rows[("insight", str(insight.id))]["name"] == "Weekly signups"
+        assert rows[("insight", str(insight.id))]["short_id"] == insight.short_id
         # Resolved through _MODELS_NOT_IN_ENTITY_MAP, since search doesn't index warehouse tables
-        assert rows[str(table.id)]["name"] == "events_parquet"
+        assert rows[("warehouse_table", str(table.id))]["name"] == "events_parquet"
         # A rule pointing at a missing object keeps the raw id as its name
-        assert rows["999999"]["name"] == "999999"
+        assert rows[("dashboard", "999999")]["name"] == "999999"
 
 
 class TestCohortUsedInAccessControl(BaseAccessControlTest):
