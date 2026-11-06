@@ -7,7 +7,8 @@ import type { InsightSnapshot, WebTrendMetric } from '@/model/views'
 import { ChartLegend, useChartLegend } from '@/ui/chart/ChartLegend'
 import { MetricChart } from '@/ui/chart/MetricChart'
 import { useTheme } from '@/ui/theme'
-
+import { useChartSheets } from '../pointSheet/ChartSheetsProvider'
+import type { ChartSheetSource } from '../pointSheet/chartSheetSource'
 import { intervalLabel, snapshotChartSeries, snapshotFormatter } from '../snapshotChart'
 import { useWebItemData, type WebItemRef } from './hooks'
 import { WebCard, webCardState } from './WebCard'
@@ -25,8 +26,23 @@ export function TrendCard({ data, metric, interval, rangeText }: TrendCardProps)
     const { chartPalette } = useTheme()
     const item = useWebItemData<InsightSnapshot>(data)
     const legend = useChartLegend()
+    const sheets = useChartSheets()
     const label = WEB_TREND_LABELS[metric]
     const snapshot = item.snapshot
+    const source = useMemo<ChartSheetSource | null>(
+        () =>
+            snapshot
+                ? {
+                      snapshot,
+                      // A held snapshot belongs to the previous range, so the sheet must not follow the new entry.
+                      queryKey: item.held ? null : data.queryKey,
+                      itemKey: data.itemKey,
+                      web: { path: '/web', viewType: 'web_analytics' },
+                      about: false,
+                  }
+                : null,
+        [snapshot, item.held, data.queryKey, data.itemKey]
+    )
     const series = useMemo(
         () =>
             snapshot
@@ -63,6 +79,7 @@ export function TrendCard({ data, metric, interval, rangeText }: TrendCardProps)
                         height={CHART_HEIGHT}
                         hiddenKeys={legend.state.hiddenKeys}
                         dataUntil={Number.isFinite(dataUntil) ? dataUntil : undefined}
+                        onPressTooltip={source ? (point) => sheets.openPoint(source, point, 'tooltip') : undefined}
                         selectionId="web-trend"
                         trackingContext="view"
                         accessibilitySummary={`${label}, line chart${rangeText ? `, ${rangeText}` : ''}`}
