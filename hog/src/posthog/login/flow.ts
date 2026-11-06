@@ -16,7 +16,12 @@ import { readLogin, writeLogin } from './stored'
 
 export const LOGIN_COMMAND = 'hog auth login'
 export const ADD_COMMAND = 'hog auth add'
-export const LOGIN_COMMANDS = [LOGIN_COMMAND, ADD_COMMAND]
+const LOGIN_COMMANDS = [LOGIN_COMMAND, ADD_COMMAND]
+
+// A login approved later must not replace a newer login, or one removed by logout, through `--wait`.
+export async function clearPendingLogins(runtime: Runtime): Promise<void> {
+    await Promise.all(LOGIN_COMMANDS.map((command) => clearPending(runtime, command)))
+}
 
 export interface LoggedIn {
     host: Host
@@ -107,10 +112,7 @@ export async function saveLogin(
         return stored || undefined
     })
     // Outside the lock: no renewal can rotate the replaced login once the new one is stored.
-    const [revoked] = await Promise.all([
-        replaced?.logout(runtime),
-        ...LOGIN_COMMANDS.map((command) => clearPending(runtime, command)),
-    ])
+    const [revoked] = await Promise.all([replaced?.logout(runtime), clearPendingLogins(runtime)])
     return {
         host,
         projectId: key.projectId,

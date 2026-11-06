@@ -1,16 +1,9 @@
-import { clearPending } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
-import type { Runtime } from '@/core/runtime'
 import { PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
-import { LOGIN_COMMANDS } from '@/posthog/login/flow'
+import { clearPendingLogins } from '@/posthog/login/flow'
 import { logout, logoutAll, type LoggedOutHost } from '@/posthog/login/stored'
 import { readSettings } from '@/posthog/settings'
-
-// A login or step-up approved after logout must not log hog back in with `--wait`.
-async function clearPendingLogins(runtime: Runtime): Promise<void> {
-    await Promise.all(LOGIN_COMMANDS.map((command) => clearPending(runtime, command)))
-}
 
 interface LogoutResult {
     status: 'logged_out' | 'not_logged_in'
