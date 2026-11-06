@@ -110,11 +110,10 @@ The input is always in exactly one mode, decided from the token under the cursor
 
 ### Ranked results
 
-Results for a search with words follow ordered tie-breaking rules: words matched, typos, word proximity, name before folder, exact words, word position, exactness, the person's recent views, then recency. Products rank with the same rules through their name and search keywords, so "recordings" finds Session replay. When a name match and a search keyword match tie, the name match ranks first, so "metrics" puts Metrics above Data catalog.
+Results for a search with words rank with one scorer that applies the same rules to every result type. Products rank through their name and search keywords, so "recordings" finds Session replay. When a name match and a search keyword match tie, the name match ranks first, so "metrics" puts Metrics above Data catalog.
 
 - Accounts rank with the results when account search is enabled. The Accounts API matches the full search text, so an account can suppress the partial-match or spelling notice even when its display name does not contain the text. Distinct accounts with the same name stay separate. Accounts get no file-system **See all** filter.
-- In the test group of the `command-k-unified-ranking` experiment, one scorer ranks every result type with the same rules.
-  The sources only find candidates. The scorer then orders them by words matched, typos, match tier, the person's recent views, word proximity, word position, a type preference, then recency.
+- The sources only find candidates. The scorer then orders them by words matched, typos, match tier, the person's recent views, word proximity, word position, a type preference, then recency.
   Match tiers, best first: exact name, exact name in singular, exact search keyword, name starts with the search, the same in singular, every word starts a name word, every word starts a name or keyword word, a match on an identity field (account external ID, website domain or email domain, person distinct ID), a match inside a word, then a match in the folder or type only.
   Names compare as words, split on hyphens and underscores, so `checkout flow` matches the flags `checkout-flow-redesign` and `checkout_flow_redesign` as names that start with the search.
   When every source answers and nothing matches, Cmd+K tries the search once more with underscores as spaces and says so ("No matches for **posthog_personal_api_key**. Showing results for **posthog personal api key**."), so a pasted variable name finds Personal API keys.

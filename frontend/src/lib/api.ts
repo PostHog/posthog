@@ -5452,9 +5452,6 @@ const api = {
         async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).get()
         },
-        async create(data: Partial<DataWarehouseTable>): Promise<DataWarehouseTable> {
-            return await new ApiRequest().dataWarehouseTables().create({ data })
-        },
         async delete(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).delete()
         },
