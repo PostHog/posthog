@@ -40,7 +40,11 @@ from products.messaging.backend.provider_imports.base import (
     StepCheckpoint,
     UnknownImportStep,
 )
-from products.messaging.backend.provider_imports.resend_templates import ConvertedTemplate, convert_template
+from products.messaging.backend.provider_imports.resend_templates import (
+    ConvertedTemplate,
+    convert_template,
+    convert_text,
+)
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
     ImportedSuppression,
@@ -56,7 +60,7 @@ from products.messaging.backend.services.resend_client import (
     ResendKeyRejected,
     ResendRateLimited,
 )
-from products.workflows.backend.facade.contracts import ImportedEmail
+from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail
 from products.workflows.backend.facade.workflow_imports import import_resend_automation
 
 # The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit.
@@ -98,7 +102,8 @@ class ResendImportProvider(ImportProvider):
     )
     api_key_url = "https://resend.com/api-keys"
     not_imported = (
-        "Contacts don't become people in PostHog. API keys, webhooks, send history and stats stay in Resend, so "
+        "Contacts don't become people in PostHog, so a segment an automation adds people to becomes an empty static "
+        "cohort. API keys, webhooks, send history and stats stay in Resend, so "
         "rebuild what you need."
     )
     next_steps = (
@@ -523,15 +528,26 @@ def _fetch_automations(
 ) -> Iterator[ImportPage]:
     # Automations often share templates, and each read costs one request against the customer's rate limit.
     templates: dict[str, dict[str, Any] | None] = {}
+    segments: dict[str, str | None] = {}
     for page in client.pages("/automations", _after(checkpoint)):
         automations = [client.get(f"/automations/{item['id']}") for item in page.data if item.get("id")]
         references = {reference for automation in automations for reference in _template_references(automation)}
         for reference in references:
             if reference not in templates:
                 templates[reference] = _read_template(client, reference)
+        segment_ids = {segment_id for automation in automations for segment_id in _segment_references(automation)}
+        for segment_id in segment_ids:
+            if segment_id not in segments:
+                segments[segment_id] = _read_segment_name(client, segment_id)
         yield ImportPage(
             processed=len(page.data),
-            save=partial(_save_automations, context, automations, {ref: templates[ref] for ref in references}),
+            save=partial(
+                _save_automations,
+                context,
+                automations,
+                {ref: templates[ref] for ref in references},
+                {segment_id: segments[segment_id] for segment_id in segment_ids},
+            ),
             checkpoint=_next_checkpoint(page.next_after),
         )
 
@@ -546,6 +562,27 @@ def _template_references(automation: dict[str, Any]) -> set[str]:
     return references
 
 
+def _segment_references(automation: dict[str, Any]) -> set[str]:
+    return {
+        str(step["config"]["segment_id"])
+        for step in automation.get("steps") or []
+        if isinstance(step, dict)
+        and step.get("type") == "add_to_segment"
+        and isinstance(step.get("config"), dict)
+        and step["config"].get("segment_id")
+    }
+
+
+def _read_segment_name(client: ResendClient, segment_id: str) -> str | None:
+    try:
+        return str(client.get(f"/segments/{segment_id}").get("name") or segment_id)
+    except ResendAPIError as e:
+        # A step can name a deleted segment. Its draft gets a note, and the rest of the import carries on.
+        if e.status_code == 404:
+            return None
+        raise
+
+
 def _read_template(client: ResendClient, reference: str) -> dict[str, Any] | None:
     try:
         return client.get(f"/templates/{reference}")
@@ -557,7 +594,10 @@ def _read_template(client: ResendClient, reference: str) -> dict[str, Any] | Non
 
 
 def _save_automations(
-    context: ImportContext, automations: list[dict[str, Any]], templates: dict[str, dict[str, Any] | None]
+    context: ImportContext,
+    automations: list[dict[str, Any]],
+    templates: dict[str, dict[str, Any] | None],
+    segments: dict[str, str | None],
 ) -> SavedPage:
     senders = _senders(context.team_id)
     emails = {
@@ -566,7 +606,14 @@ def _save_automations(
     items: list[ImportItem] = []
     counts: Counter[str] = Counter()
     for automation in automations:
-        result = import_resend_automation(context.team_id, context.created_by_id, automation, emails)
+        result = import_resend_automation(
+            context.team_id,
+            context.created_by_id,
+            automation,
+            emails,
+            step_emails=_step_emails(automation, senders),
+            segments=segments,
+        )
         counts[{"created": "created", "skipped": "already_present"}.get(result.status, "failed")] += 1
         items.append(
             ImportItem(
@@ -597,6 +644,45 @@ def _imported_email(template: dict[str, Any], senders: Mapping[str, IntegrationR
         sender_integration_id=sender.get("integrationId"),
         reply_to=email.get("replyTo", ""),
         notes=(*converted.notes, *sender_notes),
+        contact_variables=converted.contact_variables,
+    )
+
+
+def _step_emails(automation: dict[str, Any], senders: Mapping[str, IntegrationRecord]) -> dict[str, ImportedStepEmail]:
+    """What each send email step overrides about its template, by step key."""
+    overrides: dict[str, ImportedStepEmail] = {}
+    for step in automation.get("steps") or []:
+        config = step.get("config") if isinstance(step, dict) else None
+        if not isinstance(config, dict) or step.get("type") != "send_email":
+            continue
+        if config.get("subject") or config.get("from"):
+            overrides[str(step.get("key"))] = _step_email(config, senders)
+    return overrides
+
+
+def _step_email(config: dict[str, Any], senders: Mapping[str, IntegrationRecord]) -> ImportedStepEmail:
+    subject = convert_text(str(config.get("subject") or ""), {}, is_html=False)
+    notes: list[str] = []
+    if subject.unsupported_tags:
+        notes.append(
+            f"PostHog can't convert {', '.join(subject.unsupported_tags)} in this step's subject, so it appears as "
+            "plain text. Rewrite it in Liquid."
+        )
+    display_name, address = parseaddr(str(config.get("from") or ""))
+    sender = senders.get(address.lower()) if address else None
+    if address and sender is None:
+        notes.append(f"This step sends from {address}, which isn't a PostHog sender yet. Add it, then choose it here.")
+    elif sender is not None and not sender.config.get("verified"):
+        notes.append(
+            f"This step sends from {address}, which isn't verified in PostHog yet, so it can't send until it is."
+        )
+    return ImportedStepEmail(
+        subject=subject.text,
+        contact_variables=subject.contact_variables,
+        from_email=address,
+        from_name=display_name or (str(sender.config.get("name") or "") if sender else ""),
+        sender_integration_id=sender.id if sender else None,
+        notes=tuple(notes),
     )
 
 

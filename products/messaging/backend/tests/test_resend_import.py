@@ -16,6 +16,7 @@ from posthog.integrations import IntegrationManager
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.cohorts.backend.models.cohort import Cohort
 from products.messaging.backend.facade.provider_imports import get_provider_import_run
 from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
 from products.messaging.backend.models.message_category import MessageCategory
@@ -69,7 +70,7 @@ class FakeResend:
             return self._response(status, {"name": "rate_limit_exceeded", "message": "Too many"}, headers)
         if match := re.fullmatch(r"/contacts/([^/]+)/topics", path):
             return self._page(self.data["contact_topics"].get(match.group(1), []), params)
-        if match := re.fullmatch(r"/(templates|domains|automations)/([^/]+)", path):
+        if match := re.fullmatch(r"/(templates|domains|automations|segments)/([^/]+)", path):
             for row in self.data[match.group(1)]:
                 if match.group(2) in (row["id"], row.get("alias")):
                     return self._response(200, row)
@@ -344,7 +345,9 @@ class TestResendImport(BaseTest):
         assert action_types["wait"] == "delay"
         assert action_types["is_pro"] == "conditional_branch"
         assert action_types["wait_upgrade"] == "wait_until_condition"
-        assert "tag" not in action_types and "update" not in action_types
+        assert action_types["update"] == "function"
+        update = next(a for a in actions if a["id"] == "update")["config"]
+        assert update["inputs"]["set_properties"]["value"] == {"first_name": "{event.properties.first_name}"}
         edges = {(edge["from"], edge["to"], edge["type"]) for edge in cast(list[dict[str, Any]], workflow.edges)}
         assert ("wait_upgrade", "receipt", "branch") in edges
         html = next(a for a in actions if a["id"] == "welcome")["config"]["inputs"]["email"]["value"]["html"]
@@ -352,6 +355,44 @@ class TestResendImport(BaseTest):
         assert '"free"' in html
         assert any("user.created" in note for note in items["Welcome series"]["notes"])
         assert any("couldn't read this email's template" in note for note in items["Re-engagement"]["notes"])
+
+    def test_segments_become_one_static_cohort_that_later_imports_respect(self) -> None:
+        run = self._run(["automations"])
+        cohort = Cohort.objects.get(team_id=self.team.id, description="Imported from Resend segment seg-1.")
+        assert cohort.is_static
+        assert cohort.name == "Pro customers (from Resend)"
+        items = {item["label"]: item for item in run.progress["automations"]["items"]}
+        workflow = get_workflow(
+            team_id=self.team.id,
+            workflow_id=items["Welcome series"]["url"].split("/")[2],
+            user_access_control=None,
+            required_level=None,
+        )
+        tag = next(action for action in cast(list[dict[str, Any]], workflow.actions) if action["id"] == "tag")
+        assert tag["config"]["inputs"]["cohort_id"]["value"] == cohort.id
+
+        # A new automation naming the same segment reuses the cohort, and a deleted one stays deleted.
+        second = {**FIXTURES["automations"][0], "id": "a0000000-0000-4000-8000-000000000003", "name": "Copy"}
+        third = {**FIXTURES["automations"][0], "id": "a0000000-0000-4000-8000-000000000004", "name": "Another copy"}
+        self.resend.data = {**self.resend.data, "automations": [*self.resend.data["automations"], second]}
+        self._run(["automations"])
+        assert Cohort.objects.filter(team_id=self.team.id, description=cohort.description).count() == 1
+        Cohort.objects.filter(id=cohort.id).update(deleted=True)
+        self.resend.data = {**self.resend.data, "automations": [*self.resend.data["automations"], third]}
+        run = self._run(["automations"])
+
+        items = {item["label"]: item for item in run.progress["automations"]["items"]}
+        assert any("stays deleted" in note for note in items["Another copy"]["notes"])
+        assert Cohort.objects.filter(team_id=self.team.id, description=cohort.description).count() == 1
+
+    def test_a_segment_resend_no_longer_has_leaves_the_step_to_fill_in(self) -> None:
+        self.resend.data = {**self.resend.data, "segments": []}
+        run = self._run(["automations"])
+
+        items = {item["label"]: item for item in run.progress["automations"]["items"]}
+        assert items["Welcome series"]["status"] == "created"
+        assert any("no longer exists in Resend" in note for note in items["Welcome series"]["notes"])
+        assert not Cohort.objects.filter(team_id=self.team.id, is_static=True).exists()
 
     def test_run_state_exposes_summary_for_the_ui(self) -> None:
         run = self._run(["suppressions", "domains"])

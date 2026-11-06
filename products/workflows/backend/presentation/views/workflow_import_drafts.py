@@ -260,7 +260,8 @@ def save_provider_draft(
             workflow_id=str(previous.hog_flow_id) if previous.hog_flow_id else None,
             notes=("You imported this automation before, so PostHog left it as it is.",),
         )
-    validated, errors = _validated_draft(team, translated.workflow, None)
+    # Someone finishes the draft in the editor, so a step with a note can still be missing an input.
+    validated, errors = _validated_draft(team, translated.workflow, None, EventSource.WEB)
     if validated is None:
         return ProviderAutomationResult(status="failed", workflow_id=None, notes=tuple(errors))
     try:
@@ -321,10 +322,10 @@ def _can_edit(access: UserAccessControl, team: Team, previous: PreviousImport) -
 
 
 def _validated_draft(
-    team: Team, workflow: dict[str, Any], request: Request | None
+    team: Team, workflow: dict[str, Any], request: Request | None, event_source: EventSource = EventSource.API
 ) -> tuple[dict[str, Any] | None, list[str]]:
     try:
-        return checked_draft(team, workflow, EventSource.API, request), []
+        return checked_draft(team, workflow, event_source, request), []
     except ValidationError as error:
         logger.info("workflows.import.invalid_workflow", team_id=team.id, errors=str(error.detail)[:500])
         return None, _flatten_errors(error.detail)
