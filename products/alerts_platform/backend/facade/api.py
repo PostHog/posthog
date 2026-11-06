@@ -13,6 +13,7 @@ from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
+    AlertDestinationData,
     DestinationSend,
     HandbackRefusal,
     HeldDeliveryAddress,
@@ -203,6 +204,34 @@ def list_configurations(
         legacy_configuration_id=legacy_configuration_id,
         configuration_ids=configuration_ids,
     )
+
+
+def count_configurations(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    native_only: bool = False,
+    enabled_only: bool = False,
+    check_interval_minutes: int | None = None,
+) -> int:
+    """How many alerts of a kind a team has on the platform. For a source's admission.
+
+    A source that keeps rows counts them and adds `native_only`. A copy stands for a row the source
+    already counts, and a copy left by a delete from before copies went with their row counts nothing.
+    """
+    return platform_reads.count_configurations(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        native_only=native_only,
+        enabled_only=enabled_only,
+        check_interval_minutes=check_interval_minutes,
+    )
+
+
+def hold_cap_lock(*, team_id: int, source_kind: SourceKind) -> None:
+    """The lock the platform holds while a source checks its caps, for a source creating an alert
+    outside the platform. Call it inside the create's transaction."""
+    platform_writes.hold_cap_lock(team_id, source_kind)
 
 
 def get_configuration(
@@ -418,6 +447,11 @@ def create_alert_destinations(
 
 def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
     return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+
+
+def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
+    """A destination's configuration without the parts that are a credential, for showing it."""
+    return alert_destinations.redact_destination_data(data)
 
 
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
