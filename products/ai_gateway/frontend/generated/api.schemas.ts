@@ -213,6 +213,12 @@ export interface DevTokenApi {
      * @nullable
      */
     revoked_at: string | null
+    /**
+     * What a revoked token spent, in USD. Null when it is not revoked or the amount is unknown.
+     * @nullable
+     * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+     */
+    spent_usd: string | null
     /** Whether the token still works: live, revoked or expired.
      *
      * * `live` - Live
@@ -225,12 +231,6 @@ export interface DevTokenApi {
      * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
      */
     remaining_usd: string | null
-    /**
-     * What a revoked token spent, in USD. Null when it is not revoked or the amount is unknown.
-     * @nullable
-     * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
-     */
-    spent_usd: string | null
 }
 
 export interface DevTokenUsageApi {
