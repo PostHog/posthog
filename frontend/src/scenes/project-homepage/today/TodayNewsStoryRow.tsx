@@ -3,6 +3,7 @@ import { Text } from '@posthog/quill'
 
 import { TodayChange } from './TodayChange'
 import type { TodayNewsStory } from './todayNewsEdition'
+import { productIcon } from './todayRowIcons'
 
 export function TodayNewsStoryRow({ story, onDiveIn }: { story: TodayNewsStory; onDiveIn: () => void }): JSX.Element {
     return (
@@ -16,9 +17,12 @@ export function TodayNewsStoryRow({ story, onDiveIn }: { story: TodayNewsStory; 
             >
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="flex items-center gap-2">
-                        <Text size="xs" variant="muted" render={<span />}>
-                            {story.productLabel}
-                        </Text>
+                        <span className="flex items-center gap-1.5 text-muted-foreground [&_svg]:size-3.5">
+                            {productIcon(story.product).glyph}
+                            <Text size="xs" variant="muted" render={<span />}>
+                                {story.productLabel}
+                            </Text>
+                        </span>
                         <TodayChange change={story.change} tone={story.tone} />
                     </span>
                     <Text size="sm" render={<span />} className="font-medium">

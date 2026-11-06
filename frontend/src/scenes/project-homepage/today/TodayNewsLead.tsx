@@ -7,6 +7,7 @@ import { retryImport } from 'lib/utils/retryImport'
 
 import { TodayChange } from './TodayChange'
 import type { TodayNewsLeadStory } from './todayNewsEdition'
+import { productIcon } from './todayRowIcons'
 
 const TodaySparkline = lazy(() =>
     retryImport(() => import('./TodaySparkline').then((m) => ({ default: m.TodaySparkline })))
@@ -22,9 +23,12 @@ export function TodayNewsLead({ story, onDiveIn }: { story: TodayNewsLeadStory; 
             data-attr="today-news-dive-in"
         >
             <span className="flex items-center justify-between gap-2">
-                <Text size="xs" variant="muted" render={<span />}>
-                    {story.productLabel}
-                </Text>
+                <span className="flex items-center gap-1.5 text-muted-foreground [&_svg]:size-3.5">
+                    {productIcon(story.product).glyph}
+                    <Text size="xs" variant="muted" render={<span />}>
+                        {story.productLabel}
+                    </Text>
+                </span>
                 <IconArrowRight className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/story:opacity-100 group-focus-visible/story:opacity-100 motion-reduce:transition-none" />
             </span>
             <Text render={<h3 />} className="m-0 text-base font-medium text-balance">
