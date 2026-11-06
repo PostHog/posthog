@@ -461,7 +461,7 @@ describe('EmailTrackingService', () => {
             it('still records the open when Redis stalls', async () => {
                 const parentRunId = new UUIDT().toString()
                 const service = api['emailTrackingService'] as any
-                jest.spyOn(service.engagementRedis, 'useClient').mockReturnValue(new Promise(() => {}))
+                jest.spyOn(service.redis, 'useClient').mockReturnValue(new Promise(() => {}))
                 const code = signer.generate({
                     functionId: hogFunction.id,
                     id: new UUIDT().toString(),
@@ -706,14 +706,24 @@ describe('EmailTrackingService', () => {
             })
 
             it.each([
-                ['the first attempt fails reading the team config', true, 500],
-                ['the first attempt succeeds', false, 200],
+                ['the first attempt fails reading the team config', 'team_config', 500],
+                ['the first attempt fails capturing the engagement event', 'capture', 500],
+                ['the first attempt succeeds', null, 200],
             ])('records a notification SNS delivers twice once, when %s', async (_, failFirstAttempt, firstStatus) => {
-                if (failFirstAttempt) {
+                const service = api['emailTrackingService']
+                if (failFirstAttempt === 'team_config') {
                     jest.spyOn(
-                        api['emailTrackingService']['teamWorkflowsConfigService'],
+                        service['teamWorkflowsConfigService'],
                         'shouldCaptureEngagementEvents'
                     ).mockRejectedValueOnce(new Error('column does not exist'))
+                } else if (failFirstAttempt === 'capture') {
+                    jest.spyOn(
+                        service['teamWorkflowsConfigService'],
+                        'shouldCaptureEngagementEvents'
+                    ).mockResolvedValue(true)
+                    jest.spyOn(service['capturedEventsService'], 'flush').mockRejectedValueOnce(
+                        new Error('broker unavailable')
+                    )
                 }
                 const bounce = {
                     functionId: hogFunction.id,

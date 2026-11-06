@@ -107,8 +107,7 @@ const ENGAGEMENT_PERSON_METRICS: Partial<Record<MinimalAppMetric['metric_name'],
 }
 // An open after this counts its person again. Almost all opens and clicks come in the first days.
 const ENGAGEMENT_PEOPLE_TTL_SECONDS = 30 * 24 * 60 * 60
-// A slow Redis costs a person count, never an open or click webhook.
-const ENGAGEMENT_REDIS_TIMEOUT_MS = 500
+const REDIS_TIMEOUT_MS = 500
 // PFADD returns 0 for many new people once a HyperLogLog fills, so the growth of PFCOUNT is what counts. Each pair of
 // keys is a HyperLogLog and the total already reported. Returns how much each total grew.
 const ENGAGEMENT_PEOPLE_SCRIPT = `
@@ -330,7 +329,7 @@ export class EmailTrackingService {
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private emailStatusService: EmailStatusService | null = null,
-        private engagementRedis: RedisV2 | null = null
+        private redis: RedisV2 | null = null
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
@@ -418,13 +417,26 @@ export class EmailTrackingService {
             }
         }
 
-        // Reads go before the first queued metric. A read that throws answers SNS with a 5xx and SNS
-        // redelivers the notification, so a metric queued ahead of the read would count once per attempt.
+        // Every await that can throw runs before the first queued metric. The metric queue outlives the
+        // request, so a metric queued ahead of a throw is counted on this attempt and again when SNS
+        // redelivers the notification after the 5xx. `newEngagedPeople` never throws, and it runs after
+        // the capture so that a failed attempt does not mark the person as already counted.
         const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
-        const captureEngagementEvent =
-            eventName && distinctId
-                ? await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId)
-                : false
+        if (eventName && distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
+            await this.capturedEventsService.queueEvent({
+                team_id: teamId,
+                event: eventName,
+                distinct_id: distinctId,
+                timestamp,
+                properties: {
+                    $workflow_id: appSourceId,
+                    $workflow_action_id: actionId,
+                    ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
+                    ...properties,
+                },
+            })
+            await this.capturedEventsService.flush()
+        }
         const engagedPeople = parentRunId
             ? await this.newEngagedPeople(parentRunId, invocationId, metricName, source)
             : []
@@ -460,22 +472,6 @@ export class EmailTrackingService {
                 },
                 hogFlow ? 'hog_flow' : 'hog_function'
             )
-        }
-
-        if (eventName && distinctId && captureEngagementEvent) {
-            await this.capturedEventsService.queueEvent({
-                team_id: teamId,
-                event: eventName,
-                distinct_id: distinctId,
-                timestamp,
-                properties: {
-                    $workflow_id: appSourceId,
-                    $workflow_action_id: actionId,
-                    ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
-                    ...properties,
-                },
-            })
-            await this.capturedEventsService.flush()
         }
 
         if (!deferFlush) {
@@ -706,31 +702,29 @@ export class EmailTrackingService {
 
     // Fails open: when Redis cannot answer, recording a notification twice beats not recording it.
     private async wasSesNotificationRecorded(snsMessageId: string): Promise<boolean> {
-        const exists = await this.sesNotificationRedisCall('ses-notification-recorded-check', (client) =>
+        const exists = await this.redisCall('ses-notification-recorded-check', (client) =>
             client.exists(sesNotificationRecordedKey(snsMessageId))
         )
         return exists === 1
     }
 
     private async markSesNotificationRecorded(snsMessageId: string): Promise<void> {
-        await this.sesNotificationRedisCall('ses-notification-recorded-mark', (client) =>
+        await this.redisCall('ses-notification-recorded-mark', (client) =>
             client.set(sesNotificationRecordedKey(snsMessageId), '1', 'EX', SES_NOTIFICATION_RECORDED_TTL_SECONDS)
         )
     }
 
-    private async sesNotificationRedisCall<T>(
-        name: string,
-        call: (client: RedisClient) => Promise<T>
-    ): Promise<T | null> {
-        if (!this.engagementRedis) {
+    // Answers null when Redis errors or is slower than the timeout, so a slow Redis never holds a webhook open.
+    private async redisCall<T>(name: string, call: (client: RedisClient) => Promise<T>): Promise<T | null> {
+        if (!this.redis) {
             return null
         }
         let timer: NodeJS.Timeout | undefined
         try {
             return await Promise.race([
-                this.engagementRedis.useClient({ name, failOpen: true }, call),
+                this.redis.useClient({ name, failOpen: true }, call),
                 new Promise<null>((resolve) => {
-                    timer = setTimeout(() => resolve(null), ENGAGEMENT_REDIS_TIMEOUT_MS)
+                    timer = setTimeout(() => resolve(null), REDIS_TIMEOUT_MS)
                 }),
             ])
         } finally {
@@ -774,31 +768,24 @@ export class EmailTrackingService {
         source: 'direct' | 'ses'
     ): Promise<{ metric: MinimalAppMetric['metric_name']; count: number }[]> {
         const metrics = ENGAGEMENT_PERSON_METRICS[metricName]
-        if (!metrics || !this.engagementRedis) {
+        if (!metrics || !this.redis) {
             return []
         }
         const keys = metrics.flatMap((metric) => {
             const key = `@posthog/email-engagement-people/{${parentRunId}}/${metric}`
             return [key, `${key}/reported`]
         })
-        let timer: NodeJS.Timeout | undefined
-        const grew = await Promise.race([
-            this.engagementRedis.useClient(
-                { name: 'email-engagement-people', failOpen: true },
-                (client) =>
-                    client.eval(
-                        ENGAGEMENT_PEOPLE_SCRIPT,
-                        keys.length,
-                        ...keys,
-                        invocationId,
-                        ENGAGEMENT_PEOPLE_TTL_SECONDS
-                    ) as Promise<number[]>
-            ),
-            new Promise<null>((resolve) => {
-                timer = setTimeout(() => resolve(null), ENGAGEMENT_REDIS_TIMEOUT_MS)
-            }),
-        ])
-        clearTimeout(timer)
+        const grew = await this.redisCall(
+            'email-engagement-people',
+            (client) =>
+                client.eval(
+                    ENGAGEMENT_PEOPLE_SCRIPT,
+                    keys.length,
+                    ...keys,
+                    invocationId,
+                    ENGAGEMENT_PEOPLE_TTL_SECONDS
+                ) as Promise<number[]>
+        )
         if (!grew) {
             emailTrackingErrorsCounter.inc({ error_type: 'engagement_people_not_counted', source })
             return []
