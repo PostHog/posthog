@@ -1022,10 +1022,14 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request=request,
         )
 
-        return Response(
-            {"hasMetrics": has_metrics, "hasDerivedSources": derived.has_sources, "hasDerivedMetrics": derived.enabled},
-            status=status.HTTP_200_OK,
+        payload = _HasMetricsResponseSerializer(
+            {
+                "hasMetrics": has_metrics,
+                "hasDerivedSources": derived.has_sources,
+                "hasDerivedMetrics": derived.enabled,
+            }
         )
+        return Response(payload.data, status=status.HTTP_200_OK)
 
     @extend_schema(responses={200: _MetricsOverviewResponseSerializer})
     @action(

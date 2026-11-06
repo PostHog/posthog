@@ -44,9 +44,24 @@ describe('metricsSetupLogic', () => {
     // In the derived series experiment, the test arm skips the setup screen for spans and logs it can chart,
     // and both arms record exposure only when the team has spans or logs.
     it.each([
-        ['test arm with spans or logs', { hasMetrics: false, hasDerivedSources: true, hasDerivedMetrics: true }, 'has-data', true],
-        ['control arm with spans or logs', { hasMetrics: false, hasDerivedSources: true, hasDerivedMetrics: false }, 'needs-setup', true],
-        ['no spans or logs', { hasMetrics: false, hasDerivedSources: false, hasDerivedMetrics: false }, 'needs-setup', false],
+        [
+            'test arm with spans or logs',
+            { hasMetrics: false, hasDerivedSources: true, hasDerivedMetrics: true },
+            'has-data',
+            true,
+        ],
+        [
+            'control arm with spans or logs',
+            { hasMetrics: false, hasDerivedSources: true, hasDerivedMetrics: false },
+            'needs-setup',
+            true,
+        ],
+        [
+            'no spans or logs',
+            { hasMetrics: false, hasDerivedSources: false, hasDerivedMetrics: false },
+            'needs-setup',
+            false,
+        ],
     ])('%s', async (_name, response, expected, exposed) => {
         ;(canViewMetrics as jest.Mock).mockReturnValue(true)
         ;(metricsHasMetricsRetrieve as jest.Mock).mockResolvedValue(response)
