@@ -9,7 +9,7 @@ from posthog.tasks.survey_system_stop import log_survey_stopped_by_system
 from products.feature_flags.backend.facade.api import create_flag, update_flag
 from products.feature_flags.backend.facade.filters import replace_release_conditions
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.surveys.backend.models import Survey, update_survey_iterations
+from products.surveys.backend.models import Survey, open_ended_iteration, update_survey_iterations
 
 
 def _update_survey_iteration(survey: Survey) -> None:
@@ -36,7 +36,9 @@ def _update_survey_iteration(survey: Survey) -> None:
         and 0 < len(survey.iteration_start_dates)
     ):
         survey.current_iteration = current_iteration
-        survey.current_iteration_start_date = survey.iteration_start_dates[survey.current_iteration - 1]
+        # Open-ended surveys store only the current and the next window.
+        window_index = 0 if survey.repeat_until_stopped else survey.current_iteration - 1
+        survey.current_iteration_start_date = survey.iteration_start_dates[window_index]
         survey.internal_targeting_flag = _get_targeting_flag(survey)
         survey.save(
             update_fields=[
@@ -150,6 +152,9 @@ def _get_current_iteration(survey: Survey) -> int:
     if survey.iteration_start_dates is None or survey.iteration_frequency_days is None or survey.end_date is not None:
         return 0
 
+    if survey.repeat_until_stopped and survey.start_date is not None:
+        return open_ended_iteration(survey.start_date, survey.iteration_frequency_days, timezone.now())
+
     today_date = date.today()
     idx = 0
     for start_date in survey.iteration_start_dates:
@@ -170,7 +175,17 @@ def update_survey_iteration() -> None:
         start_date__isnull=False,
         end_date__isnull=True,
         schedule=Survey.Schedule.RECURRING,
-    ).only("id", "iteration_count", "iteration_start_dates")
+    ).only(
+        "id",
+        "schedule",
+        "start_date",
+        "end_date",
+        "iteration_count",
+        "iteration_frequency_days",
+        "repeat_until_stopped",
+        "iteration_start_dates",
+        "current_iteration",
+    )
 
     for survey in list(surveys_with_recurring_schedules):
         _update_survey_iteration(survey)

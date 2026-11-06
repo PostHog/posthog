@@ -1916,6 +1916,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     def _reconcile_schedule_with_iterations(self, validated_data: dict) -> None:
         # The edit form reads `schedule` while update_survey_iteration reads the iteration columns,
         # so the two must agree or the survey repeats while presenting itself as one-shot.
+        if "repeat_until_stopped" in validated_data and validated_data["repeat_until_stopped"] is None:
+            validated_data["repeat_until_stopped"] = False
         schedule = validated_data.get("schedule")
         if (
             schedule is None
@@ -2105,10 +2107,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     )
                     validated_data["targeting_flag_id"] = new_flag.id
                 validated_data.pop("targeting_flag_filters")
-
-            if iteration_count is not None:
-                instance.iteration_count = iteration_count
-                instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
 
             instance = super().update(instance, validated_data)
 

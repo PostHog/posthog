@@ -465,13 +465,18 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
         instance.iteration_start_dates = None
         return
 
+    if instance.repeat_until_stopped:
+        # An open-ended schedule has no last window, so store only the current and the next one.
+        # update_survey_iteration refreshes them on every run.
+        current = open_ended_iteration(instance.start_date, instance.iteration_frequency_days, timezone.now())
+        dtstart = instance.start_date + timedelta(days=(current - 1) * instance.iteration_frequency_days)
+        window_count = 2
+    else:
+        dtstart = instance.start_date
+        window_count = min(instance.iteration_count, MAX_ITERATION_COUNT)
+
     instance.iteration_start_dates = list(
-        rrule(
-            DAILY,
-            count=_iteration_window_count(instance, instance.start_date, instance.iteration_frequency_days),
-            interval=instance.iteration_frequency_days,
-            dtstart=instance.start_date,
-        )
+        rrule(DAILY, count=window_count, interval=instance.iteration_frequency_days, dtstart=dtstart)
     )
 
     if instance.current_iteration is None or instance.current_iteration == 0:
@@ -479,13 +484,8 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
         instance.current_iteration_start_date = instance.start_date
 
 
-def _iteration_window_count(survey: "Survey", start_date: datetime, frequency_days: int) -> int:
-    if not survey.repeat_until_stopped:
-        return min(survey.iteration_count or 0, MAX_ITERATION_COUNT)
-    # An open-ended schedule has no last window, so keep a rolling list that ends one window past today.
-    # update_survey_iteration saves on every iteration change, which extends it.
-    iterations_started = (timezone.now() - start_date).days // frequency_days + 1
-    return max(iterations_started, 1) + 1
+def open_ended_iteration(start_date: datetime, frequency_days: int, now: datetime) -> int:
+    return max((now - start_date).days // frequency_days + 1, 1)
 
 
 def _get_surveys_response(team: "Team") -> dict:
