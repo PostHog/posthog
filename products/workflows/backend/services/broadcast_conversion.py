@@ -6,16 +6,13 @@ from uuid import UUID
 from django.db import models, transaction
 from django.utils import timezone
 
-from posthog.integrations import IntegrationManager
-from posthog.models.integration import SANDBOX_EMAIL_PROVIDER
-
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import WorkflowActor, WorkflowSummary
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.hog_flow_activity import log_workflow_activity
 from products.workflows.backend.services.hog_flow_reads import BROADCAST_TRIGGER_TYPE, annotate_broadcast_shape
 from products.workflows.backend.services.hog_flow_writes import field_values
-from products.workflows.backend.services.sandbox_sender import sandbox_sender_configured
+from products.workflows.backend.services.sandbox_sender import sandbox_sender_ids
 
 BROADCAST_CONVERSION_CANDIDATE_LIMIT: Final = 100
 
@@ -41,9 +38,11 @@ def is_convertible_to_broadcast(flow: HogFlow) -> bool:
     config = trigger.get("config") or {}
     if config.get("type") != BROADCAST_TRIGGER_TYPE or (config.get("filters") or {}).get("audience_type") == "accounts":
         return False
-    if _sender_ids(_email_sender(email)) & _sandbox_sender_ids(flow.team_id):
+    if not _joins_in_order(flow, trigger.get("id"), email.get("id"), exit_step.get("id")):
         return False
-    return _joins_in_order(flow, trigger.get("id"), email.get("id"), exit_step.get("id"))
+    # Broadcasts can't send through the sandbox sender, so a workflow that uses it stays a workflow.
+    sender_ids = _sender_ids(_email_sender(email))
+    return not (sender_ids and sender_ids & sandbox_sender_ids(flow.team_id))
 
 
 def _email_sender(email_step: dict) -> object:
@@ -70,18 +69,6 @@ def _integration_id_key(integration_id: object) -> str:
     if isinstance(integration_id, float) and integration_id.is_integer():
         return str(int(integration_id))
     return str(integration_id)
-
-
-def _sandbox_sender_ids(team_id: int) -> set[str]:
-    """Broadcasts can't send through the sandbox sender, so a workflow that uses it stays a workflow.
-
-    The project flag only gates adoption, so a sandbox sender the project already has counts with the flag off."""
-    if not sandbox_sender_configured():
-        return set()
-    return {
-        str(sender.id)
-        for sender in IntegrationManager.email.credentials.list(team_id, where={"provider": SANDBOX_EMAIL_PROVIDER})
-    }
 
 
 def _joins_in_order(flow: HogFlow, trigger_id: object, email_id: object, exit_id: object) -> bool:
@@ -145,6 +132,7 @@ def list_broadcast_conversion_candidates(
             _trigger_id=_step_id("trigger"),
             _email_id=_step_id("function_email"),
             _exit_id=_step_id("exit"),
+            _email_sender=_email_sender_value(),
             _account_audience=models.Func(
                 models.F("actions"),
                 _json_path('$[*] ? (@.type == "trigger" && @.config.filters.audience_type == "accounts")'),
@@ -164,9 +152,7 @@ def list_broadcast_conversion_candidates(
         .only("id", "team_id", "name", "status", "edges", "created_by")
         .order_by("-updated_at", "id")
     )
-    sandbox_sender_ids = _sandbox_sender_ids(team_id)
-    if sandbox_sender_ids:
-        queryset = queryset.annotate(_email_sender=_email_sender_value())
+    team_sandbox_sender_ids = sandbox_sender_ids(team_id)
     found: list[HogFlow] = []
     offset = 0
     while len(found) < limit:
@@ -178,7 +164,7 @@ def list_broadcast_conversion_candidates(
             flow
             for flow in page
             if _joins_in_order(flow, flow._trigger_id, flow._email_id, flow._exit_id)
-            and not (sandbox_sender_ids and _sender_ids(flow._email_sender) & sandbox_sender_ids)
+            and not _sender_ids(flow._email_sender) & team_sandbox_sender_ids
         ]
         if user_access_control is not None:
             # Converting needs editor access, so a workflow the caller can only view is not offered.

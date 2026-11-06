@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -20,6 +22,11 @@ const step = (id: string, type: string, config: Record<string, any>): HogFlow['a
 
 const trigger = (type: string): HogFlow['actions'][number] => step('trigger_node', 'trigger', { type, filters: {} })
 const email = step('email_node', 'function_email', { template_id: 'template-email', inputs: {} })
+const SANDBOX_SENDER_ID = 7
+const sandboxEmail = step('email_node', 'function_email', {
+    template_id: 'template-email',
+    inputs: { email: { value: { from: { integrationId: SANDBOX_SENDER_ID } } } },
+})
 const exit = step('exit_node', 'exit', { reason: 'Default exit' })
 const emailEdges: HogFlow['edges'] = [
     { from: 'trigger_node', to: 'email_node', type: 'continue' },
@@ -49,6 +56,11 @@ describe('workflowLogic broadcast suggestion on create', () => {
                     },
                 ],
                 '/api/environments/:team_id/hog_flows/:id/schedules': { results: [] },
+                '/api/projects/:team_id/integrations/': {
+                    results: [
+                        { id: SANDBOX_SENDER_ID, kind: 'email', config: { provider: 'sandbox', verified: true } },
+                    ],
+                },
             },
             post: {
                 '/api/projects/:team_id/hog_flows/': async ({ request }) => {
@@ -119,6 +131,17 @@ describe('workflowLogic broadcast suggestion on create', () => {
             path: `/workflows/${CREATED_ID}/workflow`,
         },
         {
+            name: 'a batch email on the sandbox sender',
+            actions: [trigger('batch'), sandboxEmail, exit],
+            exitCondition: 'exit_only_at_end' as const,
+            choice: 'broadcast' as const,
+            asked: false,
+            others: [],
+            moved: [],
+            originProduct: undefined,
+            path: `/workflows/${CREATED_ID}/workflow`,
+        },
+        {
             name: 'a batch email that exits on conversion',
             actions: [trigger('batch'), email, exit],
             exitCondition: 'exit_on_conversion' as const,
@@ -134,6 +157,7 @@ describe('workflowLogic broadcast suggestion on create', () => {
         async ({ actions, exitCondition, choice, asked, others, moved, originProduct, path }) => {
             otherIds = others
             jest.mocked(confirmCreateAsBroadcast).mockResolvedValue(choice)
+            await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
             logic.actions.setWorkflowValues({
                 name: 'Monthly update',
                 actions,
