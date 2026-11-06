@@ -5346,6 +5346,7 @@
       metric_name,
       toDateTime(toStartOfHour(timestamp)) AS time_bucket,
       series_fingerprint,
+      if(empty(input.histogram_bounds), 0, cityHash64(input.histogram_bounds)) AS histogram_bounds_hash,
       toDate32(original_expiry_timestamp) AS original_expiry_date,
       any(resource_fingerprint) AS resource_fingerprint,
       any(service_name) AS service_name,
@@ -5364,12 +5365,13 @@
       groupArray(10000)(trace_id) AS trace_id_arr,
       groupArray(10000)(span_id) AS span_id_arr,
       groupArray(10000)(trace_flags) AS trace_flags_arr
-  FROM posthog_test.metrics4_input
+  FROM posthog_test.metrics4_input AS input
   GROUP BY
       team_id,
       metric_name,
       time_bucket,
       series_fingerprint,
+      histogram_bounds_hash,
       original_expiry_date
   
   '''
@@ -5463,6 +5465,7 @@
       `has_labels` SimpleAggregateFunction(max, UInt8),
       `instrumentation_scope` SimpleAggregateFunction(any, String),
       `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
+      `histogram_bounds_hash` UInt64,
       `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
       `timestamp_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(Delta, Default),
       `observed_timestamp_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
@@ -5491,7 +5494,8 @@
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_samples', '{replica}-{shard}')
   PARTITION BY original_expiry_date
-  ORDER BY (team_id, metric_name, time_bucket, series_fingerprint)
+  PRIMARY KEY (team_id, metric_name, time_bucket, series_fingerprint)
+  ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, histogram_bounds_hash)
   TTL original_expiry_date
   SETTINGS
       index_granularity = 128,
@@ -11245,6 +11249,7 @@
       `has_labels` SimpleAggregateFunction(max, UInt8),
       `instrumentation_scope` SimpleAggregateFunction(any, String),
       `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
+      `histogram_bounds_hash` UInt64,
       `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
       `timestamp_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))),
       `observed_timestamp_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))),
@@ -13335,6 +13340,7 @@
       `has_labels` SimpleAggregateFunction(max, UInt8),
       `instrumentation_scope` SimpleAggregateFunction(any, String),
       `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
+      `histogram_bounds_hash` UInt64,
       `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
       `timestamp_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(Delta, Default),
       `observed_timestamp_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
@@ -13363,7 +13369,8 @@
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_samples', '{replica}-{shard}')
   PARTITION BY original_expiry_date
-  ORDER BY (team_id, metric_name, time_bucket, series_fingerprint)
+  PRIMARY KEY (team_id, metric_name, time_bucket, series_fingerprint)
+  ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, histogram_bounds_hash)
   TTL original_expiry_date
   SETTINGS
       index_granularity = 128,

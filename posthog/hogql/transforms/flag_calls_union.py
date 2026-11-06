@@ -730,12 +730,12 @@ class _UnionChainCollector(SyntaxVisitor):
         if read is not None:
             chain = read[1]
             self.chains.append(chain)
-            # Lazy table resolution names a whole-field read after the field, whichever table the field is on.
-            # It names a property read by joining the path with `___`, so `a.b` and `a___b` share a name.
-            name = node.type.name if isinstance(node.type, ast.FieldType) else "___".join(str(link) for link in chain)
-            first = self.exports.setdefault((id(self._select), name), chain)
-            if first != chain and self.export_collision is None:
-                self.export_collision = (first, chain)
+            if not isinstance(node.type, ast.FieldType):
+                # Lazy table resolution names a property read by joining the path with `___`, so `a.b` and `a___b` share a name.
+                name = "___".join(str(link) for link in chain)
+                first = self.exports.setdefault((id(self._select), name), chain)
+                if first != chain and self.export_collision is None:
+                    self.export_collision = (first, chain)
             return
         field_type = node.type.field_type if isinstance(node.type, ast.PropertyType) else node.type
         if not isinstance(field_type, ast.FieldType):
