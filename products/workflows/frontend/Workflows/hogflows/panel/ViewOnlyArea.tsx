@@ -64,9 +64,15 @@ function isFindShortcut(event: React.KeyboardEvent): boolean {
     return (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f'
 }
 
+function isCodeEditorTab(event: React.KeyboardEvent): boolean {
+    return event.key === 'Tab' && event.target instanceof Element && event.target.closest('.monaco-editor') !== null
+}
+
 function blockEditingKeys(event: React.KeyboardEvent): void {
-    if (isFindShortcut(event)) {
-        // Monaco's find widget would open with typing blocked, so the browser's find bar opens instead.
+    if (isFindShortcut(event) || isCodeEditorTab(event)) {
+        // Monaco's find widget would open with typing blocked, and Monaco's Tab indents the code through a
+        // model edit that no beforeinput event announces. Stopping propagation keeps the key away from
+        // Monaco, so the browser's default runs instead: its find bar opens, or focus moves on.
         event.stopPropagation()
         return
     }

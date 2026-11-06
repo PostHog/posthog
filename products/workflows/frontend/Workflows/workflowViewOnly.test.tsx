@@ -342,7 +342,11 @@ describe('view-only workflow', () => {
         expect(fireEvent.keyDown(screen.getByLabelText('Subject'), keyPress)).toBe(true)
     })
 
-    it('opens the browser find bar instead of the code editor find for a viewer', () => {
+    it.each([
+        ['opens the browser find bar instead of the code editor find', { key: 'f', metaKey: true }],
+        ['tabs out of a code editor instead of indenting', { key: 'Tab' }],
+        ['shift-tabs out of a code editor instead of outdenting', { key: 'Tab', shiftKey: true }],
+    ])('%s for a viewer', (_, keyPress) => {
         const onEditorKey = jest.fn()
         renderForViewer(
             <ViewOnlyArea>
@@ -352,7 +356,7 @@ describe('view-only workflow', () => {
             </ViewOnlyArea>
         )
 
-        const reachedDefault = fireEvent.keyDown(screen.getByLabelText('Code'), { key: 'f', metaKey: true })
+        const reachedDefault = fireEvent.keyDown(screen.getByLabelText('Code'), keyPress)
 
         expect(reachedDefault).toBe(true)
         expect(onEditorKey).not.toHaveBeenCalled()
