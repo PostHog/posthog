@@ -391,7 +391,7 @@ class TestPlatformCutover(APIBaseTest):
         [
             ("stock_slack", "template-slack", SLACK_INPUTS, True),
             ("stock_webhook_with_legacy_body", "template-webhook", WEBHOOK_INPUTS, True),
-            ("stock_webhook_with_platform_body", "template-webhook", WEBHOOK_INPUTS, False),
+            ("stock_webhook_off_the_legacy_list", "template-webhook", WEBHOOK_INPUTS, False),
         ]
     )
     def test_a_team_moves_when_every_destination_is_ready(

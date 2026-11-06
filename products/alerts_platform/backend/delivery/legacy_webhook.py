@@ -18,6 +18,11 @@ if TYPE_CHECKING:
 # A closed list of teams. No team joins it after the platform delivers for its source.
 LEGACY_WEBHOOK_BODY_FLAG: Final = "alert-platform-legacy-webhook-body"
 
+# While this is off for a team, it keeps the legacy body even when it is not on the list above.
+# The list is topped up right before this turns on, so a team that added its first webhook in
+# between does not switch bodies under a receiver that already parses the legacy one.
+ALERTMANAGER_WEBHOOK_BODY_FLAG: Final = "alert-platform-alertmanager-webhook-body"
+
 # The header value the HogFunction path sends with its body.
 LEGACY_WEBHOOK_VERSION: Final = "1"
 
@@ -37,4 +42,8 @@ def body_for(source: SourceKind) -> LegacyWebhookBody | None:
 
 def keeps_legacy_webhook_body(team: Team) -> bool | None:
     """Whether native delivery sends this team the body its source's own stack sent. None when unknown."""
-    return team_flag_enabled(LEGACY_WEBHOOK_BODY_FLAG, team)
+    listed = team_flag_enabled(LEGACY_WEBHOOK_BODY_FLAG, team)
+    if listed is None or listed:
+        return listed
+    gets_alertmanager_body = team_flag_enabled(ALERTMANAGER_WEBHOOK_BODY_FLAG, team)
+    return None if gets_alertmanager_body is None else not gets_alertmanager_body
