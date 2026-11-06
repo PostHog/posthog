@@ -72,6 +72,7 @@ import type { SignalNodeApi } from 'products/signals/frontend/generated/api.sche
 
 import type { SignalReportFeedbackSentimentEnumApi } from '../../generated/api.schemas'
 import type { SignalReportStateEnumApi } from '../../generated/api.schemas'
+import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { deriveTaskPurpose, ReportTaskPurpose, TaskRunArtefactContent } from '../components/detail/artefactTypes'
 import {
     AvailableReviewerOption,
@@ -89,7 +90,7 @@ import { inboxSceneLogic } from '../inboxSceneLogic'
 import { ReportDiscussionIntent, inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
-import { isReportClaimable, reportClaimant, requestReportClaim } from '../utils/reportClaim'
+import { isReportClaimable, reportClaimant, requestReportClaim, teammateClaimHolder } from '../utils/reportClaim'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -410,6 +411,7 @@ export interface inboxReportDetailLogicValues {
     selectedTask: ReportTaskEntry | null
     selectedTaskId: string | null
     shouldPollReportTasks: boolean
+    teammateClaimHolder: _UserApi | null
     trailingCharts: ReportChartApi[]
 }
 
@@ -724,8 +726,14 @@ export interface inboxReportDetailLogicActions {
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
     }
-    setReportClaimed: (claimed: boolean) => {
+    setReportClaimed: (
+        claimed: boolean,
+        takeover?: boolean,
+        shownAssignee?: SignalReport['assignee']
+    ) => {
         claimed: boolean
+        shownAssignee: SignalReportAssigneeApi | null | undefined
+        takeover: boolean
     }
     setReportStateSaving: (saving: boolean) => {
         saving: boolean
@@ -821,12 +829,12 @@ export interface inboxReportDetailLogicMeta {
         isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
         reportClaimant: (report: SignalReport | null) => _UserApi | null
         isClaimedByMe: (reportClaimant: _UserApi | null, user: null | import('~/types').UserType) => boolean
-        isReportClaimable: (report: SignalReport | null) => boolean
+        teammateClaimHolder: (report: SignalReport | null, user: null | import('~/types').UserType) => _UserApi | null
+        isReportClaimable: (report: SignalReport | null, user: null | import('~/types').UserType) => boolean
         implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
         implementationDisabledReason: (
             implementationSlotClaim: ImplementationSlotClaim | null,
-            reportClaimant: _UserApi | null,
-            isClaimedByMe: boolean
+            teammateClaimHolder: _UserApi | null
         ) => string | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         reportTaskToOpen: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
@@ -907,7 +915,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setPrioritySaving: (saving: boolean) => ({ saving }),
         changeReportState: (state: SignalReportStateRequestApi['state']) => ({ state }),
         setReportStateSaving: (saving: boolean) => ({ saving }),
-        setReportClaimed: (claimed: boolean) => ({ claimed }),
+        setReportClaimed: (claimed: boolean, takeover: boolean = false, shownAssignee?: SignalReport['assignee']) => ({
+            claimed,
+            takeover,
+            shownAssignee,
+        }),
         setClaimSaving: (saving: boolean) => ({ saving }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
         // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
@@ -1635,9 +1647,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (claimant: _UserApi | null, user: { uuid: string } | null): boolean =>
                 !!claimant && !!user && claimant.uuid === user.uuid,
         ],
+        teammateClaimHolder: [
+            (s) => [s.report, userLogic.selectors.user],
+            (report: SignalReport | null, user: { uuid: string } | null): _UserApi | null =>
+                report ? teammateClaimHolder(report, user?.uuid ?? null) : null,
+        ],
         isReportClaimable: [
-            (s) => [s.report],
-            (report: SignalReport | null): boolean => (report ? isReportClaimable(report) : false),
+            (s) => [s.report, userLogic.selectors.user],
+            (report: SignalReport | null, user: { uuid: string } | null): boolean =>
+                report ? isReportClaimable(report, user?.uuid ?? null) : false,
         ],
         implementationSlotClaim: [
             (s) => [s.reportTasks],
@@ -1645,16 +1663,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 implementationSlotClaim(reportTasks),
         ],
         implementationDisabledReason: [
-            (s) => [s.implementationSlotClaim, s.reportClaimant, s.isClaimedByMe],
-            (
-                slotClaim: ImplementationSlotClaim | null,
-                claimant: _UserApi | null,
-                isClaimedByMe: boolean
-            ): string | null =>
+            (s) => [s.implementationSlotClaim, s.teammateClaimHolder],
+            (slotClaim: ImplementationSlotClaim | null, holder: _UserApi | null): string | null =>
                 slotClaim
                     ? SLOT_CLAIM_DISABLED_REASON[slotClaim]
-                    : claimant && !isClaimedByMe
-                      ? `${fullNameOrEmail(claimant)} is working on this report.`
+                    : holder
+                      ? `${fullNameOrEmail(holder)} is working on this report. Take it over to implement it.`
                       : null,
         ],
         // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent
@@ -1764,7 +1778,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             actions.loadReportArtefacts()
             actions.setPrioritySaving(false)
         },
-        setReportClaimed: async ({ claimed }) => {
+        setReportClaimed: async ({ claimed, takeover, shownAssignee }) => {
             const teamId = teamLogic.values.currentTeamId
             const currentReport = values.report
             if (!teamId || !currentReport || values.claimSaving) {
@@ -1775,12 +1789,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 report: currentReport,
                 actionType: claimed ? 'claim' : 'unclaim',
                 surface: 'detail_pane',
+                extra: takeover ? { takeover: true } : undefined,
             })
             const scene = inboxSceneLogic.findMounted()
             const outcome = await requestReportClaim(
                 String(teamId),
-                { id: props.reportId, assignee: currentReport.assignee },
-                claimed
+                // A confirmed takeover names the claim the dialog showed, so a claim that changed since is refused.
+                { id: props.reportId, assignee: shownAssignee !== undefined ? shownAssignee : currentReport.assignee },
+                claimed,
+                { currentUserUuid: userLogic.values.user?.uuid ?? null, takeover }
             )
             if (!outcome.ok) {
                 if (inboxReportDetailLogic.isMounted(props)) {

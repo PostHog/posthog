@@ -23,6 +23,7 @@ from posthog.models.user import User
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Dismissal, TaskRunArtefact, WorkClaim, WorkRelease
 from products.signals.backend.claim_display_name import claim_display_name
+from products.signals.backend.claim_takeover_notification import notify_claim_taken_over
 from products.signals.backend.models import (
     InvalidStatusTransition,
     SignalReport,
@@ -405,6 +406,19 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged
             )
 
 
+def _held_by_another_person(claim: ReportClaim, user: User) -> bool:
+    # Task claims are left out: auto-start runs tasks as a suggested reviewer who never took the work on.
+    return claim.actor_kind in ("user", "agent") and claim.actor_user_id not in (None, user.id)
+
+
+def _claim_holder(claim: ReportClaim) -> ArtefactAttribution:
+    if claim.actor_kind == "agent" and claim.actor_user_id is not None:
+        return ArtefactAttribution.from_agent(claim.actor_user_id, claim.actor_agent or "")
+    if claim.actor_user_id is not None:
+        return ArtefactAttribution.from_user(claim.actor_user_id)
+    return ArtefactAttribution.system()
+
+
 def claim_report(
     *,
     report: SignalReport,
@@ -475,6 +489,18 @@ def claim_report(
                 if not takeover:
                     raise ReportClaimConflict(
                         "This report already has an active claim. Use takeover=true to take ownership."
+                    )
+                if _held_by_another_person(assignment, user):
+                    # takeover_claim_id shows the caller read who holds the claim, so an agent cannot take a
+                    # teammate's work with a bare takeover=true.
+                    if not takeover_claim_id:
+                        holder = claim_display_name(locked_report, _claim_holder(assignment))
+                        raise ReportClaimConflict(
+                            f"{holder} is working on this report. Check with your user before you take it over, "
+                            f"then send takeover=true with takeover_claim_id={assignment.claim_id}."
+                        )
+                    transaction.on_commit(
+                        partial(notify_claim_taken_over, report=locked_report, previous=assignment, actor=actor)
                     )
                 release_claim(assignment, actor, takeover=True)
                 assignment = None
