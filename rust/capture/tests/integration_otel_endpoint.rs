@@ -1005,8 +1005,6 @@ async fn a_large_resource_repeated_across_ai_spans_is_refused_before_expansion()
     assert_eq!(emitted[0].warning, WarningType::InvalidAiPayload);
 }
 
-/// A token granted a larger cap keeps the span the deployment default would
-/// shed, and no size warning is raised for it.
 #[tokio::test]
 async fn an_ai_size_override_keeps_spans_the_default_would_shed() {
     let sink = CapturingSink::new();

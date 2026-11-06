@@ -214,9 +214,6 @@ pub fn exceeds_max_ai_event_bytes(body_bytes: usize, max: u64) -> bool {
     max != 0 && body_bytes as u64 > max
 }
 
-/// Callers consult this only once an event is already past `default`, so a
-/// token without an override pays nothing beyond the check it paid before,
-/// and the lookup is one read of the in-memory restriction cache per request.
 pub async fn resolve_ai_max_event_bytes(
     service: Option<&EventRestrictionService>,
     token: &str,

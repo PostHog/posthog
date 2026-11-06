@@ -81,7 +81,6 @@ class EventIngestionRestrictionSerializer(serializers.Serializer):
 
 
 def team_event_ingestion_restrictions_view(team: Team, request: request.Request) -> response.Response:
-    # The AI event size override is a grant, so it has no place in a list the app presents as restrictions.
     restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token).exclude(
         restriction_type=RestrictionType.OVERRIDE_AI_MAX_EVENT_BYTES
     )

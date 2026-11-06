@@ -4712,8 +4712,6 @@ mod tests {
         );
     }
 
-    /// A token granted a larger cap keeps the AI event the default would drop,
-    /// and the rest of the batch is untouched either way.
     #[tokio::test]
     async fn an_ai_size_override_lifts_the_ceiling_for_its_token() {
         let service = EventRestrictionService::new(vec![Pipeline::Ai], StdDuration::from_secs(300))

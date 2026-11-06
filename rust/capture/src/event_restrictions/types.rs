@@ -88,10 +88,6 @@ impl Pipeline {
 }
 
 /// Restriction types that can be applied to events in capture.
-///
-/// `OverrideAiMaxEventBytes` grants rather than restricts, so it never enters
-/// a [`RestrictionSet`]; it is read through
-/// [`super::EventRestrictionService::ai_max_event_bytes`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RestrictionType {
     DropEvent,

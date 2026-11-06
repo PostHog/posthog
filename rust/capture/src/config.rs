@@ -387,9 +387,7 @@ pub struct Config {
     /// warning says so when the two are out of order.
     ///
     /// Must equal `AI_MAX_EVENT_BYTES_DEFAULT`, or `tests/ai_event_limits_parity.rs` fails.
-    ///
-    /// An `override_ai_max_event_bytes` event restriction raises this for one
-    /// token, bounded by `setup::ai_max_event_bytes_ceiling`.
+    /// An `override_ai_max_event_bytes` restriction raises it for one token.
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 

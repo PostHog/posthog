@@ -37,8 +37,7 @@ class RestrictionType(models.TextChoices):
     FORCE_OVERFLOW_FROM_INGESTION = "force_overflow_from_ingestion"
     REDIRECT_TO_DLQ = "redirect_to_dlq"
     REDIRECT_TO_TOPIC = "redirect_to_topic"
-    # A grant, not a restriction: raises the token's AI event size cap in capture. Shares this model
-    # for its admin page, Redis sync and refresh loop, so it stays out of the project-facing API.
+    # A grant, not a restriction, kept on this model for its admin page, Redis sync and refresh loop.
     OVERRIDE_AI_MAX_EVENT_BYTES = "override_ai_max_event_bytes", "Override AI max event bytes"
 
 
