@@ -20,6 +20,7 @@ from products.alerts.backend.judge.contract import (
     SeriesContext,
     SeriesJudge,
     SeriesJudgment,
+    ShadowJudgment,
 )
 
 __all__ = [
@@ -38,4 +39,5 @@ __all__ = [
     "SeriesContext",
     "SeriesJudge",
     "SeriesJudgment",
+    "ShadowJudgment",
 ]

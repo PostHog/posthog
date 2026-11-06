@@ -114,6 +114,33 @@ class JudgeAttribution:
     # reuse a verdict it already paid for. None for a simulation.
     evaluation_id: str | None = None
     is_agent_billable: bool = True
+    # Labels the model calls in LLM analytics. None for a simulation of an unsaved alert.
+    alert_id: str | None = None
+
+
+@frozen
+class ShadowJudgment:
+    """A second model's answer to the same question as the primary, recorded for comparison only.
+
+    Nothing reads it to decide a check: not the state, the notifications, nor the earlier flags.
+    """
+
+    model: str
+    latency_ms: int
+    # The verdict fields are None when the shadow call did not reach a verdict.
+    is_anomaly: bool | None = None
+    kind: AnomalyKind | None = None
+    rationale: str | None = None
+    # A fixed code, never the provider's message, because the check's metadata is readable through the API.
+    error: Literal["no_free_model_call_slot", "model_call_failed"] | None = None
+
+    def persisted_metadata(self) -> dict[str, Any]:
+        metadata: dict[str, Any] = {"model": self.model, "latency_ms": self.latency_ms}
+        if self.error is not None:
+            metadata["error"] = self.error
+        else:
+            metadata.update({"is_anomaly": self.is_anomaly, "kind": self.kind, "rationale": self.rationale})
+        return metadata
 
 
 @frozen
@@ -127,10 +154,14 @@ class SeriesJudgment:
     kind: AnomalyKind
     rationale: str
     model: str
+    shadow: ShadowJudgment | None = None
 
     def persisted_metadata(self) -> dict[str, Any]:
         """The slice of the judgment worth keeping on the check for a person to read later."""
-        return {"rationale": self.rationale, "kind": self.kind}
+        metadata: dict[str, Any] = {"rationale": self.rationale, "kind": self.kind, "model": self.model}
+        if self.shadow is not None:
+            metadata["shadow"] = self.shadow.persisted_metadata()
+        return metadata
 
 
 class SeriesJudge(Protocol):

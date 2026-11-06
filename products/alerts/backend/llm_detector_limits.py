@@ -38,6 +38,11 @@ PAYLOAD_MAX_ALERTS_KEY = "max_llm_alerts_per_team"
 # a team that wants more asks, and the flag grants it with no deploy.
 DEFAULT_MAX_LLM_ALERTS_PER_TEAM = 5
 
+# Keys inside the flag payload that turn on a shadow model call. All three must be set.
+PAYLOAD_SHADOW_MODEL_KEY = "shadow_model"
+PAYLOAD_SHADOW_RATE_KEY = "shadow_rate"
+PAYLOAD_SHADOW_TEAM_IDS_KEY = "shadow_team_ids"
+
 _LLM_ALERT_LIMIT_LOCK_NAMESPACE = 1_277_970_509
 
 # A model call per tick on the finest cadence is a cost profile we don't want to ship
@@ -231,6 +236,37 @@ def max_llm_alerts_per_team(*, organization_id: Any = None) -> int:
     if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
         return DEFAULT_MAX_LLM_ALERTS_PER_TEAM
     return raw
+
+
+@frozen
+class LLMDetectorShadowConfig:
+    """Which model to ask as a shadow, on what share of checks, for which teams."""
+
+    model: str
+    rate: float
+    team_ids: frozenset[int]
+
+
+def llm_detector_shadow_config(*, organization_id: Any = None) -> LLMDetectorShadowConfig | None:
+    """The shadow controls from the flag payload, or None when any of them is missing or malformed.
+
+    None means no shadow call, so a payload edit that breaks a key stops the shadow and never
+    widens it to more teams.
+    """
+    payload = _read_payload(organization_id=organization_id) or {}
+    model = payload.get(PAYLOAD_SHADOW_MODEL_KEY)
+    rate = payload.get(PAYLOAD_SHADOW_RATE_KEY)
+    team_ids = payload.get(PAYLOAD_SHADOW_TEAM_IDS_KEY)
+    if not isinstance(model, str) or not model:
+        return None
+    if isinstance(rate, bool) or not isinstance(rate, int | float) or not 0 < rate <= 1:
+        return None
+    if not isinstance(team_ids, list):
+        return None
+    allowed = frozenset(team_id for team_id in team_ids if isinstance(team_id, int) and not isinstance(team_id, bool))
+    if not allowed:
+        return None
+    return LLMDetectorShadowConfig(model=model, rate=float(rate), team_ids=allowed)
 
 
 def count_enabled_llm_alerts(*, team_id: int, exclude_alert_id: str | None = None) -> int:
