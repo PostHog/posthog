@@ -308,9 +308,9 @@ Fired when every capture of a flag comparison succeeds.
 
 Fired when a comparison stops early: a capture fails or times out, for example on a cross-origin image or font, or the flag overrides change during the run.
 
-| Property | Type     | Description       |
-| -------- | -------- | ----------------- |
-| `reason` | `string` | The error message |
+| Property | Type     | Description                                                                                |
+| -------- | -------- | ------------------------------------------------------------------------------------------ |
+| `reason` | `string` | One of `capture_failed`, `capture_timeout`, `capture_still_running` or `overrides_changed` |
 
 **File:** `shared/flags/flagComparisonLogic.ts`
 

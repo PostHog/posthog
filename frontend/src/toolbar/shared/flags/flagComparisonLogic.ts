@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import type { PostHog } from 'posthog-js/dist/module'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { PromiseTimeoutError } from 'lib/utils/async'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { objectsEqual } from 'lib/utils/objects'
 
@@ -39,6 +40,20 @@ export interface FlagComparison {
     /** The first capture is the flag turned off. */
     captures: FlagComparisonCapture[]
     identical: boolean
+}
+
+// pinned: `reason` values of the comparison failed event. Error messages can quote page content, so they are never sent.
+function comparisonFailureReason(error: unknown): string {
+    if (error instanceof FlagOverridesChangedError) {
+        return 'overrides_changed'
+    }
+    if (error instanceof CaptureStillRunningError) {
+        return 'capture_still_running'
+    }
+    if (error instanceof PromiseTimeoutError) {
+        return 'capture_timeout'
+    }
+    return 'capture_failed'
 }
 
 function revokeComparison(comparison: FlagComparison | null): void {
@@ -266,8 +281,10 @@ export const flagComparisonLogic = kea<flagComparisonLogicType>([
             // The modal renders inside the flags menu, which the user may have closed during the capture.
             actions.setVisibleMenu('flags')
         },
-        compareFlagFailure: ({ error, errorObject }) => {
-            toolbarPosthogJS.capture('toolbar feature flag comparison failed', { reason: error })
+        compareFlagFailure: ({ errorObject }) => {
+            toolbarPosthogJS.capture('toolbar feature flag comparison failed', {
+                reason: comparisonFailureReason(errorObject),
+            })
             if (errorObject instanceof FlagOverridesChangedError) {
                 lemonToast.info('The comparison stopped because the flag overrides changed. Start it again to compare.')
                 return

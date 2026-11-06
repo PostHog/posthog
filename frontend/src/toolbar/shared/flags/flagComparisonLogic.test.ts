@@ -7,6 +7,7 @@ import { toolbarLogic } from '~/toolbar/shared/bar/toolbarLogic'
 import { flagComparisonLogic } from '~/toolbar/shared/flags/flagComparisonLogic'
 import type { FlagInfo } from '~/toolbar/shared/flags/flagInfo'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { captureElementScreenshot } from '~/toolbar/shared/utils/screenshot'
 
 jest.mock('~/toolbar/shared/toolbarLogger', () => ({
@@ -40,6 +41,13 @@ const multivariateFlag: FlagInfo = {
     ],
 }
 
+function failureReasons(): unknown[] {
+    return jest
+        .mocked(toolbarPosthogJS.capture)
+        .mock.calls.filter(([event]) => event === 'toolbar feature flag comparison failed')
+        .map(([, properties]) => properties?.reason)
+}
+
 describe('flagComparisonLogic', () => {
     let persisted: Record<string, unknown>
     let flagWrites: unknown[]
@@ -66,6 +74,7 @@ describe('flagComparisonLogic', () => {
                 },
             },
         } as unknown as PostHog
+        jest.spyOn(toolbarPosthogJS, 'capture').mockImplementation(() => undefined)
         let urlCount = 0
         URL.createObjectURL = jest.fn(() => `blob:capture-${urlCount++}`)
         URL.revokeObjectURL = jest.fn()
@@ -84,6 +93,7 @@ describe('flagComparisonLogic', () => {
             expectedOverrides: userOverrides,
             expectsComparison: false,
             revokedUrls: ['blob:capture-0'],
+            failureReasons: ['capture_failed'],
         },
         {
             outcome: 'restores no overrides when there were none',
@@ -92,6 +102,7 @@ describe('flagComparisonLogic', () => {
             expectedOverrides: undefined,
             expectsComparison: true,
             revokedUrls: [],
+            failureReasons: [],
         },
         {
             outcome: 'keeps a logout that cleared the overrides during the capture',
@@ -103,8 +114,10 @@ describe('flagComparisonLogic', () => {
             expectedOverrides: undefined,
             expectsComparison: false,
             revokedUrls: ['blob:capture-0'],
+            failureReasons: ['overrides_changed'],
         },
-    ])('$outcome', async ({ flagOverrides, secondCapture, expectedOverrides, expectsComparison, revokedUrls }) => {
+    ])('$outcome', async (row) => {
+        const { flagOverrides, secondCapture, expectedOverrides, expectsComparison, revokedUrls } = row
         persisted.$override_feature_flags = flagOverrides
         jest.mocked(captureElementScreenshot)
             .mockResolvedValueOnce(new Blob(['off']))
@@ -118,6 +131,7 @@ describe('flagComparisonLogic', () => {
         })
         expect(logic.values.comparison !== null).toBe(expectsComparison)
         expect(jest.mocked(URL.revokeObjectURL).mock.calls.map(([url]) => url)).toEqual(revokedUrls)
+        expect(failureReasons()).toEqual(row.failureReasons)
     })
 
     test('captures each variant of a multivariate flag and compares each with off', async () => {
@@ -178,6 +192,7 @@ describe('flagComparisonLogic', () => {
             await jest.advanceTimersByTimeAsync(0)
             expect(captureElementScreenshot).toHaveBeenCalledTimes(2)
             expect(flagWrites).toHaveLength(writesBeforeRetry)
+            expect(failureReasons()).toEqual(['capture_timeout', 'capture_still_running'])
         } finally {
             releaseStalledCapture(new Blob(['late']))
             jest.useRealTimers()
