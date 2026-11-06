@@ -92,7 +92,7 @@ def _series_key_expr() -> ast.Expr:
     """Return the key for one physical series.
 
     Ingestion includes name, type, service, and labels. It excludes
-    `$originalTimestamp`.
+    `posthog.original_timestamp`.
     """
     return ast.Field(chain=["series_fingerprint"])
 
