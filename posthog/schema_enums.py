@@ -2167,6 +2167,12 @@ class MarketingAnalyticsOrderByEnum(StrEnum):
     DESC = "DESC"
 
 
+class MarketingAnalyticsRecommendationCpaBenchmarkSource(StrEnum):
+    TARGET_CPA = "target_cpa"
+    CAMPAIGN = "campaign"
+    ACCOUNT = "account"
+
+
 class MarketingAnalyticsRecommendationImpactDirection(StrEnum):
     SAVE = "save"
     GAIN = "gain"
@@ -2195,6 +2201,11 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
     KEYWORD_GAP = "keyword_gap"
     SPEND_WITHOUT_CONVERSIONS = "spend_without_conversions"
     STRIKING_DISTANCE = "striking_distance"
+
+
+class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
+    CONVERSION_ACTION_TABLES_NOT_SYNCED = "conversion_action_tables_not_synced"
+    PERFORMANCE_MAX_SEARCH_TERMS_COUNT_PRIMARY_CONVERSIONS = "performance_max_search_terms_count_primary_conversions"
 
 
 class MarketingAnalyticsRecommendationsSourceType(StrEnum):
