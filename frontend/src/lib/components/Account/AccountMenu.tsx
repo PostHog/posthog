@@ -19,9 +19,12 @@ import {
     IconReceipt,
     IconServer,
     IconShieldLock,
+    IconSparkles,
     IconToggle,
 } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
 
+import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
@@ -145,9 +148,12 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
+    const { earlyAccessFeatures } = useValues(featurePreviewsLogic)
+    const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
+    const todayNavFeature = earlyAccessFeatures.find((feature) => feature.flagKey === FEATURE_FLAGS.TODAY_RAIL_NAV)
 
     return (
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => open && loadEarlyAccessFeatures()}>
             <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
             <DropdownMenuContent
                 {...props}
@@ -333,6 +339,29 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             Feature previews
                         </Link>
                     </DropdownMenuItem>
+                    {todayNavFeature && !featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && (
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => {
+                                    updateEarlyAccessFeatureEnrollment(
+                                        FEATURE_FLAGS.TODAY_RAIL_NAV,
+                                        true,
+                                        todayNavFeature.stage
+                                    )
+                                    lemonToast.success(
+                                        'New navigation is on. Switch back any time from the account menu.'
+                                    )
+                                }}
+                                tooltip="Turn on the new navigation"
+                                tooltipPlacement="right"
+                                data-attr="top-menu-try-new-navigation"
+                            >
+                                <IconSparkles />
+                                Try the new navigation
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    )}
 
                     {featureFlags[FEATURE_FLAGS.GAME_CENTER] && (
                         <DropdownMenuSub>

@@ -1,6 +1,16 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
-import { IconDatabase, IconLeave, IconPeople, IconServer, IconShieldLock, IconToggle } from '@posthog/icons'
+import {
+    IconArrowLeft,
+    IconDatabase,
+    IconLeave,
+    IconPeople,
+    IconServer,
+    IconShieldLock,
+    IconToggle,
+} from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
 import {
     Button,
     DropdownMenu,
@@ -13,6 +23,8 @@ import {
 } from '@posthog/quill'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
+import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -24,6 +36,15 @@ export function TodayAccountMenu(): JSX.Element {
     const { logout } = useActions(userLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
+    const { earlyAccessFeatures } = useValues(featurePreviewsLogic)
+    const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
+    // The stage rides on the enrollment event, so the list loads before the person can click the switch.
+    useEffect(() => {
+        if (isAccountMenuOpen) {
+            loadEarlyAccessFeatures()
+        }
+    }, [isAccountMenuOpen, loadEarlyAccessFeatures])
+    const todayNavFeature = earlyAccessFeatures.find((feature) => feature.flagKey === FEATURE_FLAGS.TODAY_RAIL_NAV)
 
     return (
         <DropdownMenu open={isAccountMenuOpen} onOpenChange={setAccountMenuOpen}>
@@ -94,6 +115,19 @@ export function TodayAccountMenu(): JSX.Element {
                         </DropdownMenuGroup>
                     </>
                 )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    onClick={() => {
+                        updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.TODAY_RAIL_NAV, false, todayNavFeature?.stage)
+                        lemonToast.success(
+                            'You are back on the old navigation. Turn the new navigation on again from the account menu.'
+                        )
+                    }}
+                    data-attr="today-rail-switch-old-nav"
+                >
+                    <IconArrowLeft />
+                    Switch to the old navigation
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => logout()} data-attr="new-account-menu-logout-button">
                     <IconLeave />
