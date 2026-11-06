@@ -141,6 +141,7 @@ def WRITABLE_METRICS4_SAMPLES_TABLE_SQL() -> str:
     `has_labels` SimpleAggregateFunction(max, UInt8),
     `instrumentation_scope` SimpleAggregateFunction(any, String),
     `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
+    `histogram_bounds_hash` UInt64,
     `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
 {arrays}""",
     )
@@ -234,6 +235,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
     `has_labels` SimpleAggregateFunction(max, UInt8),
     `instrumentation_scope` SimpleAggregateFunction(any, String),
     `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
+    `histogram_bounds_hash` UInt64,
     `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
 {arrays},
     `timestamp_min` DateTime64(6) ALIAS arrayMin(timestamp_arr),
@@ -255,7 +257,8 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
 )
 ENGINE = {AggregatingMergeTree(METRICS4_SAMPLES_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY original_expiry_date
-ORDER BY (team_id, metric_name, time_bucket, series_fingerprint)
+PRIMARY KEY (team_id, metric_name, time_bucket, series_fingerprint)
+ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, histogram_bounds_hash)
 TTL original_expiry_date
 SETTINGS
     index_granularity = 128,
@@ -362,20 +365,22 @@ SETTINGS
 """
 
 
-def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
-    db = _db()
+def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV_SELECT() -> str:
     group_arrays = ",\n".join(
         f"    groupArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR})({name}) AS {name}_arr"
         for name, _ in METRICS4_POINT_ARRAY_COLUMNS
         if name not in METRICS4_UNWRITTEN_POINT_ARRAY_COLUMNS
     )
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SAMPLES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SAMPLES_TABLE_NAME}
-AS SELECT
+    # A series can change its histogram bucket layout inside one hour. Each layout gets its own row,
+    # so the row's histogram_bounds are correct for every point in it. Points without bounds use hash 0,
+    # so their rows merge with the rows that were written before the hash column existed.
+    # The input. prefix reads the point column, not the series-hour aggregate of the same name.
+    return f"""SELECT
     team_id,
     metric_name,
     toDateTime(toStartOfHour(timestamp)) AS time_bucket,
     series_fingerprint,
+    if(empty(input.histogram_bounds), 0, cityHash64(input.histogram_bounds)) AS histogram_bounds_hash,
     toDate32(original_expiry_timestamp) AS original_expiry_date,
     any(resource_fingerprint) AS resource_fingerprint,
     any(service_name) AS service_name,
@@ -388,13 +393,21 @@ AS SELECT
     anyLast(histogram_bounds) AS histogram_bounds,
     any(_topic) AS _topic,
 {group_arrays}
-FROM {db}.{METRICS4_INPUT_TABLE_NAME}
+FROM {_db()}.{METRICS4_INPUT_TABLE_NAME} AS input
 GROUP BY
     team_id,
     metric_name,
     time_bucket,
     series_fingerprint,
-    original_expiry_date
+    histogram_bounds_hash,
+    original_expiry_date"""
+
+
+def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
+    db = _db()
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SAMPLES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SAMPLES_TABLE_NAME}
+AS {METRICS4_INPUT_TO_METRICS4_SAMPLES_MV_SELECT()}
 """
 
 
