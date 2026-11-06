@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -17,6 +17,7 @@ from requests.exceptions import (
 from urllib3 import HTTPConnectionPool
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 
+from posthog.admin.console.tools import Links
 from posthog.clickhouse.client.execute import sync_execute
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -467,7 +468,6 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         }
         self.url = "/admin/console/tools/replay-failed-runs/"
         self.query = f"?{urlencode(self.filters)}&step=details"
-        self.send_url = f"{self.url}send/{self.query}"
         self.staff_client = Client()
         self.staff_client.force_login(self.user)
 
@@ -476,28 +476,39 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         super().tearDown()
 
     def _fingerprint(self) -> str:
-        form = self.staff_client.get(self.send_url).context["form"]
-        return form.initial["fingerprint"]
+        links = [
+            block
+            for block in self.staff_client.get(f"{self.url}{self.query}").context["page"].blocks
+            if isinstance(block, Links)
+        ]
+        send = next(link for block in links for link in block.items if link.label == "Send replay")
+        return parse_qs(urlsplit(send.href).query)["reviewed"][0]
 
     def _allow_resend_url(self, fingerprint: str) -> str:
         return f"{self.url}allow-resend/?plan={fingerprint}"
 
     def _send(self, fingerprint: str, confirm: str = "2") -> Any:
         return self.staff_client.post(
-            self.send_url, {"fingerprint": fingerprint, "confirm_count": confirm, "reason": "Outage INC-1"}
+            f"{self.url}send/{self.query}&reviewed={fingerprint}&runs=2",
+            {"fingerprint": fingerprint, "confirm_count": confirm, "reason": "Outage INC-1"},
         )
 
     @parameterized.expand(
         [
-            ("stale_fingerprint", "0000000000000000", "2", 302),
-            ("wrong_confirmation_count", None, "3", 400),
+            ("stale_fingerprint", "0000000000000000", False, "2", 302),
+            ("wrong_confirmation_count", None, False, "3", 400),
+            ("plan_changed_after_the_review", None, True, "2", 302),
         ]
     )
     @patch("products.cdp.backend.tasks.invocation_replay.run_invocation_replay")
     def test_send_refuses_without_a_matching_review(
-        self, _name: str, fingerprint: str | None, confirm: str, status: int, task: MagicMock
+        self, _name: str, fingerprint: str | None, plan_changes: bool, confirm: str, status: int, task: MagicMock
     ) -> None:
-        response = self._send(fingerprint or self._fingerprint(), confirm)
+        fingerprint = fingerprint or self._fingerprint()
+        if plan_changes:
+            _insert(self.function, [_row("a3", "failed", 10)])
+
+        response = self._send(fingerprint, confirm)
 
         assert response.status_code == status
         task.delay.assert_not_called()

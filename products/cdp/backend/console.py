@@ -363,8 +363,13 @@ class ReplayStatus:
                 text=f"The replay is sending in the background. This page refreshes every {STATUS_REFRESH_SECONDS} seconds.",
                 tone=Tone.INFO,
             )
-        # The notices and actions for a finished send are only on a fresh page, so ask for one.
-        return Notice(text="The replay is no longer sending. Reload the page to see the result.", tone=Tone.INFO)
+        # The notices and actions for a finished send are only on a fresh page.
+        return Notice(
+            text="The replay is no longer sending.",
+            link_text="Show the result",
+            href=_tool_url({"plan": self.fingerprint}),
+            tone=Tone.INFO,
+        )
 
     def requests_table(self) -> Table:
         return Table(
@@ -411,40 +416,10 @@ class ReplayFailedRunsTool(ConsoleTool):
     group = "Incidents"
     description = "Send failed destination runs from an incident window again, across teams. You review the runs first."
 
-    def __init__(self) -> None:
-        self._plans: dict[ReplayCriteria, ReplayPlan | Exception] = {}
-
-    def _plan(self, criteria: ReplayCriteria) -> ReplayPlan:
-        # The operations and the page both need the plan in one request, and planning can take a minute.
-        # A failure is kept too, so the page reports it without planning a second time.
-        if criteria not in self._plans:
-            try:
-                self._plans[criteria] = plan_replay(criteria)
-            except Exception as error:
-                self._plans[criteria] = error
-        plan = self._plans[criteria]
-        if isinstance(plan, Exception):
-            raise plan
-        return plan
-
     def _filters_form(self, request: HttpRequest) -> ReplayFiltersForm | None:
         if "window_start" not in request.GET:
             return None
         return ReplayFiltersForm(request.GET)
-
-    def _details_plan(self, request: HttpRequest) -> ReplayPlan | None:
-        """The plan the details step shows, or None when that step shows no runs to send."""
-        filters = self._filters_form(request)
-        if request.GET.get("step") != "details" or request.GET.get("edit") or filters is None:
-            return None
-        if not filters.is_valid():
-            return None
-        try:
-            plan = self._plan(filters.to_criteria())
-        except Exception:
-            # `page` reports the error.
-            return None
-        return plan if plan.invocation_count else None
 
     def _send(self, request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
         assert form is not None
@@ -452,7 +427,7 @@ class ReplayFailedRunsTool(ConsoleTool):
         if filters is None or not filters.is_valid():
             messages.error(request, "The filters are not valid, so nothing was sent. Review them again.")
             return HttpResponse(status=400)
-        plan = self._plan(filters.to_criteria())
+        plan = plan_replay(filters.to_criteria())
         if form.cleaned_data["fingerprint"] != plan.fingerprint:
             messages.error(request, "The runs changed since you reviewed them, so nothing was sent. Review them again.")
             return redirect(_tool_url(_filters_query(request, step="details")))
@@ -490,36 +465,29 @@ class ReplayFailedRunsTool(ConsoleTool):
                     danger=True,
                     description="Only when the destinations show that the runs in this plan were not queued.",
                     undo_hint="This cannot be undone. A resend of runs that were queued sends them twice.",
+                    pending_label="Allowing...",
                 )
             ]
-        if "window_start" not in request.GET:
+        # The details page links here with the plan staff reviewed, so the send compares against that plan.
+        if "window_start" not in request.GET or "reviewed" not in request.GET:
             return []
-        plan = self._details_plan(request)
-        # A submit is always offered, so `_send` can say why it refuses one, for example when the runs
-        # changed since the review and the details step no longer shows any.
-        if plan is None and request.method != "POST":
-            return []
-        return [self._send_operation(plan)]
-
-    def _send_operation(self, plan: ReplayPlan | None) -> ToolOperation:
+        runs = request.GET.get("runs", "")
         description = ""
-        if plan is not None:
-            description = (
-                f"This queues {_count(plan.invocation_count, 'run')} for "
-                f"{_count(len(plan.replayable_functions), 'destination')} in {_count(plan.team_count, 'team')}. "
-                f"Type {plan.invocation_count} to confirm."
+        if runs.isdigit():
+            description = f"This queues {_count(int(runs), 'run')}. Type {runs} to confirm."
+        return [
+            ToolOperation(
+                key="send",
+                label="Send replay",
+                handler=self._send,
+                form_class=SendReplayForm,
+                form_initial={"fingerprint": request.GET["reviewed"]},
+                danger=True,
+                description=description,
+                undo_hint="This cannot be undone. The destinations receive these requests again.",
+                pending_label="Sending...",
             )
-        return ToolOperation(
-            key="send",
-            label="Send replay",
-            handler=self._send,
-            form_class=SendReplayForm,
-            # The send checks this against a fresh plan, so it refuses runs that changed since this review.
-            form_initial={"fingerprint": plan.fingerprint} if plan is not None else None,
-            danger=True,
-            description=description,
-            undo_hint="This cannot be undone. The destinations receive these requests again.",
-        )
+        ]
 
     def page(self, request: HttpRequest) -> Page:
         if "plan" in request.GET:
@@ -530,7 +498,7 @@ class ReplayFailedRunsTool(ConsoleTool):
         if request.GET.get("edit") or not filters.is_valid():
             return self._filters_page(filters)
         try:
-            plan = self._plan(filters.to_criteria())
+            plan = plan_replay(filters.to_criteria())
         except Exception as error:
             capture_exception(error)
             return self._filters_page(
@@ -610,6 +578,11 @@ class ReplayFailedRunsTool(ConsoleTool):
         )
         blocks.extend(_plan_tables(plan))
         blocks.append(_destinations_table(plan))
+        send_url = reverse("admin_console_tool_operation", kwargs={"tool_key": TOOL_KEY, "operation_key": "send"})
+        send_query = _filters_query(request, step="details", reviewed=plan.fingerprint, runs=str(plan.invocation_count))
+        blocks.append(
+            Links(items=(Link(label="Send replay", href=f"{send_url}?{send_query.urlencode()}", primary=True),))
+        )
         blocks.append(
             Notice(
                 text=f"Plan {plan.fingerprint}. If the runs change before you send, nothing is sent and the new plan is shown."
