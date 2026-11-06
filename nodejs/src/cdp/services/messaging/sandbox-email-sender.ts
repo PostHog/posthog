@@ -82,7 +82,7 @@ export type SandboxDailyCapClaim =
     | SandboxDailyCapGrant
     | { type: 'project_cap_reached' }
     | { type: 'recipient_cap_reached'; addresses: string[] }
-    | { type: 'check_failed' }
+    | { type: 'cap_check_failed' }
 
 function dailyBucket(key: string, requested: number, capacity: number): ClaimRequest {
     return { key, requested, capacity, refillPerSecond: capacity / SECONDS_PER_DAY, ttlSeconds: DAILY_CAP_TTL_SECONDS }
@@ -612,10 +612,10 @@ export class SandboxEmailSender {
     public async claimDailyCaps(teamId: number, recipients: string[]): Promise<SandboxDailyCapClaim> {
         if (!this.dailyCapLimiter) {
             logger.warn('Sandbox email daily caps have no Valkey pool on this consumer, so the cap check fails')
-            return { type: 'check_failed' }
+            return { type: 'cap_check_failed' }
         }
         if (!this.dailyCaps) {
-            return { type: 'check_failed' }
+            return { type: 'cap_check_failed' }
         }
         const { team: dailyTeamCap, recipient: dailyRecipientCap } = this.dailyCaps
         const addresses = deliveredCopiesByAddress(recipients)
@@ -623,7 +623,7 @@ export class SandboxEmailSender {
         try {
             const team = await this.teamManager.getTeam(teamId)
             if (!team) {
-                return { type: 'check_failed' }
+                return { type: 'cap_check_failed' }
             }
             const prefix = dailyCapKeyPrefix(team.organization_id)
             claim = await this.dailyCapLimiter.claimRefundable([
@@ -634,13 +634,13 @@ export class SandboxEmailSender {
             ])
         } catch (error) {
             logger.warn('Could not check sandbox email daily caps', { teamId, error: String(error) })
-            return { type: 'check_failed' }
+            return { type: 'cap_check_failed' }
         }
         if (claim.granted) {
             return { type: 'granted', claim }
         }
         if (claim.deniedIndexes === null) {
-            return { type: 'check_failed' }
+            return { type: 'cap_check_failed' }
         }
         if (claim.deniedIndexes.includes(0)) {
             return { type: 'project_cap_reached' }

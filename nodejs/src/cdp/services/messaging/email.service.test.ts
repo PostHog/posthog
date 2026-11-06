@@ -1034,7 +1034,30 @@ describe('EmailService', () => {
                     }
                 )
 
-                it('checks members after a slow cap claim and gives the claim back when one left', async () => {
+                it.each([
+                    [
+                        'gives the claim back when SES rejects the send',
+                        new MessageRejected({ $metadata: {}, message: 'Rejected' }),
+                        true,
+                    ],
+                    ['keeps the claim when SES may have accepted the send', new Error('socket hang up'), false],
+                ])('%s', async (_case, error, returned) => {
+                    service = createSandboxService(true, {
+                        senderSettings: { dailyTeamCap: 1, dailyRecipientCap: 1 },
+                    })
+                    sendEmailSpy.mockRejectedValueOnce(error)
+
+                    expect((await send(false)).error).toContain('Failed to send email via SES')
+                    const next = await send(false)
+
+                    if (returned) {
+                        expectSent(next)
+                    } else {
+                        expectCapSkip(next, false, TEAM_CAP_REACHED, 'project_cap_reached')
+                    }
+                })
+
+                it('checks members after a slow cap claim and gives the claim back when one loses verification', async () => {
                     const now = Date.now()
                     const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
                     const dailyCapLimiter = new RateLimiterService(sandboxRedis, { name: 'sandbox-email' })
@@ -1089,10 +1112,7 @@ describe('EmailService', () => {
                         },
                     ],
                     ['no limiter is configured', true, { dailyCapLimiter: null }],
-                    ['the project cap is not a number', false, { senderSettings: { dailyTeamCap: NaN } }],
                     ['the project cap is zero', true, { senderSettings: { dailyTeamCap: 0 } }],
-                    ['the recipient cap is fractional', false, { senderSettings: { dailyRecipientCap: 1.5 } }],
-                    ['the recipient cap is negative', false, { senderSettings: { dailyRecipientCap: -5 } }],
                 ] as const)('skips every send when %s (isTest=%s)', async (_name, isTest, options) => {
                     service = createSandboxService(true, options)
 

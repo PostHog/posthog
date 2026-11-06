@@ -388,11 +388,17 @@ describe('RateLimiterService', () => {
             limiter
         )
 
-        const claimAllOrNothing = jest.spyOn(limiter, 'claimRefundable')
+        const ageOrganizationAllowances = async (organizationId: string, ms: number): Promise<void> => {
+            await redis.useClient({ name: 'age-sandbox-allowances' }, async (client) => {
+                for (const key of await client.keys(`@posthog/workflows-sandbox-daily/{${organizationId}}*`)) {
+                    if ((await client.type(key)) === 'hash') {
+                        await client.hset(key, 'ts', Number(await client.hget(key, 'ts')) - ms)
+                    }
+                }
+            })
+        }
         try {
             expect(await sender.claimDailyCaps(1, ['member@example.com'])).toMatchObject({ type: 'granted' })
-            const spentOverADay = expect.objectContaining({ capacity: 1, refillPerSecond: 1 / 86_400 })
-            expect(claimAllOrNothing).toHaveBeenCalledWith([spentOverADay, spentOverADay])
             expect(await sender.claimDailyCaps(2, ['member@example.com'])).toEqual({
                 type: 'recipient_cap_reached',
                 addresses: ['member@example.com'],
@@ -406,7 +412,7 @@ describe('RateLimiterService', () => {
             expect(await sender.claimDailyCaps(6, ['Member@example.com', 'member@example.com'])).toEqual({
                 type: 'project_cap_reached',
             })
-            expect(await sender.claimDailyCaps(5, ['member@example.com'])).toEqual({ type: 'check_failed' })
+            expect(await sender.claimDailyCaps(5, ['member@example.com'])).toEqual({ type: 'cap_check_failed' })
             const roomyProjectSender = new SandboxEmailSender(
                 {
                     enabled: true,
@@ -424,6 +430,11 @@ describe('RateLimiterService', () => {
                 type: 'recipient_cap_reached',
                 addresses: ['copy@example.com'],
             })
+
+            await ageOrganizationAllowances(organizations[1], 43_200_000)
+            expect(await sender.claimDailyCaps(1, ['member@example.com'])).toEqual({ type: 'project_cap_reached' })
+            await ageOrganizationAllowances(organizations[1], 86_400_000)
+            expect(await sender.claimDailyCaps(1, ['member@example.com'])).toMatchObject({ type: 'granted' })
         } finally {
             for (const organizationId of Object.values(organizations)) {
                 await deleteKeysWithPrefix(redis, `@posthog/workflows-sandbox-daily/{${organizationId}}`)
@@ -642,7 +653,7 @@ describe('RateLimiterService', () => {
             )
             const bucket = { key: `${KEY}/stalled`, requested: 1, capacity: 1, refillPerSecond: 0 }
             try {
-                expect(await sender.claimDailyCaps(1, ['member@example.com'])).toEqual({ type: 'check_failed' })
+                expect(await sender.claimDailyCaps(1, ['member@example.com'])).toEqual({ type: 'cap_check_failed' })
                 await expect(
                     sender.returnDailyCaps({
                         type: 'granted',

@@ -1,4 +1,10 @@
-import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import {
+    MessageHeader,
+    SESv2Client,
+    SESv2ServiceException,
+    SendEmailCommand,
+    SendEmailCommandInput,
+} from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
 import * as mimeFuncs from 'nodemailer/lib/mime-funcs'
@@ -180,6 +186,10 @@ export class SESThrottleError extends Error {
         this.retryAfterMs = retryAfterMs
     }
 }
+
+// SES answered with a client fault, so it did not accept the message. Other failures, such as a timeout or a
+// missing message ID, leave open whether the email went out.
+class SesRejectedError extends Error {}
 
 class EmailAttachmentsUnavailableError extends Error {
     constructor(cause: unknown) {
@@ -455,11 +465,7 @@ function sandboxRecipientsOf(params: CyclotronInvocationQueueParametersEmailType
     return [params.to.email.trim(), ...parseDeliveryMailboxes(params.cc), ...parseDeliveryMailboxes(params.bcc)]
 }
 
-type SandboxCapSkipReason = Extract<SandboxEmailBlockReason, 'project_cap_reached' | 'cap_check_failed'>
-type SandboxRecipientBlockReason = Exclude<
-    SandboxEmailBlockReason,
-    'switch_off' | 'not_workflow_step' | SandboxCapSkipReason
->
+type SandboxBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | 'not_workflow_step'>
 
 // CC and BCC belong to the route because a route builder may parse them its own way, and SES must
 // deliver to exactly the list that builder checked.
@@ -471,46 +477,37 @@ type SesRoute = {
     bccAddresses?: string[]
 }
 
-const SANDBOX_RECIPIENT_BLOCKS: Record<
-    SandboxRecipientBlockReason,
-    { explanation: string; label: string; guidance: string; statusReason: EmailSkipReason }
+const SANDBOX_BLOCKS: Record<
+    SandboxBlockReason,
+    { message: (addresses: string[]) => string; statusReason: EmailSkipReason }
 > = {
     recipient_not_member: {
-        explanation:
-            'Skipping send: the sandbox sender only sends to active organization members with verified email addresses',
-        label: '. Blocked addresses: ',
-        guidance: 'Verify your own domain to send to anyone.',
+        message: (addresses) =>
+            `Skipping send: the sandbox sender only sends to active organization members with verified email addresses. Blocked addresses: ${addresses.join(', ')}. Verify your own domain to send to anyone.`,
         statusReason: 'recipient_unreachable',
     },
     recipient_unverified: {
-        explanation:
-            'Skipping send: the sandbox sender only sends to organization members with verified email addresses',
-        label: '. Unverified addresses: ',
-        guidance: 'Verify your email address in PostHog, or ask these members to verify theirs.',
+        message: (addresses) =>
+            `Skipping send: the sandbox sender only sends to organization members with verified email addresses. Unverified addresses: ${addresses.join(', ')}. Verify your email address in PostHog, or ask these members to verify theirs.`,
         statusReason: 'recipient_unreachable',
     },
     check_failed: {
-        explanation: 'Skipping send: could not check organization members',
-        label: ' for these addresses: ',
-        guidance: 'Try again, or verify your own domain to send to anyone.',
+        message: (addresses) =>
+            `Skipping send: could not check organization members for these addresses: ${addresses.join(', ')}. Try again, or verify your own domain to send to anyone.`,
         statusReason: 'recipient_unreachable',
     },
     recipient_cap_reached: {
-        explanation: "Skipping send: these addresses reached the sandbox sender's daily limit per address",
-        label: ': ',
-        guidance: 'Verify your own domain to send more.',
+        message: (addresses) =>
+            `Skipping send: these addresses reached the sandbox sender's daily limit per address: ${addresses.join(', ')}. Verify your own domain to send more.`,
         statusReason: 'frequency_capped',
     },
-}
-
-const SANDBOX_CAP_SKIPS: Record<SandboxCapSkipReason, { message: string; statusReason: EmailSkipReason }> = {
     project_cap_reached: {
-        message:
+        message: () =>
             "Skipping send: this email would go over the sandbox sender's daily limit for this project. Verify your own domain to send more.",
         statusReason: 'frequency_capped',
     },
     cap_check_failed: {
-        message:
+        message: () =>
             "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more.",
         statusReason: 'recipient_unreachable',
     },
@@ -683,7 +680,8 @@ export class EmailService {
                 await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'not_workflow_step', 0)
                 return result
             }
-            if (isSandbox && !this.sandboxSender?.canSend) {
+            const sandboxSender = isSandbox ? this.sandboxSender : null
+            if (isSandbox && !sandboxSender?.canSend) {
                 this.skipSandboxSend(
                     result,
                     isTest,
@@ -729,8 +727,12 @@ export class EmailService {
                 return result
             }
 
-            const recipients = isSandbox ? sandboxRecipientsOf(params) : []
-            if (isSandbox && !(await this.checkSandboxRecipients(result, recipients, isTest, { fresh: false }))) {
+            if (
+                sandboxSender &&
+                !(await this.checkSandboxRecipients(result, sandboxSender, sandboxRecipientsOf(params), isTest, {
+                    fresh: false,
+                }))
+            ) {
                 return result
             }
             if (isSandbox && (params.from.email || params.from.name || params.replyTo)) {
@@ -911,26 +913,31 @@ export class EmailService {
                     await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait, files)
                     break
                 case 'sandbox': {
-                    deliveryParams = await this.sandboxSender!.buildSandboxMessage(
-                        sendParams,
-                        from.name,
-                        invocation.teamId
-                    )
-                    const route = this.sandboxSesRoute(deliveryParams)
+                    if (!sandboxSender) {
+                        throw new Error('The sandbox sender is not configured')
+                    }
+                    deliveryParams = await sandboxSender.buildSandboxMessage(sendParams, from.name, invocation.teamId)
+                    const route = this.sandboxSesRoute(sandboxSender, deliveryParams)
                     const deliveryRecipients = [
                         deliveryParams.to.email.trim(),
                         ...(route.ccAddresses ?? []),
                         ...(route.bccAddresses ?? []),
                     ]
-                    const capGrant = await this.claimSandboxDailyCaps(result, deliveryRecipients, isTest)
+                    const capGrant = await this.claimSandboxDailyCaps(result, sandboxSender, deliveryRecipients, isTest)
                     if (!capGrant) {
                         return result
                     }
-                    const deliverTo = await this.checkSandboxRecipients(result, deliveryRecipients, isTest, {
-                        fresh: true,
-                    })
+                    const deliverTo = await this.checkSandboxRecipients(
+                        result,
+                        sandboxSender,
+                        deliveryRecipients,
+                        isTest,
+                        {
+                            fresh: true,
+                        }
+                    )
                     if (!deliverTo) {
-                        await this.sandboxSender!.returnDailyCaps(capGrant)
+                        await sandboxSender.returnDailyCaps(capGrant)
                         return result
                     }
                     const stored = (address: string): string => deliverTo.get(address)!
@@ -945,6 +952,7 @@ export class EmailService {
                     }
                     await this.sendSandboxEmail(
                         result,
+                        sandboxSender,
                         deliveryParams,
                         from,
                         isTest,
@@ -953,7 +961,7 @@ export class EmailService {
                         memberRoute,
                         capGrant
                     )
-                    await this.sandboxSender!.captureSent(invocation.teamId, isTest, deliveryRecipients.length)
+                    await sandboxSender.captureSent(invocation.teamId, isTest, deliveryRecipients.length)
                     break
                 }
 
@@ -1208,13 +1216,14 @@ export class EmailService {
 
     private async checkSandboxRecipients(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        sender: SandboxEmailSender,
         recipients: string[],
         isTest: boolean,
         { fresh }: { fresh: boolean }
     ): Promise<StoredAddressByRecipient | null> {
         const { teamId } = result.invocation
         let blockedRecipients: string[]
-        let reason: SandboxRecipientBlockReason
+        let reason: SandboxBlockReason
         try {
             if (!this.organizationMembers) {
                 throw new Error('Organization member checks are not configured')
@@ -1237,48 +1246,40 @@ export class EmailService {
                 error: error instanceof Error ? error.message : 'Unknown error',
             })
         }
-        await this.blockSandboxRecipients(result, blockedRecipients, reason, isTest)
+        await this.blockSandboxSend(result, sender, blockedRecipients, reason, isTest)
         return null
     }
 
-    private async blockSandboxRecipients(
+    private async blockSandboxSend(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        blockedRecipients: string[],
-        reason: SandboxRecipientBlockReason,
+        sender: SandboxEmailSender,
+        addresses: string[],
+        reason: SandboxBlockReason,
         isTest: boolean
     ): Promise<void> {
-        const { explanation, label, guidance, statusReason } = SANDBOX_RECIPIENT_BLOCKS[reason]
-        this.skipSandboxSend(
-            result,
-            isTest,
-            `${explanation}${label}${blockedRecipients.join(', ')}. ${guidance}`,
-            statusReason
-        )
-        await this.sandboxSender?.captureBlocked(result.invocation.teamId, isTest, reason, blockedRecipients.length)
+        const { message, statusReason } = SANDBOX_BLOCKS[reason]
+        this.skipSandboxSend(result, isTest, message(addresses), statusReason)
+        await sender.captureBlocked(result.invocation.teamId, isTest, reason, addresses.length)
     }
 
     private async claimSandboxDailyCaps(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        sender: SandboxEmailSender,
         recipients: string[],
         isTest: boolean
     ): Promise<SandboxDailyCapGrant | null> {
-        const claim = await this.sandboxSender!.claimDailyCaps(result.invocation.teamId, recipients)
+        const claim = await sender.claimDailyCaps(result.invocation.teamId, recipients)
         if (claim.type === 'granted') {
             return claim
         }
-        if (claim.type === 'recipient_cap_reached') {
-            await this.blockSandboxRecipients(result, claim.addresses, 'recipient_cap_reached', isTest)
-            return null
-        }
-        const reason = claim.type === 'check_failed' ? 'cap_check_failed' : claim.type
-        const { message, statusReason } = SANDBOX_CAP_SKIPS[reason]
-        this.skipSandboxSend(result, isTest, message, statusReason)
-        await this.sandboxSender!.captureBlocked(result.invocation.teamId, isTest, reason, recipients.length)
+        const blocked = claim.type === 'recipient_cap_reached' ? claim.addresses : recipients
+        await this.blockSandboxSend(result, sender, blocked, claim.type, isTest)
         return null
     }
 
     private async sendSandboxEmail(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        sender: SandboxEmailSender,
         params: CyclotronInvocationQueueParametersEmailType,
         from: { email: string; name: string },
         isTest: boolean,
@@ -1290,8 +1291,8 @@ export class EmailService {
         try {
             await this.sendEmailWithSES(result, params, from, false, isTest, queueWait, files, route)
         } catch (error) {
-            if (error instanceof SESThrottleError) {
-                await this.sandboxSender!.returnDailyCaps(capGrant)
+            if (error instanceof SESThrottleError || error instanceof SesRejectedError) {
+                await sender.returnDailyCaps(capGrant)
             }
             throw error
         }
@@ -1379,10 +1380,10 @@ export class EmailService {
     // The sandbox shares one SES identity, so every send uses its fixed tenant and configuration
     // set, and no recipient gets an unsubscribe link: only members of the sending organization
     // receive it. CC and BCC are parsed once so the final member check covers exactly this list.
-    private sandboxSesRoute(params: CyclotronInvocationQueueParametersEmailType): SesRoute {
+    private sandboxSesRoute(sender: SandboxEmailSender, params: CyclotronInvocationQueueParametersEmailType): SesRoute {
         return {
-            tenantName: this.sandboxSender!.config.tenantName,
-            configurationSetName: this.sandboxSender!.config.configurationSetName,
+            tenantName: sender.config.tenantName,
+            configurationSetName: sender.config.configurationSetName,
             unsubscribeHeaders: [],
             ccAddresses: parseDeliveryMailboxes(params.cc),
             bccAddresses: parseDeliveryMailboxes(params.bcc),
@@ -1716,8 +1717,10 @@ export class EmailService {
                 sesThrottleResponsesTotal.inc({ error_code: error.name })
                 throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
             }
-            const message = error instanceof Error ? error.message : String(error)
-            throw new Error(`Failed to send email via SES: ${message}`)
+            const message = `Failed to send email via SES: ${error instanceof Error ? error.message : String(error)}`
+            throw error instanceof SESv2ServiceException && error.$fault === 'client'
+                ? new SesRejectedError(message)
+                : new Error(message)
         }
     }
 
