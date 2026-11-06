@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from contextlib import closing
 from datetime import UTC, datetime
 from typing import IO, Any, cast
+from urllib.parse import urlsplit
 
 import s3fs
 import boto3
@@ -12,6 +13,7 @@ from adlfs import AzureBlobFileSystem
 from azure.core.exceptions import ClientAuthenticationError, HttpResponseError, ResourceNotFoundError
 from azure.storage.blob import ContainerClient
 from botocore import UNSIGNED
+from botocore.awsrequest import AWSRequest
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 from fsspec import AbstractFileSystem
@@ -201,7 +203,7 @@ class S3ObjectStore(ObjectStore):
 
     def open(self, relative: str) -> IO[bytes]:
         try:
-            return super().open(relative)
+            return ObjectStore.open(self, relative)
         except KeyError as e:
             if e.args != ("ContentLength",):
                 raise
@@ -272,8 +274,14 @@ class S3ObjectStore(ObjectStore):
         return objects
 
 
+def _preserve_gzip_encoding(request: AWSRequest, **kwargs: Any) -> None:
+    # GCS must keep .gz objects compressed because the parsers use the filename suffix.
+    if urlsplit(request.url).path.lower().endswith(".gz"):
+        request.headers["Accept-Encoding"] = "gzip"
+
+
 def build_s3_client(config: ObjectStoreConfig) -> Any:
-    return boto3.client(
+    client = boto3.client(
         "s3",
         aws_access_key_id=config.access_key_id,
         aws_secret_access_key=config.secret_access_key,
@@ -281,6 +289,9 @@ def build_s3_client(config: ObjectStoreConfig) -> Any:
         endpoint_url=config.endpoint_url,
         config=BotoConfig(**_request_config(config)),
     )
+    if config.provider == ObjectStoreProvider.GCS:
+        client.meta.events.register("before-sign.s3.GetObject", _preserve_gzip_encoding)
+    return client
 
 
 @functools.lru_cache(maxsize=1024)

@@ -373,7 +373,7 @@ def _iter_gzipped_parquet(stream: IO[bytes], stored: StoredObject) -> Iterator[p
     """Parquet readers seek to the footer, which a gzip stream can't, so the file is unpacked to disk first."""
     with tempfile.SpooledTemporaryFile(max_size=SPOOL_MEMORY_BYTES) as unpacked:
         try:
-            with gzip.GzipFile(fileobj=stream) as compressed:
+            with gzip.GzipFile(fileobj=stream, mode="rb") as compressed:
                 unpacked_bytes = 0
                 while chunk := compressed.read(COPY_CHUNK_BYTES):
                     unpacked_bytes += len(chunk)
@@ -405,7 +405,7 @@ def iter_file_tables(
     else:
         # fsspec files take no size in `readline`, so the bounded line reads need a standard buffered reader.
         binary = (
-            cast(IO[bytes], gzip.GzipFile(fileobj=stream))
+            cast(IO[bytes], gzip.GzipFile(fileobj=stream, mode="rb"))
             if is_compressed(stored.path)
             else cast(IO[bytes], io.BufferedReader(_PrefixedStream(b"", stream)))
         )

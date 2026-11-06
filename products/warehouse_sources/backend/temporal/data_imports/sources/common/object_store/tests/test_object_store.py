@@ -4,13 +4,14 @@ import csv
 import gzip
 import json
 import tempfile
+import dataclasses
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import IO, Any, Literal, cast
 
 import pytest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.test import override_settings
 
@@ -18,6 +19,7 @@ import boto3
 import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
+from botocore.awsrequest import AWSResponse
 from botocore.exceptions import ClientError
 from botocore.response import StreamingBody
 from botocore.stub import Stubber
@@ -25,6 +27,7 @@ from deltalake import DeltaTable, WriterProperties, write_deltalake
 from deltalake.exceptions import DeltaError, TableNotFoundError
 from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
+from urllib3.response import HTTPResponse
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import (
     delta,
@@ -1394,7 +1397,7 @@ class TestS3Open:
             assert method == "head_object"
             return {"ETag": '"etag"', "LastModified": MODIFIED_AT}
 
-        fs._call_s3 = head_without_size
+        fs._call_s3 = AsyncMock(side_effect=head_without_size)
         return S3ObjectStore(
             fs=fs,
             root="customer-data/exports",
@@ -1407,15 +1410,29 @@ class TestS3Open:
 
     @staticmethod
     def _client() -> Any:
-        return boto3.client(
-            "s3", region_name="us-east-1", aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="secret"
+        return filesystem.build_s3_client(
+            ObjectStoreConfig(
+                provider=ObjectStoreProvider.GCS,
+                bucket="customer-data",
+                region="auto",
+                access_key_id="AKIAEXAMPLE",
+                secret_access_key="secret",
+            )
         )
 
     @parameterized.expand(
         [
             ("csv", "orders.csv", "csv", b"id,name\n1,a\n2,b\n"),
+            ("csv_gzip", "orders.csv.gz", "csv", b"id,name\n1,a\n2,b\n"),
             ("jsonl", "orders.jsonl", "jsonl", b'{"id": 1, "name": "a"}\n{"id": 2, "name": "b"}\n'),
+            ("jsonl_gzip", "orders.jsonl.gz", "jsonl", b'{"id": 1, "name": "a"}\n{"id": 2, "name": "b"}\n'),
             ("parquet", "orders.parquet", "parquet", _parquet_bytes(pa.table({"id": [1, 2], "name": ["a", "b"]}))),
+            (
+                "parquet_gzip",
+                "orders.parquet.gz",
+                "parquet",
+                _parquet_bytes(pa.table({"id": [1, 2], "name": ["a", "b"]})),
+            ),
         ]
     )
     def test_an_object_without_a_size_is_read_with_one_plain_get(
@@ -1423,19 +1440,33 @@ class TestS3Open:
     ) -> None:
         client = self._client()
         stored = StoredObject(path=path, size=len(content) // 2, modified_at=MODIFIED_AT)
-        with Stubber(client) as stubber:
-            stubber.add_response(
-                "get_object",
-                {"Body": StreamingBody(io.BytesIO(content), len(content))},
-                {"Bucket": "customer-data", "Key": f"exports/{path}"},
+
+        def send(request: Any) -> AWSResponse:
+            assert request.method == "GET"
+            assert request.url.endswith(f"/exports/{path}")
+            assert "Range" not in request.headers
+            payload = gzip.compress(content) if request.headers.get("Accept-Encoding") in ("gzip", b"gzip") else content
+            return AWSResponse(
+                request.url,
+                200,
+                {"content-length": str(len(payload))},
+                HTTPResponse(body=io.BytesIO(payload), preload_content=False),
             )
 
+        with patch.object(client._endpoint.http_session, "send", side_effect=send):
             with self._store(client).open(path) as stream:
                 tables = list(iter_file_tables(stream, stored, file_format, CsvOptions()))
 
-            stubber.assert_no_pending_responses()
         rows = pa.concat_tables(tables).select(["id", "name"]).to_pylist()
         assert [(int(row["id"]), row["name"]) for row in rows] == [(1, "a"), (2, "b")]
+
+    def test_a_sized_object_uses_the_filesystem(self, tmp_path: Path) -> None:
+        content = b"id,name\n1,a\n"
+        (tmp_path / "orders.csv").write_bytes(content)
+        store = dataclasses.replace(_s3_store(None), root=str(tmp_path))
+
+        with store.open("orders.csv") as stream:
+            assert stream.read() == content
 
     def test_an_object_without_a_size_past_the_cap_fails_with_a_parse_error(
         self, monkeypatch: pytest.MonkeyPatch
