@@ -2,6 +2,7 @@ import './EmailDocumentEditor.scss'
 
 import type { EditorOptions } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
+import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -17,6 +18,8 @@ import { cleanPastedHtml } from './cleanPastedHtml'
 import { EmailBlockHandle } from './components/EmailBlockHandle'
 import { EmailDocumentPreview } from './components/EmailDocumentPreview'
 import { imageNode, insertBlockOption } from './components/emailEditorActions'
+import { EmailEditorFeedback } from './components/EmailEditorFeedback'
+import { EmailEditorSwitch } from './components/EmailEditorSwitch'
 import { EmailImagePickerModal, PickedEmailImage } from './components/EmailImagePickerModal'
 import { EmailInsertToolbar } from './components/EmailInsertToolbar'
 import { EmailSelectionToolbar } from './components/EmailSelectionToolbar'
@@ -24,7 +27,7 @@ import { EmailStylePanel } from './components/EmailStylePanel'
 import { EMAIL_BLOCK_OPTIONS } from './emailBlockCatalog'
 import { EmailBlockKeymap, EmailLiquidHighlight } from './emailCanvasPlugins'
 import { hasUnsubscribeLink, insertBlock } from './emailCommands'
-import { emailFontUrls, resolvePageStyle } from './emailDocument'
+import { emailDocumentFromValue, emailFontUrls, resolvePageStyle } from './emailDocument'
 import { createEmailEditorAdapter } from './emailEditorAdapter'
 import { EmailEditorContext, EmailEditorContextValue } from './emailEditorContext'
 import { buildEmailExtensions } from './emailExtensions'
@@ -244,6 +247,15 @@ export function EmailDocumentEditor(): JSX.Element {
     })
     const editorRef = useRef(editor)
     editorRef.current = editor
+    // ProseMirror selects a leading image on load, which shouldn't look selected before anyone has touched the email.
+    const [touched, setTouched] = useState(false)
+    useEffect(() => {
+        const onFocus = (): void => setTouched(true)
+        editor.on('focus', onFocus)
+        return () => {
+            editor.off('focus', onFocus)
+        }
+    }, [editor])
 
     useEffect(() => {
         const onBlur = (): void => flushDesignEdit()
@@ -251,14 +263,26 @@ export function EmailDocumentEditor(): JSX.Element {
         const adapter = createEmailEditorAdapter(editor)
         setEmailEditorRef({ editor: adapter } as any)
         onEmailEditorReady()
-        // An accepted conversion hasn't been saved yet, so it counts as an edit for hosts that save as you go.
-        if (convertedEmailDocument) {
-            adapter.notifyChanged()
-        }
         // pinned: analytics event name and property, renaming breaks dashboards
-        posthog.capture('email editor opened', { email_type: logicProps.type })
+        posthog.capture('email editor opened', {
+            email_type: logicProps.type,
+            source: convertedEmailDocument
+                ? 'converted'
+                : emailDocumentFromValue(logicProps.value).document
+                  ? 'document'
+                  : 'new',
+        })
+        const onFirstEdit = (): void => {
+            if (convertedEmailDocument) {
+                // pinned: analytics event name and property, renaming breaks dashboards
+                posthog.capture('email editor converted email edited', { email_type: logicProps.type })
+            }
+            editor.off('update', onFirstEdit)
+        }
+        editor.on('update', onFirstEdit)
         return () => {
             editor.off('blur', onBlur)
+            editor.off('update', onFirstEdit)
             adapter.destroy()
             // When the old editor takes over, its ref is attached before this cleanup runs.
             if (templaterLogic.isMounted() && templaterLogic.values.emailEditorRef?.editor === adapter) {
@@ -363,6 +387,7 @@ export function EmailDocumentEditor(): JSX.Element {
                         </>
                     ) : null}
                     <div className="flex-1" />
+                    <EmailEditorSwitch.UseOldButton />
                     {mode === 'edit' ? (
                         <LemonButton
                             size="xsmall"
@@ -374,6 +399,8 @@ export function EmailDocumentEditor(): JSX.Element {
                         </LemonButton>
                     ) : null}
                 </div>
+                <EmailEditorSwitch.ConvertedNotice />
+                <EmailEditorFeedback />
                 {mode === 'preview' ? (
                     <EmailDocumentPreview html={html} unsubscribeMissing={!!html && !hasUnsubscribeLink(html)} />
                 ) : (
@@ -399,7 +426,10 @@ export function EmailDocumentEditor(): JSX.Element {
                                 }}
                             >
                                 <div
-                                    className="EmailDocumentCanvas"
+                                    className={clsx(
+                                        'EmailDocumentCanvas',
+                                        !touched && 'EmailDocumentCanvas--untouched'
+                                    )}
                                     style={
                                         {
                                             backgroundColor: page.bodyBackgroundColor,

@@ -59,9 +59,9 @@ const EmailDocumentEditor = lazyWithRetry(() =>
         default: module.EmailDocumentEditor,
     }))
 )
-const EmailEditorConversionPrompt = lazyWithRetry(() =>
-    import('products/workflows/frontend/EmailDocumentEditor/components/EmailEditorConversionModal').then((module) => ({
-        default: module.EmailEditorConversionPrompt,
+const EmailEditorOldBar = lazyWithRetry(() =>
+    import('products/workflows/frontend/EmailDocumentEditor/components/EmailEditorSwitch').then((module) => ({
+        default: module.EmailEditorSwitch.OldEditorBar,
     }))
 )
 
@@ -583,6 +583,7 @@ function NativeEmailTemplaterForm({
         visibleFields,
         usesDocumentEditor,
         documentEditorOffered,
+        emailConversionPending,
     } = useValues(emailTemplaterLogic)
     // The editor rebuilds itself when its options change, so it keeps the tags it started with.
     // Later changes reach it through setMergeTags in the logic.
@@ -785,11 +786,15 @@ function NativeEmailTemplaterForm({
                         </div>
                         {activeContentTab === 'plaintext' && <PlainTextEditor />}
                     </div>
+                ) : mode === 'full' && emailConversionPending ? (
+                    <div className="flex justify-center p-8">
+                        <Spinner className="text-2xl" />
+                    </div>
                 ) : mode === 'full' ? (
                     <>
                         {documentEditorOffered ? (
                             <Suspense fallback={null}>
-                                <EmailEditorConversionPrompt />
+                                <EmailEditorOldBar />
                             </Suspense>
                         ) : null}
                         <div className="relative flex flex-col flex-1">

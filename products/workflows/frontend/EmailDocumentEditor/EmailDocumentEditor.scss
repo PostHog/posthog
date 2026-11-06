@@ -127,6 +127,19 @@
         }
     }
 
+    &--untouched {
+        .email-canvas-image.email-canvas-selected img,
+        .email-canvas-image.email-canvas-selected .email-canvas-image-empty,
+        .email-canvas-selected,
+        .ProseMirror-selectednode {
+            outline: none;
+        }
+
+        .email-canvas-image-resize {
+            display: none;
+        }
+    }
+
     .email-canvas-button-row {
         padding: 12px 0;
     }

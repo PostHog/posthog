@@ -58,6 +58,16 @@ const RENDER_IN_OUTLOOK_COLUMN = renderAround(`${UNLAYER_COLUMN_OPEN}<p>old</p>$
 const RENDER_WITH_OUTLOOK_FOOTER = renderAround('<p>old</p><!--[if mso]><p>footer</p><![endif]-->')
 const RENDER_WITH_NON_OUTLOOK_FOOTER = renderAround('<p>old</p><!--[if !mso]><!--><p>footer</p><!--<![endif]-->')
 
+jest.mock('products/workflows/frontend/EmailDocumentEditor/components/EmailHtmlBlockView', () => ({
+    EmailHtmlBlockView: () => null,
+}))
+jest.mock('products/workflows/frontend/EmailDocumentEditor/components/EmailImageBlockView', () => ({
+    EmailImageBlockView: () => null,
+}))
+jest.mock('products/workflows/frontend/EmailDocumentEditor/components/EmailVariableChip', () => ({
+    EmailVariableChip: () => null,
+}))
+
 describe('emailTemplaterLogic', () => {
     let logic: ReturnType<typeof emailTemplaterLogic.build>
 
@@ -229,11 +239,34 @@ describe('emailTemplaterLogic', () => {
             { name: 'flag off: an email saved by the new editor', flag: false, value: documentEmail, expected: false },
             { name: 'flag on: a blank email', flag: true, value: blankEmail, expected: true },
             { name: 'flag on: an email saved by the new editor', flag: true, value: documentEmail, expected: true },
-            { name: 'flag on: an old-editor email', flag: true, value: DEFAULT_EMAIL_TEMPLATE, expected: false },
             {
-                name: 'flag on: the document no longer matches the html',
+                name: 'flag on: an old-editor email converts',
+                flag: true,
+                value: DEFAULT_EMAIL_TEMPLATE,
+                expected: true,
+            },
+            {
+                name: 'flag on: an html-only email converts',
+                flag: true,
+                value: { ...DEFAULT_EMAIL_TEMPLATE, html: '<p>Written elsewhere</p>', design: null },
+                expected: true,
+            },
+            {
+                name: 'flag on: a document that no longer matches the html converts from the html',
                 flag: true,
                 value: { ...documentEmail, html: '<p>changed elsewhere</p>' },
+                expected: true,
+            },
+            {
+                name: 'flag on: an email the new editor cannot hold stays on the old editor',
+                flag: true,
+                value: {
+                    ...DEFAULT_EMAIL_TEMPLATE,
+                    html: '<p>Video</p>',
+                    design: {
+                        body: { rows: [{ cells: [1], columns: [{ contents: [{ type: 'video', values: {} }] }] }] },
+                    },
+                },
                 expected: false,
             },
         ])('$name', async ({ flag, value, expected }) => {
@@ -243,7 +276,22 @@ describe('emailTemplaterLogic', () => {
             logic = emailTemplaterLogic(makeProps({ value }))
             logic.mount()
 
-            await expectLogic(logic).toMatchValues({ usesDocumentEditor: expected })
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: expected })
+        })
+
+        it('keeps someone who chose the old editor there until they switch back', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            logic = emailTemplaterLogic(makeProps({ value: DEFAULT_EMAIL_TEMPLATE }))
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: true })
+
+            logic.actions.setPrefersOldEmailEditor(true)
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: false })
+
+            logic.actions.setPrefersOldEmailEditor(false)
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: true })
         })
 
         it('keeps the destination email type on the old editor', async () => {
@@ -385,7 +433,7 @@ describe('emailTemplaterLogic', () => {
                 },
             } as MessageTemplate)
 
-            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'))
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'), '<p>new</p>')
         })
     })
 

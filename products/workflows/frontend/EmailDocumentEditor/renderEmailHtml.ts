@@ -321,11 +321,27 @@ function renderButton(node: JSONContent, ctx: RenderContext): string {
     const anchor = href
         ? `<a href="${escapeAttribute(href)}" target="_blank" style="${linkCss}">${label}</a>`
         : `<span style="${linkCss}">${label}</span>`
+    const buttonFontSize = px(style.fontSize, ctx.page.fontSize)
+    const labelText = textFromNodes(node.content)
+    // Word ignores border-radius, and only a VML shape gets rounded corners there. A shape can't size itself to its
+    // label, so a label that depends on a variable stays square rather than risk being cut off.
+    const hasVariable = (node.content ?? []).some((child) => child.type === 'variable') || labelText.includes('{')
+    const outlookButton =
+        radius > 0 && href && !hasVariable
+            ? (() => {
+                  const height = Math.round(buttonFontSize * ((style.lineHeight ?? 120) / 100) + paddingY * 2)
+                  const width = fullWidth
+                      ? Math.round((ctx.contentWidth * fullWidth) / 100)
+                      : Math.ceil(labelText.length * buttonFontSize * 0.62) + paddingX * 2
+                  const arc = Math.min(50, Math.round((radius / Math.min(height, width)) * 100))
+                  return `<!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${escapeAttribute(href)}" style="height:${height}px;v-text-anchor:middle;width:${width}px;" arcsize="${arc}%" stroke="f" fillcolor="${background}"><w:anchorlock/><center style="color:${color};font-family:${safeFont(style.fontFamily ?? ctx.page.fontFamily).replace(/'/g, '')};font-size:${buttonFontSize}px;font-weight:${px(style.fontWeight, 600)}">${escapeText(labelText)}</center></v:roundrect><![endif]-->`
+              })()
+            : ''
     const tableWidth = fullWidth ? ` width="${fullWidth}%"` : ''
     const button = `<table role="presentation"${tableWidth} border="0" cellpadding="0" cellspacing="0" style="${fullWidth ? `width:${fullWidth}%;` : ''}display:inline-table;border-collapse:separate"><tr><td align="center" bgcolor="${background}" style="${cellCss}">${anchor}</td></tr></table>`
     return blockCell(
         { textAlign: style.textAlign, padding: style.padding ?? { ...DEFAULT_BLOCK_SIDES, top: 12, bottom: 12 } },
-        button
+        outlookButton ? `${outlookButton}<!--[if !mso]><!-->${button}<!--<![endif]-->` : button
     )
 }
 
@@ -493,6 +509,7 @@ function responsiveCss(page: EmailPageStyle): string {
     const breakpoint = page.bodyWidth + 20
     const custom = page.globalCss.replace(/<\/?style/gi, '')
     return `
+body { margin: 0; padding: 0; }
 body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
 table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
 img { -ms-interpolation-mode: bicubic; }
@@ -542,6 +559,11 @@ export function renderEmailHtml(doc: JSONContent): string {
             ? `${px(page.bodyBorderWidth)}px solid ${safeColor(page.bodyBorderColor, '#e5e5e5')}`
             : undefined,
     })
+    // Declaring light keeps a mail app from recoloring the email in dark mode. Old-editor emails never declared it, so
+    // on a converted one that would be a change people notice.
+    const colorSchemeMeta = page.oldEditorStyles
+        ? ''
+        : '<meta name="color-scheme" content="light" />\n<meta name="supported-color-schemes" content="light" />\n'
     const fontLinks = emailFontUrls(doc)
         .map((url) => `<link rel="stylesheet" href="${escapeAttribute(url)}" />\n`)
         .join('')
@@ -554,9 +576,7 @@ export function renderEmailHtml(doc: JSONContent): string {
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="x-apple-disable-message-reformatting" />
-<meta name="color-scheme" content="light" />
-<meta name="supported-color-schemes" content="light" />
-${fontLinks}<!--[if mso]><xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->
+${colorSchemeMeta}${fontLinks}<!--[if mso]><xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->
 <style type="text/css">
 ${responsiveCss(page)}
 </style>

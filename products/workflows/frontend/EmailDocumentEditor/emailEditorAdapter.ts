@@ -10,6 +10,7 @@ import {
     isEmailDocEmpty,
 } from './emailDocument'
 import { renderEmailHtml, renderEmailText } from './renderEmailHtml'
+import { unlayerToEmailDocument } from './unlayerToEmailDocument'
 
 type Listener = () => void
 
@@ -45,19 +46,20 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
         exportPlainText: (callback: (data: { text: string }) => void) => {
             callback({ text: renderEmailText(editor.getJSON()) })
         },
-        loadDesign: (design: Record<string, any>) => {
-            const { document } = emailDocumentFromValue({
-                design,
-                html: design?.body?.rows?.[0]?.columns?.[0]?.contents?.[0]?.values?.html,
-            })
-            // An old-editor design has no document to show. The logic routes those to the old editor.
-            if (!document) {
-                return
+        loadDesign: (design: Record<string, any>, html?: string) => {
+            const wrappedHtml = design?.body?.rows?.[0]?.columns?.[0]?.contents?.[0]?.values?.html
+            const { document } = emailDocumentFromValue({ design, html: wrappedHtml })
+            // An old-editor template applied to an open email has to show here too.
+            const doc = document?.doc ?? unlayerToEmailDocument(design, html ?? wrappedHtml).document?.doc
+            if (doc) {
+                editor.chain().setMeta('addToHistory', false).setContent(doc, { emitUpdate: false }).run()
+                emit('design:loaded')
             }
-            editor.chain().setMeta('addToHistory', false).setContent(document.doc, { emitUpdate: false }).run()
+        },
+        loadDocument: (doc: Record<string, any>) => {
+            editor.chain().setMeta('addToHistory', false).setContent(doc, { emitUpdate: false }).run()
             emit('design:loaded')
         },
-        notifyChanged: onUpdate,
         setMergeTags: () => {},
         registerProvider: () => {},
         registerCallback: () => {},

@@ -24,14 +24,17 @@ This shape does three things:
 
 `usesDocumentEditor` in `emailTemplaterLogic` decides, and only with the flag on:
 
-| Email                                       | Editor                                  |
-| ------------------------------------------- | --------------------------------------- |
-| Blank, or the untouched new template sample | New                                     |
-| Has a current `emailDocument`               | New                                     |
-| Anything else                               | Old, with a "Try the new editor" prompt |
+| Email                                       | Editor                                                   |
+| ------------------------------------------- | -------------------------------------------------------- |
+| Blank, or the untouched new template sample | New                                                      |
+| Has a current `emailDocument`               | New                                                      |
+| Anything else, if it converts               | New, converted when opened                               |
+| Anything else, if it doesn't                | Old, with a note saying why                              |
+| The person chose "Use old editor"           | Old, in this browser, until they choose "Use new editor" |
 
-The prompt runs `unlayerToEmailDocument` and shows both versions side by side. Nothing changes until a person accepts.
-Anything it can't convert faithfully is reported, and the email stays on the old editor. The one exception is a button's hover color, which the prompt says won't be kept before a person accepts.
+Opening never changes an email. `unlayerToEmailDocument` runs when it opens, and the stored email stays exactly as it is until someone edits it.
+Saving without editing keeps the stored html, text and design as they were.
+Anything the conversion can't hold faithfully keeps the email on the old editor, or stays as an HTML block when it's only part of a text block. Button hover colors are the exception: the note above the editor says they won't be kept.
 
 The new editor reaches `emailTemplaterLogic` through `emailEditorAdapter`, which implements the part of Unlayer's API the logic calls. Saving, live changes and external edits share one code path.
 
