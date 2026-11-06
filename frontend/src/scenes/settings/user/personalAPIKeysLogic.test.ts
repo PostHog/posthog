@@ -13,6 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { PersonalAPIKeyType } from '~/types'
 
 import { expiresAtForOption, personalAPIKeysLogic } from './personalAPIKeysLogic'
 
@@ -139,6 +140,24 @@ describe('personalAPIKeysLogic', () => {
         )
         expect(logic.values.editingKeyManualErrors).toEqual({})
         expect(logic.values.editingKeyId).toBe('new')
+    })
+
+    test.each([
+        { status: 404, expectedKeyIds: [] },
+        { status: 500, expectedKeyIds: ['stale-key'] },
+    ])('a delete that returns $status leaves keys $expectedKeyIds', async ({ status, expectedKeyIds }) => {
+        jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+        useMocks({
+            delete: {
+                '/api/personal_api_keys/:id/': () => [status, { detail: 'Not found.' }],
+            },
+        })
+        logic.actions.loadKeysSuccess([{ id: 'stale-key', label: 'Stale key' } as PersonalAPIKeyType])
+
+        logic.actions.deleteKey('stale-key')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.keys.map((key) => key.id)).toEqual(expectedKeyIds)
     })
 
     it('preserves llm_gateway scopes from create payload when GATEWAY_PERSONAL_API_KEY flag is enabled', async () => {

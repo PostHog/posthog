@@ -1,7 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
+import { BlurTargetView } from 'expo-blur'
 import { useIsFocused, useRouter } from 'expo-router'
-import { type ReactElement, useEffect, useState } from 'react'
-import { View } from 'react-native'
+import { type ReactElement, useEffect, useRef, useState } from 'react'
+import { View, type ViewInstance } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
@@ -425,6 +426,7 @@ function ReportBody({
     const styles = useStyles()
     const insets = useScreenInsets()
     const [headlineHeight, setHeadlineHeight] = useState(0)
+    const blurTarget = useRef<ViewInstance>(null)
     const scrollY = useSharedValue(0)
     const reading = useReportReadTracking(report.id)
     const { maxScrollY } = reading
@@ -434,39 +436,44 @@ function ReportBody({
     })
     return (
         <View style={styles.body}>
-            <Animated.ScrollView
-                style={styles.scroll}
-                contentContainerStyle={[styles.content, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}
-                keyboardShouldPersistTaps="handled"
-                onScroll={onScroll}
-                onLayout={reading.onLayout}
-                onContentSizeChange={reading.onContentSizeChange}
-                scrollEventThrottle={16}
-                testID="report-scroll"
-            >
-                <Headline
-                    headline={report.headline}
-                    accent={report.accent}
-                    lede={report.lede}
-                    meta={<ReportMeta report={report} onReassign={onReassign} onChangePriority={onChangePriority} />}
-                    onHeadlineHeight={setHeadlineHeight}
-                />
-                {hasReportDetail(report) ? (
-                    <View style={styles.readFull}>
-                        <TextLinkRow label="Read the full report" onPress={onReadFull} testID="report-read-full" />
-                    </View>
-                ) : null}
-                <Evidence blocks={report.evidence} reportId={report.id} />
-                <Facts facts={report.facts} />
-                {report.observation ? (
-                    <ObservationCard metric={report.observation} reportId={report.id} accent={report.accent} />
-                ) : null}
-                <ImpactMetrics metrics={report.supportingMetrics} reportId={report.id} />
-                <ReportCharts charts={report.charts} reportId={report.id} accent={report.accent} />
-                <Activity events={report.activity} viewerName={viewerName} />
-            </Animated.ScrollView>
+            <BlurTargetView ref={blurTarget} style={styles.scroll}>
+                <Animated.ScrollView
+                    style={styles.scroll}
+                    contentContainerStyle={[styles.content, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}
+                    keyboardShouldPersistTaps="handled"
+                    onScroll={onScroll}
+                    onLayout={reading.onLayout}
+                    onContentSizeChange={reading.onContentSizeChange}
+                    scrollEventThrottle={16}
+                    testID="report-scroll"
+                >
+                    <Headline
+                        headline={report.headline}
+                        accent={report.accent}
+                        lede={report.lede}
+                        meta={
+                            <ReportMeta report={report} onReassign={onReassign} onChangePriority={onChangePriority} />
+                        }
+                        onHeadlineHeight={setHeadlineHeight}
+                    />
+                    {hasReportDetail(report) ? (
+                        <View style={styles.readFull}>
+                            <TextLinkRow label="Read the full report" onPress={onReadFull} testID="report-read-full" />
+                        </View>
+                    ) : null}
+                    <Evidence blocks={report.evidence} reportId={report.id} />
+                    <Facts facts={report.facts} />
+                    {report.observation ? (
+                        <ObservationCard metric={report.observation} reportId={report.id} accent={report.accent} />
+                    ) : null}
+                    <ImpactMetrics metrics={report.supportingMetrics} reportId={report.id} />
+                    <ReportCharts charts={report.charts} reportId={report.id} accent={report.accent} />
+                    <Activity events={report.activity} viewerName={viewerName} />
+                </Animated.ScrollView>
+            </BlurTargetView>
             <TopChrome
                 refreshing={refreshing}
+                blurTarget={blurTarget}
                 onBack={onBack}
                 onPrevious={onPrevious}
                 onNext={onNext}

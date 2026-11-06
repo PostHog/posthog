@@ -3,12 +3,14 @@ import { useState } from 'react'
 import { LemonButton, LemonLabel, LemonModal, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { EventsRetentionChangeNote } from './EventsRetentionChangeNote'
+import { EventsRetentionLevel } from './eventsRetentionDeletionCountLogic'
 import { RetentionPeriods, retentionChangeDeletion } from './retentionChangeDeletion'
 import { retentionPeriodLabel } from './retentionPeriodLabel'
 
 export interface EventsRetentionSupportPeriodModalProps {
     periods: RetentionPeriods
     supportMonths: number
+    level: EventsRetentionLevel
     owner: string
     scope: string
     options: LemonSelectOptions<number | null>
@@ -20,6 +22,7 @@ export interface EventsRetentionSupportPeriodModalProps {
 export function EventsRetentionSupportPeriodModal({
     periods,
     supportMonths,
+    level,
     owner,
     scope,
     options,
@@ -71,7 +74,7 @@ export function EventsRetentionSupportPeriodModal({
                         data-attr={`${dataAttr}-support-select`}
                     />
                 </div>
-                <EventsRetentionChangeNote months={keptMonths} scope={scope} deletion={deletion} />
+                <EventsRetentionChangeNote level={level} months={keptMonths} scope={scope} deletion={deletion} />
             </div>
         </LemonModal>
     )

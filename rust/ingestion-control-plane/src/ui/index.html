@@ -212,6 +212,7 @@
         return node;
       };
       const fmtInt = (n) => (n === null || n === undefined ? "–" : Number(n).toLocaleString("en-US"));
+      const fmtTarget = (t) => `${t.topic} (${fmtInt(t.partitions)})${t.cluster ? ` on ${t.cluster.name}` : ""}`;
       const fmtBytes = (n) => {
         if (n === null || n === undefined) return "–";
         const units = ["B", "KB", "MB", "GB"];
@@ -1430,6 +1431,9 @@
           this.ui.changelogStatus.replaceChildren(
             el("div", { class: "row", style: "padding: 6px 14px" },
               el("span", { class: "pill accent mono" }, c.topic),
+              c.cluster
+                ? el("span", { class: "pill muted mono" }, c.cluster.name)
+                : el("span", { class: "pill warn", title: "No CHANGELOG_KAFKA_CLUSTERS entry matched PERSONHOG_KAFKA_HOSTS when the control plane started, so the changelog cannot move to another cluster." }, "cluster not recorded"),
               el("span", { class: "pill muted" }, `${fmtInt(c.partitions)} partitions`),
               el("span", { class: "pill muted" }, `epoch ${fmtInt(c.epoch)}`)));
           this.ui.changelogDetail.replaceChildren(
@@ -1583,7 +1587,7 @@
               `Cancel the migration to ${m.to.topic}? Held partitions resume on ${m.from.topic}.`);
             form.append(
               el("span", { class: "pill warn" }, `migrating: ${m.phase}`),
-              el("span", { class: "mono" }, `${m.from.topic} (${fmtInt(m.from.partitions)}) → ${m.to.topic} (${fmtInt(m.to.partitions)})`),
+              el("span", { class: "mono" }, `${fmtTarget(m.from)} → ${fmtTarget(m.to)}`),
               cancel);
           } else if (r) {
             const withdraw = el("button", {}, "Stop migration");
@@ -1595,21 +1599,31 @@
               `Stop the migration to ${r.to.topic}? It has not started, so nothing is held; if it starts in the meantime, it is cancelled before the flip.`);
             form.append(
               el("span", { class: "pill muted" }, "requested: waiting to start"),
-              el("span", { class: "mono" }, `${r.from.topic} (${fmtInt(r.from.partitions)}) → ${r.to.topic} (${fmtInt(r.to.partitions)})`),
+              el("span", { class: "mono" }, `${fmtTarget(r.from)} → ${fmtTarget(r.to)}`),
               withdraw);
           } else {
             const topicInput = el("input", { type: "text", placeholder: "target topic, e.g. personhog_updates_128", style: "width: 360px" });
+            const live = view.config.cluster ? view.config.cluster.name : null;
+            const choices = view.cross_cluster_migrations ? view.clusters : view.clusters.filter((name) => name === live);
+            const clusterSelect = live && choices.length > 0
+              ? el("select", { title: view.cross_cluster_migrations ? null : "Another cluster needs PERSONHOG_CROSS_CLUSTER_MIGRATIONS" },
+                  choices.map((name) => el("option", { value: name, selected: name === live }, name)))
+              : null;
             const start = el("button", {}, "Migrate changelog");
             start.onclick = () => {
               const topic = topicInput.value.trim();
               if (!topic) return;
+              const cluster = clusterSelect ? clusterSelect.value : null;
+              const moving = cluster && cluster !== live
+                ? `\n\nThis moves the changelog from ${live} to ${cluster}. The old topic drains and retires on ${live}.`
+                : "";
               this.postChangelogAction("api/personhog/migrations", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify({ topic }),
-              }, `Migrate the changelog to ${topic}?\n\nThe coordinator starts it once no partition is moving and every owner is ready, then every partition pauses briefly while the fleet restarts onto the new topic. The partition count is read from the topic's metadata.`);
+                body: JSON.stringify(cluster ? { topic, cluster } : { topic }),
+              }, `Migrate the changelog to ${topic}${cluster ? ` on ${cluster}` : ""}?${moving}\n\nThe coordinator starts it once no partition is moving and every owner is ready, then every partition pauses briefly while the fleet restarts onto the new topic. The partition count is read from the topic's metadata.`);
             };
-            form.append(topicInput, start);
+            form.append(...[topicInput, clusterSelect, start].filter(Boolean));
           }
           return form;
         },
@@ -1638,7 +1652,7 @@
               body: JSON.stringify({ topic: g.topic }),
             }, `Retire ${g.topic} now?\n\nEvery gating group has read it to the end. The coordinator retires it on its own once each group reports the drain. Retiring now skips that wait. Delete the topic in Terraform afterwards.`);
             body.append(el("div", { class: "row", style: "margin-top: 6px" },
-              el("span", { class: "pill muted mono" }, `${g.topic} (${fmtInt(g.partitions)}, epoch ${fmtInt(g.epoch)}) draining`),
+              el("span", { class: "pill muted mono" }, `${g.topic} (${fmtInt(g.partitions)}, epoch ${fmtInt(g.epoch)})${g.cluster ? ` on ${g.cluster}` : ""} draining`),
               groups.map((d) => el("span", { class: `pill ${d.error ? "bad" : isDrained(d) ? "good" : "warn"}`, title: d.error || "" },
                 `${d.group}: ${fmtInt(d.drained_partitions)}/${fmtInt(d.partitions)}${d.reported ? " · reported" : ""}`)),
               retire));
@@ -1649,8 +1663,8 @@
               el("tbody", {}, view.history.slice(0, 5).map((h) =>
                 el("tr", {},
                   el("td", { class: "mono" }, h.id),
-                  el("td", { class: "mono" }, `${h.from.topic} (${fmtInt(h.from.partitions)})`),
-                  el("td", { class: "mono" }, `${h.to.topic} (${fmtInt(h.to.partitions)})`),
+                  el("td", { class: "mono" }, fmtTarget(h.from)),
+                  el("td", { class: "mono" }, fmtTarget(h.to)),
                   el("td", {},
                     el("span", { class: `pill ${h.phase === "Complete" ? "good" : "bad"}`, title: h.blocking.join("; ") }, h.phase),
                     h.cancel_reason ? el("span", { class: "muted mono", style: "margin-left: 8px" }, h.cancel_reason)
