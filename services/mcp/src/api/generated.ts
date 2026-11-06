@@ -127165,7 +127165,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.
+     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, and element property filter types.
      */
     properties?: string;
     /**
