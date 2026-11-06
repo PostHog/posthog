@@ -124,7 +124,7 @@ dependencies = [
     "python3-saml==1.16.0",
     # clickhouse-driver converts DateTime results with pytz. Keep it on the IANA release that
     # production ClickHouse ships, or trends day labels shift for zones whose rules differ.
-    "pytz==2026.6",
+    "pytz==2026.4",
     "rapidfuzz==3.14.6",
     "redis==5.3.1",
     "requests~=2.34.2",
