@@ -239,7 +239,7 @@ def openai_client_all_providers(gateway_url_all_providers):
 def anthropic_client(gateway_url):
     return Anthropic(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=f"{gateway_url}/llm_gateway",
+        base_url=f"{gateway_url}/django",
     )
 
 
@@ -253,7 +253,7 @@ def bedrock_gateway_url():
 def bedrock_anthropic_client(bedrock_gateway_url):
     return Anthropic(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=f"{bedrock_gateway_url}/llm_gateway",
+        base_url=f"{bedrock_gateway_url}/django",
         default_headers={"X-PostHog-Provider": "bedrock"},
     )
 
@@ -268,7 +268,7 @@ def cloudflare_gateway_url():
 def cloudflare_anthropic_client(cloudflare_gateway_url):
     return Anthropic(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=f"{cloudflare_gateway_url}/llm_gateway",
+        base_url=f"{cloudflare_gateway_url}/django",
         default_headers={"X-PostHog-Provider": "cloudflare"},
         timeout=CLOUDFLARE_REQUEST_TIMEOUT,
         max_retries=CLOUDFLARE_MAX_RETRIES,
