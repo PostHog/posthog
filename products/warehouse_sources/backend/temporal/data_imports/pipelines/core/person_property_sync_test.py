@@ -210,36 +210,78 @@ class TestRunOrchestration:
         clear.assert_awaited_once()
         assert order == ["reconcile", "produce", "snapshot", "compact"]
 
+    @parameterized.expand([("unconfirmed_delivery", False), ("snapshot_write_failure", True)])
     @pytest.mark.asyncio
-    async def test_undelivered_intents_stay_out_of_the_snapshot_and_fail_the_run(self):
+    async def test_undelivered_intents_stay_out_of_the_snapshot_and_fail_the_run(self, _name, snapshot_write_fails):
         team = MagicMock(api_token="tok", project_id=7)
         fake = _FakeS3()
         _stage(fake, "chunk_1_000000", [{"distinct_id": "a", "plan": "pro"}, {"distinct_id": "b", "plan": "free"}])
+        progress: list[pps.PerSourceProgress] = []
+
+        async def _on_progress(increment: pps.PerSourceProgress) -> None:
+            progress.append(increment)
+
         with (
             _fake_s3_patch(fake),
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._source()]),
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}._filter_existing_ids", return_value={"a", "b"}),
-            patch(f"{_MODULE}._produce_intents", return_value={"a"}),
+            patch(
+                f"{_MODULE}._produce_intents",
+                side_effect=({"a", "b"}, {"a", "b"}) if snapshot_write_fails else ({"a"}, {"b"}),
+            ),
             patch(f"{_MODULE}._reconcile_property_definitions"),
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()) as clear,
         ):
             team_cls.objects.get.return_value = team
-            with pytest.raises(pps.PropertyUpdatesNotDeliveredError, match="1 of 2"):
-                await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+            if snapshot_write_fails:
+                with (
+                    patch.object(fake, "_pipe_file", side_effect=RuntimeError("snapshot write failed")),
+                    pytest.raises(RuntimeError, match="snapshot write failed"),
+                ):
+                    await pps.run_person_property_sync(
+                        team_id=1, binding=_SCHEMA, job_id="job-1", on_progress=_on_progress
+                    )
+                assert progress == []
+            else:
+                with pytest.raises(pps.PropertyUpdatesNotDeliveredError, match="1 of 2"):
+                    await pps.run_person_property_sync(
+                        team_id=1, binding=_SCHEMA, job_id="job-1", on_progress=_on_progress
+                    )
+            result = await pps.run_person_property_sync(
+                team_id=1, binding=_SCHEMA, job_id="job-1", on_progress=_on_progress
+            )
             hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "source-1")
 
-        assert set(hashes) == {"a"}
-        clear.assert_not_awaited()
+        assert set(hashes) == {"a", "b"}
+        assert sum(increment.produced_increment for increment in progress) == 2
+        assert result.produced == (2 if snapshot_write_fails else 1)
+        clear.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_a_killed_run_keeps_confirmed_chunks_but_a_later_job_cannot_resume_undelivered_rows(self):
         team = MagicMock(api_token="tok", project_id=7)
         fake = _FakeS3()
         _stage(fake, "chunk_1_000000", [{"distinct_id": f"p{n}", "plan": "pro"} for n in range(6)], job_id="job-1")
-        _stage(fake, "chunk_1_000000", [{"distinct_id": "p6", "plan": "pro"}], job_id="job-2")
+        _stage(
+            fake,
+            "chunk_1_000000",
+            [
+                {"distinct_id": "p6", "plan": "pro"},
+                {"distinct_id": "ghost-1", "plan": "pro"},
+                {"distinct_id": "ghost-2", "plan": "pro"},
+            ],
+            job_id="job-2",
+        )
         sent_per_run: dict[str, list[str]] = {"job-1": [], "job-2": []}
+        progress_per_run: dict[str, list[pps.PerSourceProgress]] = {"job-1": [], "job-2": []}
         current_job = "job-1"
+
+        async def _on_progress(increment: pps.PerSourceProgress) -> None:
+            hashes = await pps._read_snapshot_hashes(1, _SCHEMA, increment.source_id)
+            assert set(sent_per_run[current_job]) <= set(hashes)
+            progress_per_run[current_job].append(increment)
+
         kill_after = 2
 
         def _produce(_team_id, _token, _source, items, **_kwargs):
@@ -255,16 +297,21 @@ class TestRunOrchestration:
             patch(f"{_MODULE}._PRODUCE_CHUNK_SIZE", 2),
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._source()]),
             patch(f"{_MODULE}.Team") as team_cls,
-            patch(f"{_MODULE}._filter_existing_ids", side_effect=lambda _team_id, _source, ids: set(ids)),
+            patch(
+                f"{_MODULE}._filter_existing_ids",
+                side_effect=lambda _team_id, _source, ids: {key for key in ids if not key.startswith("ghost-")},
+            ),
             patch(f"{_MODULE}._produce_intents", side_effect=_produce),
             patch(f"{_MODULE}._reconcile_property_definitions"),
         ):
             team_cls.objects.get.return_value = team
             with pytest.raises(RuntimeError, match="worker stopped"):
-                await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+                await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1", on_progress=_on_progress)
 
             current_job = "job-2"
-            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-2")
+            result = await pps.run_person_property_sync(
+                team_id=1, binding=_SCHEMA, job_id="job-2", on_progress=_on_progress
+            )
 
             prefix = pps._snapshot_prefix(1, _SCHEMA, "source-1")
             snapshot_files = await pps._list_snapshot_files(fake, prefix)
@@ -273,6 +320,27 @@ class TestRunOrchestration:
         assert sent_per_run["job-1"] == ["p0", "p1"]
         assert sent_per_run["job-2"] == ["p6"]
         assert result.produced == 1
+        # The killed run reports what it delivered before it died, so its run row is not left at zero.
+        assert progress_per_run["job-1"] == [
+            pps.PerSourceProgress(
+                source_id="source-1",
+                produced_increment=2,
+                rows_read_total=6,
+                changed_total=6,
+                skipped_missing_person_total=0,
+            )
+        ]
+        assert sum(p.produced_increment for p in progress_per_run["job-2"]) == result.produced
+        assert progress_per_run["job-2"] == [
+            pps.PerSourceProgress(
+                source_id="source-1",
+                produced_increment=produced,
+                rows_read_total=3,
+                changed_total=3,
+                skipped_missing_person_total=skipped,
+            )
+            for produced, skipped in [(1, 1), (0, 2)]
+        ]
         # The completed run folds the killed run's leftover file and its own chunk files into one.
         assert [pps._s3_key(key) for key in snapshot_files] == [f"{prefix}/job-2.parquet"]
         assert set(hashes) == {"p0", "p1", "p6"}
@@ -698,29 +766,6 @@ class TestSnapshotCompaction:
         assert not merge.complete
 
     @pytest.mark.asyncio
-    async def test_read_relists_after_concurrent_compaction_instead_of_resending_everything(self):
-        fake = _FakeS3()
-        prefix = pps._snapshot_prefix(1, _SCHEMA, "src")
-        with _fake_s3_patch(fake):
-            await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-1", {"a": "h1"})
-            await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-2", {"b": "h2"})
-            original_cat_file = fake._cat_file
-            compacted = False
-
-            async def _cat_with_one_concurrent_compaction(path):
-                nonlocal compacted
-                if not compacted:
-                    compacted = True
-                    await pps._put_snapshot_file(fake, f"{prefix}/concurrent.parquet", {"a": "h1", "b": "h2"})
-                    await fake._rm([f"{prefix}/job-1.parquet", f"{prefix}/job-2.parquet"])
-                return await original_cat_file(path)
-
-            with patch.object(fake, "_cat_file", _cat_with_one_concurrent_compaction):
-                hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
-
-        assert hashes == {"a": "h1", "b": "h2"}
-
-    @pytest.mark.asyncio
     async def test_current_deliveries_win_when_snapshot_timestamps_tie(self):
         fake = _FakeS3()
         prefix = pps._snapshot_prefix(1, _SCHEMA, "src")
@@ -758,6 +803,29 @@ class TestSnapshotCompaction:
 
         assert hashes == {"a": "new"}
         assert list(fake.store) == [f"{prefix}/concurrent.parquet"]
+
+    @pytest.mark.asyncio
+    async def test_read_relists_after_concurrent_compaction_instead_of_resending_everything(self):
+        fake = _FakeS3()
+        prefix = pps._snapshot_prefix(1, _SCHEMA, "src")
+        with _fake_s3_patch(fake):
+            await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-1", {"a": "h1"})
+            await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-2", {"b": "h2"})
+            original_cat_file = fake._cat_file
+            compacted = False
+
+            async def _cat_with_one_concurrent_compaction(path):
+                nonlocal compacted
+                if not compacted:
+                    compacted = True
+                    await pps._put_snapshot_file(fake, f"{prefix}/concurrent.parquet", {"a": "h1", "b": "h2"})
+                    await fake._rm([f"{prefix}/job-1.parquet", f"{prefix}/job-2.parquet"])
+                return await original_cat_file(path)
+
+            with patch.object(fake, "_cat_file", _cat_with_one_concurrent_compaction):
+                hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
+
+        assert hashes == {"a": "h1", "b": "h2"}
 
 
 class TestGroupTarget:

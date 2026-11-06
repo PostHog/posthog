@@ -329,18 +329,21 @@ describe('Tool Filtering - API Scopes', () => {
     it.each([
         { scopes: ['task:write'], rollout: true, visible: false },
         { scopes: ['query:read'], rollout: true, visible: false },
-        { scopes: ['task:write', 'query:read'], rollout: true, visible: true },
+        { scopes: ['task:write', 'query:read'], rollout: true, legacyRollout: false, visible: true },
         { scopes: ['task:write', 'query:write'], rollout: true, visible: true },
         { scopes: ['task:write', 'query:read'], rollout: false, visible: false },
         { scopes: ['task:write', 'query:read'], rollout: undefined, visible: false },
-    ])('metric replacement requires query access and rollout: %j', async ({ scopes, rollout, visible }) => {
-        const featureFlags: EvaluatedFlags = {}
-        if (rollout !== undefined) {
-            featureFlags['signals-report-checks-replace'] = rollout
+    ])(
+        'metric replacement requires query access and rollout: %j',
+        async ({ scopes, rollout, legacyRollout = true, visible }) => {
+            const featureFlags: EvaluatedFlags = { 'signals-report-checks-replace': legacyRollout }
+            if (rollout !== undefined) {
+                featureFlags['signals-report-monitoring'] = rollout
+            }
+            const tools = await getToolsFromContext(createMockContext(scopes), { featureFlags })
+            expect(tools.some((tool) => tool.name === 'inbox-report-checks-replace')).toBe(visible)
         }
-        const tools = await getToolsFromContext(createMockContext(scopes), { featureFlags })
-        expect(tools.some((tool) => tool.name === 'inbox-report-checks-replace')).toBe(visible)
-    })
+    )
 
     // The legacy fallback lets codegen accept `hog_flow:write` here, which would hide these tools from send-scoped keys.
     it.each([
@@ -1127,7 +1130,7 @@ describe('Tool Filtering - Feature Flags', () => {
         const branchFlags = [
             'workflows-supabase-auth-emails',
             'scout-trials',
-            'signals-report-checks-replace',
+            'signals-report-monitoring',
             'inbox-report-actions-mcp',
             'inbox-reports-create-mcp',
             'signals-reviewer-exclusions-mcp',
@@ -1197,11 +1200,13 @@ describe('Tool Filtering - Feature Flags', () => {
                 'subscription-source-summaries',
                 'workflows-mcp-onboarding',
                 'aeo-citation-tracking',
+                'self-driving-usage-display',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
         expect(allFlags).not.toContain('dashboard-widgets')
-        expect(flags).toHaveLength(36)
+        expect(allFlags).not.toContain('self-driving-usage-mcp')
+        expect(flags).toHaveLength(37)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {
