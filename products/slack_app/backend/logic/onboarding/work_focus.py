@@ -334,11 +334,11 @@ def _clean_suggestions(raw: Any) -> list[WorkFocusSuggestion]:
 
 
 def work_focus_blocks(integration: WorkspaceIntegration, focus: WorkFocus) -> list[dict]:
-    blocks: list[dict] = [section_block(f"{focus.intro} Here's where I can jump in 👇")]
+    blocks: list[dict] = [section_block(f"{focus.intro} Here's where I can jump in:")]
     for suggestion in focus.suggestions:
         blocks.append(
             {
-                **section_block(suggestion.offer),
+                **section_block(f"• {suggestion.offer}"),
                 "accessory": {
                     "type": "button",
                     "text": {"type": "plain_text", "text": "Do it 🚀", "emoji": True},
