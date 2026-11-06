@@ -556,8 +556,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         (active: boolean): void => {
             containerRef.current?.classList.toggle('dashboard-tile-drag', active)
         },
-        // oxlint-disable-next-line react-hooks/exhaustive-deps -- containerRef is a stable ref
-        []
+        [containerRef]
     )
 
     // The grid's placeholder sits where the tile lands once tiles stack up, which in an empty column is the top,
@@ -571,14 +570,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 return
             }
             const { top, left, width, height } = calcGridItemPosition(
-                {
-                    cols: BREAKPOINT_COLUMN_COUNTS.sm,
-                    rowHeight,
-                    margin,
-                    containerPadding: CONTAINER_PADDING,
-                    containerWidth: gridWidth,
-                    maxRows: Infinity,
-                },
+                { ...bandGridConfig, containerWidth: gridWidth, maxRows: Infinity },
                 item.x,
                 item.y,
                 item.w,
@@ -589,15 +581,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             preview.style.height = `${height}px`
             preview.hidden = false
         },
-        [rowHeight, margin, gridWidth]
+        [bandGridConfig, gridWidth]
     )
 
     const hideDragPreviews = useCallback((): void => {
         containerRef.current?.querySelectorAll<HTMLElement>('.DashboardDragPreview').forEach((preview) => {
             preview.hidden = true
         })
-        // oxlint-disable-next-line react-hooks/exhaustive-deps -- containerRef is a stable ref
-    }, [])
+    }, [containerRef])
 
     const handleDragStart = useCallback(
         (
@@ -632,7 +623,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         ) => {
             isDragging.current = true
             showDragPreview(newItem, element)
-            trackTileDrag(e as Event)
+            trackTileDrag(e)
             if (dragEndTimeout.current) {
                 window.clearTimeout(dragEndTimeout.current)
             }
