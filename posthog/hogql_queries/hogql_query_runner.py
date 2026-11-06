@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime
 from functools import cached_property
@@ -30,10 +31,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.user_query_validator import validate_user_query
 from posthog.hogql.variables import replace_variables
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog import settings as app_settings
-from posthog.caching.utils import ThresholdMode, staleness_threshold_map
+from posthog.caching.utils import ThresholdMode, cache_target_age
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
@@ -59,6 +60,91 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
 API_SQL_WINDOW_CACHE_AGE_FLAG = "api-sql-window-cache-age"
+
+_TIME_BUCKETS_FINEST_FIRST = ("minute", "hour", "day", "week", "month", "quarter", "year")
+# Staleness has no rule finer than a minute, so a second bucket counts as a minute bucket.
+_TIME_UNIT_BUCKETS = {"second": "minute", **{bucket: bucket for bucket in _TIME_BUCKETS_FINEST_FIRST}}
+_BUCKET_FUNCTIONS = {
+    "tostartofsecond": "minute",
+    "tostartofminute": "minute",
+    "tostartoffiveminute": "minute",
+    "tostartoffiveminutes": "minute",
+    "tostartoftenminutes": "minute",
+    "tostartoffifteenminutes": "minute",
+    "tostartofhour": "hour",
+    "tostartofday": "day",
+    "todate": "day",
+    "tostartofweek": "week",
+    "tomonday": "week",
+    "tostartofmonth": "month",
+    "tostartofquarter": "quarter",
+    "tostartofyear": "year",
+}
+
+
+class TimeBucketCollector(TraversingVisitor):
+    def __init__(self, filter_interval: Optional[str] = None) -> None:
+        self.buckets: set[str] = set()
+        self.filter_interval = filter_interval
+        self.window_exprs: dict[str, ast.WindowExpr] = {}
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        parent_window_exprs = self.window_exprs
+        self.window_exprs = node.window_exprs or {}
+        # A bucket in WHERE, PREWHERE or HAVING only narrows the rows, so the result has no time buckets from it.
+        # Named windows count only when a window function references them, in visit_window_function.
+        super().visit_select_query(dataclasses.replace(node, where=None, prewhere=None, having=None, window_exprs=None))
+        self.window_exprs = parent_window_exprs
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        self.visit(node.table)
+        self.visit(node.next_join)
+
+    def visit_call(self, node: ast.Call) -> None:
+        bucket = self._bucket_of(node)
+        if bucket:
+            self.buckets.add(bucket)
+        super().visit_call(node)
+
+    def visit_window_function(self, node: ast.WindowFunction) -> None:
+        super().visit_window_function(node)
+        if node.over_identifier and node.over_identifier in self.window_exprs:
+            self.visit(self.window_exprs[node.over_identifier])
+
+    def _bucket_of(self, node: ast.Call) -> Optional[str]:
+        name = node.name.lower()
+        if name in _BUCKET_FUNCTIONS:
+            return _BUCKET_FUNCTIONS[name]
+        if name in ("datetrunc", "date_trunc") and node.args:
+            unit = node.args[0]
+            if isinstance(unit, ast.Constant):
+                return _TIME_UNIT_BUCKETS.get(str(unit.value).lower())
+            if isinstance(unit, ast.Placeholder):
+                if unit.chain == ["filters", "interval"]:
+                    return _TIME_UNIT_BUCKETS.get(self.filter_interval or "day")
+                if isinstance(unit.expr, ast.ExprCall) and isinstance(unit.expr.expr, ast.Field):
+                    if unit.expr.expr.chain == ["filters", "interval"]:
+                        default = (
+                            unit.expr.args[0].value
+                            if unit.expr.args and isinstance(unit.expr.args[0], ast.Constant)
+                            else "day"
+                        )
+                        return _TIME_UNIT_BUCKETS.get(self.filter_interval or str(default))
+                return "minute"
+        interval_arg = {"tostartofinterval": 1, "date_bin": 0}.get(name)
+        if interval_arg is not None and len(node.args) > interval_arg:
+            interval = node.args[interval_arg]
+            if isinstance(interval, ast.Call):
+                return _TIME_UNIT_BUCKETS.get(interval.name.lower().removeprefix("tointerval"))
+        return None
+
+
+def finest_time_bucket(
+    select_query: ast.SelectQuery | ast.SelectSetQuery, filter_interval: Optional[str] = None
+) -> Optional[str]:
+    collector = TimeBucketCollector(filter_interval)
+    collector.visit(select_query)
+    return min(collector.buckets, key=_TIME_BUCKETS_FINEST_FIRST.index, default=None)
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -86,6 +172,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         # A direct connection runs on another database, so the events route never applies to it.
         return not self.query.connectionId
 
+    # A SQL query has no interval field, so the finest time bucket in its text stands in for one.
+    # A query without a time bucket uses the no-interval rule.
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
@@ -95,7 +183,21 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             if isinstance(freshness, SqlFreshness) and expiry is not None:
                 return max(expiry, freshness.fresh_until)
             return expiry
-        return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
+        mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
+        return cache_target_age(self._finest_time_bucket, last_refresh=last_refresh, mode=mode)
+
+    @cached_property
+    def _finest_time_bucket(self) -> Optional[str]:
+        try:
+            interval = self.query.filters.interval.value if self.query.filters and self.query.filters.interval else None
+            parsed_query = self._parse_query()[0] if self.query.values else self._cache_inspection_query
+            return finest_time_bucket(parsed_query, filter_interval=interval)
+        except Exception:
+            return None
+
+    @cached_property
+    def _cache_inspection_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(self.query.query)
 
     @cached_property
     def _api_sql_freshness_enabled(self) -> bool:
@@ -291,7 +393,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if self.query.connectionId:
             return set()
         try:
-            return set(get_table_names(parse_select(self.query.query)))
+            return set(get_table_names(self._cache_inspection_query))
         except Exception:
             return set()
 

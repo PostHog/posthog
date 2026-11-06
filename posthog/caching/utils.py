@@ -82,13 +82,13 @@ def is_stale(
     if last_refresh is None:
         raise ValueError("Cached results require a last_refresh")
 
-    if target_age is not None:
-        return datetime.now(UTC) > target_age
-
     # If the date_to is in the past of the last refresh, the data cannot be stale
     # Use a buffer in case last_refresh from cache.set happened slightly after the actual query
     if date_to and date_to < (last_refresh - timedelta(seconds=10)):
         return False
+
+    if target_age is not None:
+        return datetime.now(UTC) > target_age
 
     max_age = cache_target_age(interval, last_refresh, mode)
     if not max_age:
