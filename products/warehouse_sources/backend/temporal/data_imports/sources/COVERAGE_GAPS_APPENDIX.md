@@ -11027,13 +11027,13 @@ Today (15): `categories`, `custom_fields`, `entity_templates`, `epics`, `files`,
 
 Diffed against: <https://developer.shortcut.com/api/rest/v3/shortcut.swagger.json>
 
-- [ ] `epic-workflow (GET /api/v3/epic-workflow)` — lookup that resolves epic_state_id on the epics we already sync; without it epic state is an opaque integer (high)
-- [ ] `stories/{id}/history (GET)` — per-story state transition log — the only way to compute cycle time, lead time, or time-in-state (high)
+- [x] `epic-workflow (GET /api/v3/epic-workflow)` - `epic_workflow` retains the workflow object and its nested epic states (high)
+- [x] `stories/{id}/history (GET)` - `story_history` reads each story's changes and adds `story_id` (high)
 - [ ] `milestones (GET /api/v3/milestones)` — lookup resolving milestone_id carried on synced epics; the objectives table does not cover legacy milestones (medium)
 - [ ] `stories/{id}/comments (GET)` — collaboration volume and response latency per story (medium)
 - [ ] `key-results/{id} (GET)` — resolves key_result_ids already present on synced objectives; hydrate by id since there is no list endpoint (medium)
-- [ ] `documents (GET /api/v3/documents)` — docs collection with epic linkage via /documents/{id}/epics (medium)
-- [ ] `epics/{id}/comments (GET)` — epic-level discussion volume (medium)
+- [x] `documents (GET /api/v3/documents)` - document IDs, titles, and application URLs; content and epic links require separate endpoints (medium)
+- [x] `epics/{id}/comments (GET)` - `epic_comments` retains nested replies and adds `epic_id` (medium)
 - [ ] `epics/{id}/health-history (GET)` — epic health status transitions over time (low)
 - [ ] `objectives/{id}/health-history (GET)` — objective health status transitions over time (low)
 
