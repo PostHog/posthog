@@ -979,6 +979,46 @@ export interface ManagedWarehouseTrinoMonitoringSnapshotResponseApi {
     queries_truncated: boolean
 }
 
+export interface HoglakeProjectApi {
+    id: number
+    name: string
+    /** read or write: the most a credential gets on this project */
+    access: string
+}
+
+export interface MyHoglakeCredentialListResponseApi {
+    hoglake_credentials: HoglakeCredentialApi[]
+    connect: HoglakeConnectApi
+    /** The projects you can put in a credential */
+    projects: HoglakeProjectApi[]
+}
+
+export interface MyHoglakeCredentialCreateRequestApi {
+    /**
+     * A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.
+     * @pattern ^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$
+     */
+    name: string
+    /** read lists and reads tables; write can also commit to them.
+     *
+     * * `read` - Read
+     * * `write` - Read & write */
+    scope: HoglakeCredentialScopeEnumApi
+    /**
+     * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
+     * @minimum 3600
+     * @maximum 31536000
+     */
+    ttl_seconds?: number
+    /**
+     * The projects this credential reaches, each one you can see. Its tokens get your current access on each, so losing a project's access takes it out of the next token.
+     * @minItems 1
+     * @maxItems 200
+     * @items.minimum 1
+     */
+    team_ids: number[]
+}
+
 export interface OnboardWarehouseTeamRequestApi {
     /** Schema name for this project's data in the organization's warehouse. Lowercase letters, numbers, and underscores only, max 63 characters. Must be unique within the organization and cannot be changed later. */
     schema_name: string

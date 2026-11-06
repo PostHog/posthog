@@ -58053,6 +58053,13 @@ export namespace Schemas {
       revoked: string;
     }
 
+    export interface HoglakeProject {
+      id: number;
+      name: string;
+      /** read or write: the most a credential gets on this project */
+      access: string;
+    }
+
     export interface HoneybadgerFaultSignalExtra {
       environment: string | null;
       component: string | null;
@@ -68328,6 +68335,39 @@ export namespace Schemas {
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
+    }
+
+    export interface MyHoglakeCredentialCreateRequest {
+      /**
+         * A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.
+         * @pattern ^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$
+         */
+      name: string;
+      /** read lists and reads tables; write can also commit to them.
+       *
+       * * `read` - Read
+       * * `write` - Read & write */
+      scope: HoglakeCredentialScopeEnum;
+      /**
+         * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
+         * @minimum 3600
+         * @maximum 31536000
+         */
+      ttl_seconds?: number;
+      /**
+         * The projects this credential reaches, each one you can see. Its tokens get your current access on each, so losing a project's access takes it out of the next token.
+         * @minItems 1
+         * @maxItems 200
+         * @items.minimum 1
+         */
+      team_ids: number[];
+    }
+
+    export interface MyHoglakeCredentialListResponse {
+      hoglake_credentials: HoglakeCredential[];
+      connect: HoglakeConnect;
+      /** The projects you can put in a credential */
+      projects: HoglakeProject[];
     }
 
     export interface NoMatchMetadata {
