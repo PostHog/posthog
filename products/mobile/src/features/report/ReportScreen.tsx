@@ -5,7 +5,6 @@ import * as WebBrowser from 'expo-web-browser'
 import { type ReactElement, useEffect, useRef, useState } from 'react'
 import { View, type ViewInstance } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
-import { useAuthStore } from '@/auth/authStore'
 import { ProjectScopeOverride } from '@/auth/projectScope'
 import { CLOUD_REGIONS } from '@/auth/regions'
 import { useProjectScope } from '@/auth/useProjectScope'
@@ -61,7 +60,7 @@ import { ReportCharts } from './metrics/ReportCharts'
 import { reportDetailQuery } from './queries'
 import { ReportMeta } from './ReportMeta'
 import { apiErrorKind, type ReportOpenSource, type SheetEntry, useSheetFunnel } from './reportAnalytics'
-import { type ReportLink, useReportLinkScope } from './reportLinkScope'
+import { followLinkProject, type ReportLink, useReportLinkScope } from './reportLinkScope'
 import { TextLinkRow } from './TextLinkRow'
 import { HEADLINE_GAP, TopChrome } from './TopChrome'
 import { useReportReadTracking } from './useReportReadTracking'
@@ -310,15 +309,21 @@ function ReportContent({ reportId, from, link }: ReportScreenProps): ReactElemen
     const state = actionBarStateFor(report, { answer, handOffPending: actions.pending.handOff })
     const task = report.task
     const taskId = task?.taskId ?? report.work.assignee?.taskId
-    // Chat runs in the session's project, so a report from another project moves the session there first.
-    const followReportProject = (): void => {
-        if (link?.projectId != null) {
-            useAuthStore.getState().selectProject(link.projectId, 'link')
+    // Chat reads the session's project, so a report from another project moves the session there first. When the
+    // session cannot move, the web opens the report instead of the chat loading the wrong project.
+    const followReportProject = (): boolean => followLinkProject(link?.projectId)
+    // An in-app browser, because Linking.openURL can hand an associated link straight back to this app.
+    const openReportOnWeb = (): void => {
+        if (report.webUrl) {
+            WebBrowser.openBrowserAsync(report.webUrl).catch(() => undefined)
         }
     }
     const openTaskChat = (entry: TaskChatEntry): void => {
         if (taskId) {
-            followReportProject()
+            if (!followReportProject()) {
+                openReportOnWeb()
+                return
+            }
             track('mobile_report_action_pressed', {
                 action: 'task_chat',
                 from: entry,
@@ -365,8 +370,11 @@ function ReportContent({ reportId, from, link }: ReportScreenProps): ReactElemen
         sheets.completed()
     }
     const openChat = (): void => {
+        if (!followReportProject()) {
+            openReportOnWeb()
+            return
+        }
         track('mobile_report_action_pressed', { action: 'chat', from: 'action_bar', report_id: report.id })
-        followReportProject()
         router.push({ pathname: '/chat', params: { reportId: report.id, entry: 'report' satisfies ChatSheetEntry } })
     }
 

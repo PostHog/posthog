@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 
 import type { ProjectScope } from '@/api/reports'
+import { useAuthStore } from '@/auth/authStore'
 import { useSessionProjectScope } from '@/auth/projectScope'
 import { useDataMode } from '@/demo/demoMode'
 
@@ -54,6 +55,20 @@ export function reportLinkScope(link: ReportLink, session: ProjectScope | null):
     }
     // The server decides access, so a project missing from the cached project list is still tried.
     return { kind: 'scope', override: { host: session.host, projectId: link.projectId } }
+}
+
+/**
+ * Moves the session to the link's project, for a screen that reads the session's project instead of the report
+ * scope. False means it did not move, because the cached account does not list the project.
+ */
+export function followLinkProject(projectId: number | null | undefined): boolean {
+    if (projectId == null) {
+        return true
+    }
+    if (useAuthStore.getState().projectId !== projectId) {
+        useAuthStore.getState().selectProject(projectId, 'link')
+    }
+    return useAuthStore.getState().projectId === projectId
 }
 
 export function useReportLinkScope(link: ReportLink): ReportLinkScope {

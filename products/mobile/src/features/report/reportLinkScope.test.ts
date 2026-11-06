@@ -1,4 +1,12 @@
-import { type ReportLink, type ReportLinkScope, reportLinkFromParams, reportLinkScope } from './reportLinkScope'
+import { useAuthStore } from '@/auth/authStore'
+
+import {
+    followLinkProject,
+    type ReportLink,
+    type ReportLinkScope,
+    reportLinkFromParams,
+    reportLinkScope,
+} from './reportLinkScope'
 
 jest.mock('@/demo/demoMode', () => ({ useDataMode: () => 'live' }))
 
@@ -37,5 +45,21 @@ describe('reportLinkScope', () => {
         ['a project that is not a number', { project: '7abc', host: '' }, { projectId: null, host: null }],
     ])('reads %s from the route', (_, params, expected) => {
         expect(reportLinkFromParams(params)).toEqual(expected)
+    })
+
+    test.each<[string, number | null | undefined, boolean, number]>([
+        ['a project the account lists', 7, true, 7],
+        ['a project the cached account does not list', 8, false, 2],
+        ['a link without a project', undefined, true, 2],
+    ])('follows %s', (_, projectId, followed, expected) => {
+        useAuthStore.setState({
+            projectId: 2,
+            projects: [
+                { id: 2, name: 'Session', organizationId: 'org-1', organizationName: 'Example' },
+                { id: 7, name: 'Linked', organizationId: 'org-1', organizationName: 'Example' },
+            ],
+        })
+        expect(followLinkProject(projectId)).toBe(followed)
+        expect(useAuthStore.getState().projectId).toBe(expected)
     })
 })

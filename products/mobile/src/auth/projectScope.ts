@@ -1,4 +1,4 @@
-import { createContext, useMemo } from 'react'
+import { createContext, useContext, useMemo } from 'react'
 
 import type { ProjectScope } from '@/api/reports'
 
@@ -15,6 +15,11 @@ function scopeOf(state: Pick<AuthState, 'signedIn' | 'host' | 'projectId'>): Pro
  * reads and writes go to that project and the session's project stays as it is.
  */
 export const ProjectScopeOverride = createContext<ProjectScope | null>(null)
+
+/** The override in force, or null when the subtree reads the session's project. */
+export function useProjectScopeOverride(): ProjectScope | null {
+    return useContext(ProjectScopeOverride)
+}
 
 /** The session's project, also inside a `ProjectScopeOverride`. */
 export function useSessionProjectScope(): ProjectScope | null {
