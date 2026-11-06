@@ -287,6 +287,8 @@ jobs:
                       !/*/
                       package.json
                       /.github/actions/
+                      /.husky/
+                      /bin/fix-rdkafka-paths
                       /services/mcp/
                       /packages/
                       /patches/
