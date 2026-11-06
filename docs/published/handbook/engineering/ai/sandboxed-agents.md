@@ -157,7 +157,7 @@ task = Task.create_and_run(
 
 ### Adding a new origin product
 
-New task creators pass a registered profile.
+Task creation needs a registered profile.
 A profile names the origin product and sets who can see the task, the sandbox limits and the defaults.
 
 If your product doesn't have an `OriginProduct` entry yet,
