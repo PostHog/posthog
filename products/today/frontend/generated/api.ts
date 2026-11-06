@@ -78,8 +78,8 @@ export const getTodayNewsRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * This week's news edition for the whole project: a lead story, up to 3 more stories and up to 4 briefs. Queries collect the facts and AI ranks them and writes the text. Every number, link and tone comes from the facts. One edition is generated per project and week, the first time someone opens Today that week. The call never waits: while the edition is generated it returns `computing`, so poll every 3 seconds. Stories about objects the person cannot see are left out. `skipped` with a reason when the week was quiet, AI data processing is off, fewer than 2 people use Today, or the daily limit is reached. 404 when the person does not have the news.
- * @summary Get this week's project news
+ * Today's news edition for the whole project: a lead story, up to 3 more stories and up to 4 briefs. Queries collect the facts and AI ranks them and writes the text. Every number, link and tone comes from the facts. One edition is generated per project and day, from the last 24 hours, the first time someone opens Today that day. The call never waits: while the edition is generated it returns `computing`, so poll every 3 seconds. Stories about objects the person cannot see are left out. `skipped` with a reason when the day was quiet, AI data processing is off, fewer than 2 people use Today, or the daily limit is reached. 404 when the person does not have the news.
+ * @summary Get today's project news
  */
 export const todayNewsRetrieve = async (projectId: string, options?: RequestInit): Promise<TodayNewsApi> => {
     return apiMutator<TodayNewsApi>(getTodayNewsRetrieveUrl(projectId), {

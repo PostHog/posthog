@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
                     "id",
                     models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
                 ),
-                ("period", models.CharField(choices=[("week", "Week"), ("day", "Day")], default="week", max_length=8)),
+                ("period", models.CharField(choices=[("day", "Day")], default="day", max_length=8)),
                 ("period_start", models.DateField()),
                 (
                     "status",

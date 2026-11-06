@@ -50,8 +50,7 @@ class NewsWriteFailed(Exception):
 
 
 def period_start(team: Team, now: datetime) -> date:
-    local = now.astimezone(team.timezone_info).date()
-    return local - timedelta(days=local.weekday())
+    return now.astimezone(team.timezone_info).date()
 
 
 def _is_due(row: TodayNewsEdition, now: datetime) -> bool:
@@ -91,7 +90,7 @@ def _claim(team: Team, start: date, existing: TodayNewsEdition | None, now: date
         try:
             with transaction.atomic():
                 return TodayNewsEdition.objects.for_team(team.id).create(
-                    team_id=team.id, period=NewsPeriod.WEEK, period_start=start
+                    team_id=team.id, period=NewsPeriod.DAY, period_start=start
                 )
         except IntegrityError:
             return None
@@ -146,7 +145,7 @@ def _start(team: Team, start: date, existing: TodayNewsEdition | None, now: date
 def get_news(*, team: Team, user: User, scopes: frozenset[str] | None) -> TodayNews:
     now = timezone.now()
     start = period_start(team, now)
-    row = TodayNewsEdition.objects.for_team(team.id).filter(period=NewsPeriod.WEEK, period_start=start).first()
+    row = TodayNewsEdition.objects.for_team(team.id).filter(period=NewsPeriod.DAY, period_start=start).first()
     if row is None or _is_due(row, now):
         return _start(team, start, row, now)
     if row.status != NewsStatus.READY:

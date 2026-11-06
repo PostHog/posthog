@@ -1,7 +1,8 @@
-import type { TodayNewsStory } from './todayNewsEdition'
+import type { NewsStoryApi } from 'products/today/frontend/generated/api.schemas'
+
 import { TodayNewsKicker } from './TodayNewsKicker'
 
-export function TodayNewsStoryRow({ story, onDiveIn }: { story: TodayNewsStory; onDiveIn: () => void }): JSX.Element {
+export function TodayNewsStoryRow({ story, onDiveIn }: { story: NewsStoryApi; onDiveIn: () => void }): JSX.Element {
     return (
         <li className="border-t py-4 first:border-t-0 first:pt-0 last:pb-0">
             <button

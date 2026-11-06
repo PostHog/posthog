@@ -1,18 +1,21 @@
 import { Suspense, lazy } from 'react'
 
-import { Skeleton } from '@posthog/quill'
+import { Skeleton, cn } from '@posthog/quill'
 
 import { retryImport } from 'lib/utils/retryImport'
 
+import type { NewsLeadStoryApi } from 'products/today/frontend/generated/api.schemas'
+
 import { TodayChange } from './TodayChange'
-import type { TodayNewsLeadStory } from './todayNewsEdition'
 import { TodayNewsKicker } from './TodayNewsKicker'
 
 const TodaySparkline = lazy(() =>
     retryImport(() => import('./TodaySparkline').then((m) => ({ default: m.TodaySparkline })))
 )
 
-export function TodayNewsLead({ story, onDiveIn }: { story: TodayNewsLeadStory; onDiveIn: () => void }): JSX.Element {
+export function TodayNewsLead({ story, onDiveIn }: { story: NewsLeadStoryApi; onDiveIn: () => void }): JSX.Element {
+    const hasChart = story.series.length > 1
+
     return (
         <button
             type="button"
@@ -26,29 +29,32 @@ export function TodayNewsLead({ story, onDiveIn }: { story: TodayNewsLeadStory; 
                 {story.title}
             </h3>
             <p className="m-0 text-base text-pretty text-muted-foreground">{story.summary}</p>
-            <figure className="m-0 mt-3 flex min-h-40 flex-1 flex-col gap-3">
+            <figure className={cn('m-0 mt-3 flex flex-col gap-3', hasChart && 'min-h-40 flex-1')}>
                 <figcaption className="flex items-baseline justify-between gap-4 border-t pt-2 font-mono text-xs tracking-wide text-muted-foreground uppercase">
                     <span className="flex items-baseline gap-2">
-                        <span>{story.metricLabel}</span>
-                        <span className="text-foreground" translate="no">
-                            {story.metricValue}
-                        </span>
+                        {story.metric_label ? <span>{story.metric_label}</span> : null}
+                        {story.metric_value ? (
+                            <span className="text-foreground" translate="no">
+                                {story.metric_value}
+                            </span>
+                        ) : null}
                         <TodayChange change={story.change} tone={story.tone} />
                     </span>
                     <span className="text-foreground group-hover/story:underline">Dive in</span>
                 </figcaption>
-                <span className="min-h-28 flex-1 border-b border-foreground">
-                    <Suspense fallback={<Skeleton className="h-full w-full" />}>
-                        <TodaySparkline
-                            values={story.series}
-                            labels={story.seriesLabels}
-                            tone={story.tone}
-                            emphasizeLast={5}
-                            fromZero
-                            formatValue={(value) => `${value.toLocaleString('en-US')}%`}
-                        />
-                    </Suspense>
-                </span>
+                {hasChart ? (
+                    <span className="min-h-28 flex-1 border-b border-foreground">
+                        <Suspense fallback={<Skeleton className="h-full w-full" />}>
+                            <TodaySparkline
+                                values={story.series}
+                                labels={story.series_labels}
+                                tone={story.tone}
+                                emphasizeLast={5}
+                                fromZero
+                            />
+                        </Suspense>
+                    </span>
+                ) : null}
             </figure>
         </button>
     )

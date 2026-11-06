@@ -212,7 +212,7 @@ class TestNewsAPI(TodayTeamScopedTestMixin, APIBaseTest):
         assert [item["id"] for item in body["edition"]["stories"]] == ["experiment:1"]
         assert connect.return_value.start_workflow.await_count == 1
 
-    def test_a_quiet_week_is_skipped_without_a_model_call(self) -> None:
+    def test_a_quiet_day_is_skipped_without_a_model_call(self) -> None:
         self._end_experiment("1", "Pricing page")
         connect = self._connect()
         self._get(connect)

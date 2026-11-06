@@ -14,12 +14,16 @@ import { TodayNewsLead } from './TodayNewsLead'
 import { todayNewsLogic } from './todayNewsLogic'
 import { TodayNewsStoryRow } from './TodayNewsStoryRow'
 
-export function TodayNewsDialog(): JSX.Element {
+export function TodayNewsDialog(): JSX.Element | null {
     const { isNewsOpen, edition } = useValues(todayNewsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { closeNews, diveIn } = useActions(todayNewsLogic)
     const popupRef = useRef<HTMLDivElement>(null)
     const today = dayjs().format('dddd, MMMM D')
+
+    if (!edition) {
+        return null
+    }
 
     return (
         <Dialog

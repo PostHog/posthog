@@ -88,7 +88,7 @@ class NewsStatus(LabeledStrEnum):
 
 
 class NewsSkipReason(LabeledStrEnum):
-    QUIET = "quiet", "Not enough news this week"
+    QUIET = "quiet", "Not enough news today"
     AI_NOT_APPROVED = "ai_not_approved", "AI data processing is off"
     FEW_PEOPLE = "few_people", "Fewer than 2 people use Today"
     BUDGET = "budget", "Daily generation limit reached"

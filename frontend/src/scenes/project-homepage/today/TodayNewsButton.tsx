@@ -5,9 +5,13 @@ import { Button } from '@posthog/quill'
 
 import { todayNewsLogic } from './todayNewsLogic'
 
-export function TodayNewsButton(): JSX.Element {
-    const { hasUnreadNews } = useValues(todayNewsLogic)
+export function TodayNewsButton(): JSX.Element | null {
+    const { edition, hasUnreadNews } = useValues(todayNewsLogic)
     const { openNews } = useActions(todayNewsLogic)
+
+    if (!edition) {
+        return null
+    }
 
     return (
         <Button

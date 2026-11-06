@@ -552,8 +552,8 @@ class NewsLeadStorySerializer(NewsStorySerializer):
 class NewsEditionSerializer(DataclassSerializer):
     id = serializers.CharField(help_text="Id of the edition. Store it to know which edition the person read.")
     is_sample = serializers.BooleanField(help_text="Always false for a generated edition.")
-    period_start = serializers.DateField(help_text="Monday of the week the edition is for, in the project's timezone.")
-    lead = NewsLeadStorySerializer(help_text="The most important story of the week.")
+    period_start = serializers.DateField(help_text="The day the edition is for, in the project's timezone.")
+    lead = NewsLeadStorySerializer(help_text="The most important story of the day.")
     stories = NewsStorySerializer(many=True, help_text="Up to 3 more stories, most important first.")
     briefs = serializers.ListField(
         child=serializers.CharField(), help_text="Up to 4 one-sentence notes about smaller changes."
@@ -566,7 +566,7 @@ class NewsEditionSerializer(DataclassSerializer):
 class TodayNewsSerializer(DataclassSerializer):
     status = serializers.ChoiceField(
         choices=NewsStatus.choices,
-        help_text="`ready` when `edition` is set. `computing` while the edition is generated: poll again every 3 seconds. `skipped` when there is no edition this week, see `skip_reason`. `failed` when generation failed: it is tried again after an hour.",
+        help_text="`ready` when `edition` is set. `computing` while the edition is generated: poll again every 3 seconds. `skipped` when there is no edition today, see `skip_reason`. `failed` when generation failed: it is tried again after an hour.",
     )
     skip_reason = serializers.ChoiceField(
         choices=NewsSkipReason.choices,

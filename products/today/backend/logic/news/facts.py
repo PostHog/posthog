@@ -29,8 +29,8 @@ from ..highlight_registry import source_product
 logger = structlog.get_logger(__name__)
 T = TypeVar("T")
 
-WINDOW_DAYS = 7
-RECENT_DAYS = 3
+WINDOW_DAYS = 1
+RECENT_DAYS = 1
 OLDER_RECENCY = 0.8
 UNSHARED_BREADTH = 0.7
 STRONG_SCORE = 0.5

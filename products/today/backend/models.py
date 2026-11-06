@@ -45,13 +45,12 @@ class TodayPulsePins(ProductTeamModel):
 
 
 class NewsPeriod(models.TextChoices):
-    WEEK = "week", "Week"
     DAY = "day", "Day"
 
 
 class TodayNewsEdition(ProductTeamModel):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    period = models.CharField(max_length=8, choices=NewsPeriod.choices, default=NewsPeriod.WEEK.value)
+    period = models.CharField(max_length=8, choices=NewsPeriod.choices, default=NewsPeriod.DAY.value)
     period_start = models.DateField()
     status = models.CharField(max_length=16, choices=NewsStatus.choices, default=NewsStatus.COMPUTING.value)
     skip_reason = models.CharField(max_length=32, blank=True, default="")

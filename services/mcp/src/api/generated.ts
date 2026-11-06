@@ -68085,9 +68085,9 @@ export namespace Schemas {
       id: string;
       /** Always false for a generated edition. */
       is_sample: boolean;
-      /** Monday of the week the edition is for, in the project's timezone. */
+      /** The day the edition is for, in the project's timezone. */
       period_start: string;
-      /** The most important story of the week. */
+      /** The most important story of the day. */
       lead: NewsLeadStory;
       /** Up to 3 more stories, most important first. */
       stories: NewsStory[];
@@ -68096,7 +68096,7 @@ export namespace Schemas {
     }
 
     /**
-     * * `quiet` - Not enough news this week
+     * * `quiet` - Not enough news today
      * * `ai_not_approved` - AI data processing is off
      * * `few_people` - Fewer than 2 people use Today
      * * `budget` - Daily generation limit reached
@@ -114085,7 +114085,7 @@ export namespace Schemas {
     }
 
     export interface TodayNews {
-      /** `ready` when `edition` is set. `computing` while the edition is generated: poll again every 3 seconds. `skipped` when there is no edition this week, see `skip_reason`. `failed` when generation failed: it is tried again after an hour.
+      /** `ready` when `edition` is set. `computing` while the edition is generated: poll again every 3 seconds. `skipped` when there is no edition today, see `skip_reason`. `failed` when generation failed: it is tried again after an hour.
        *
        * * `computing` - Computing
        * * `ready` - Ready
@@ -114094,7 +114094,7 @@ export namespace Schemas {
       status: NewsStatusEnum;
       /** Why there is no edition when the status is `skipped`. Null otherwise.
        *
-       * * `quiet` - Not enough news this week
+       * * `quiet` - Not enough news today
        * * `ai_not_approved` - AI data processing is off
        * * `few_people` - Fewer than 2 people use Today
        * * `budget` - Daily generation limit reached
