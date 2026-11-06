@@ -28,6 +28,10 @@ class TeamConversationsTeamsChannelSync(TeamScopedRootMixin, UUIDModel):
 
     last_polled_at = models.DateTimeField(null=True, blank=True)
     last_message_at = models.DateTimeField(null=True, blank=True)
+    # Set when Graph answers 402 or 403 for this channel. The poller skips the channel
+    # until this time, because the every-minute beat would otherwise repeat the refusal.
+    # Reconnecting Teams clears it.
+    denied_until = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
