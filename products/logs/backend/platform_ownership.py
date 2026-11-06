@@ -61,8 +61,7 @@ def on_created(alert: LogsAlertConfiguration, at: datetime, *, grouping: Groupin
 
 
 def _hand_over_new(alert: LogsAlertConfiguration, at: datetime, grouping: Grouping | None) -> bool:
-    # A new alert in a team already cut over shadows only for what remains of the team's shadow.
-    # Its own week would keep the legacy evaluator running for as long as the team adds alerts.
+    # A week of its own per alert would keep the legacy evaluator running while the team adds alerts.
     shadow_from = team_cutover_at(alert.team_id, new_alert_id=alert.id)
     return hand_over(alert, at, grouping=grouping, shadow_from=shadow_from)
 
