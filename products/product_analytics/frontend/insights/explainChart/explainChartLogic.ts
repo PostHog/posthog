@@ -11,6 +11,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { isUUIDLike } from 'lib/utils/guards'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { insightLogicValues } from 'scenes/insights/insightLogic'
@@ -588,7 +589,9 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
     urlToAction(({ actions, props }) => ({
         '/insights/:shortId': ({ shortId }, { explanation }) => {
             if (shortId === props.dashboardItemId) {
-                actions.setLinkedExplanationId(typeof explanation === 'string' ? explanation : null)
+                actions.setLinkedExplanationId(
+                    typeof explanation === 'string' && isUUIDLike(explanation) ? explanation : null
+                )
             }
         },
     })),
