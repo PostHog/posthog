@@ -5,6 +5,7 @@ from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.github.installations import SCOPE_DB_ALIAS, installation_id, installation_team_ids
 from posthog.github.metrics import GitHubWebhookAnalyticsEvent, observe_github_webhook_pr_event_dropped
@@ -72,17 +73,24 @@ def find_task_run(
         logger.info("github_webhook_task_run_lookup_unscoped", pr_url=pr_url, branch=branch, repository=repository)
         return None
 
-    task_id = find_task_id_by_pull_request(pr_url, branch, repository, team_ids=team_ids)
+    match = find_task_by_pull_request(pr_url, branch, repository, team_ids=team_ids)
+    task_id = match.task_id if match is not None else None
     task_run, leg = _find_task_run_by_run_state(pr_url, branch, repository, team_ids=team_ids, task_id=task_id)
-    if task_run is None and task_id is not None:
-        task_run, leg = _live_or_newest_run(task_id, team_ids=team_ids), "task_columns"
-    observe_github_webhook_task_lookup(leg=leg, by_task_columns=task_id is not None)
+    if task_run is None and match is not None and match.by_verified_pr_url:
+        task_run, leg = _live_or_newest_run(match.task_id, team_ids=team_ids), "task_columns"
+    observe_github_webhook_task_lookup(leg=leg, by_task_columns=match is not None)
     return task_run
 
 
-def find_task_id_by_pull_request(
+@frozen
+class TaskPullRequestMatch:
+    task_id: UUID
+    by_verified_pr_url: bool
+
+
+def find_task_by_pull_request(
     pr_url: str | None, branch: str | None, repository: str | None, *, team_ids: list[int]
-) -> UUID | None:
+) -> TaskPullRequestMatch | None:
     tasks = Task.objects.filter(team_id__in=team_ids).exclude(origin_product=Task.OriginProduct.REVIEW_HOG)
     if pr_url:
         canonical_url = canonical_github_pull_request_url(pr_url)
@@ -91,16 +99,18 @@ def find_task_id_by_pull_request(
             tasks.filter(pr_urls__overlap=urls).order_by("-created_at", "-id").values_list("id", flat=True).first()
         )
         if task_id is not None:
-            return task_id
+            return TaskPullRequestMatch(task_id=task_id, by_verified_pr_url=True)
     if branch and repository:
         normalized = repository.lower()
-        return (
+        task_id = (
             tasks.filter(Q(repositories__contains=[normalized]) | Q(repository__iexact=normalized))
             .filter(head_branch=branch, deleted=False)
             .order_by("-created_at", "-id")
             .values_list("id", flat=True)
             .first()
         )
+        if task_id is not None:
+            return TaskPullRequestMatch(task_id=task_id, by_verified_pr_url=False)
     return None
 
 
