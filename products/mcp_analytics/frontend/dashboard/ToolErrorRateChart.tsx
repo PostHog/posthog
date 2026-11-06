@@ -14,7 +14,7 @@ import { Skeleton } from '@posthog/quill-primitives'
 import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
-import { type ToolRow } from '../mcpDashboardOverviewLogic'
+import { MIN_CALLS_TO_RANK_ERRORS, rankToolsByErrorRate, type ToolRow } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
 import { ChartTooltip } from './ChartTooltip'
 
@@ -41,10 +41,7 @@ export function ToolErrorRateChart({
     title?: string
     emptyMessage?: string
 }): JSX.Element {
-    const sorted = useMemo(
-        () => [...rows].sort((a, b) => b.error_rate_pct - a.error_rate_pct).slice(0, MAX_TOOLS),
-        [rows]
-    )
+    const sorted = useMemo(() => rankToolsByErrorRate(rows).slice(0, MAX_TOOLS), [rows])
     const labels = useMemo(() => sorted.map((r) => r.tool), [sorted])
     const series = useMemo<Series[]>(
         () => [
@@ -99,7 +96,7 @@ export function ToolErrorRateChart({
         <Card title={title}>
             <CardState
                 loading={loading}
-                isEmpty={rows.length === 0}
+                isEmpty={sorted.length === 0}
                 skeleton={
                     <div className="space-y-2 py-3">
                         {Array.from({ length: 5 }).map((_, i) => (
@@ -107,7 +104,13 @@ export function ToolErrorRateChart({
                         ))}
                     </div>
                 }
-                empty={<div className="py-6 text-center text-[12px] text-secondary">{emptyMessage}</div>}
+                empty={
+                    <div className="py-6 text-center text-[12px] text-secondary">
+                        {rows.length === 0
+                            ? emptyMessage
+                            : `No tool has ${MIN_CALLS_TO_RANK_ERRORS} or more calls in this date range yet.`}
+                    </div>
+                }
             >
                 <div className="flex min-h-80 flex-1 flex-col">
                     <BarChart

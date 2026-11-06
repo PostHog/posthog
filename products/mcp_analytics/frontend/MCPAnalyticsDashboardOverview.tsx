@@ -30,10 +30,10 @@ import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const {
-        kpis,
+        headlineKpis,
         kpisLoading,
-        users,
-        usersLoading,
+        periodTotals,
+        periodTotalsLoading,
         intentClusterCount,
         notableSessions,
         sessionRowsLoading,
@@ -142,11 +142,11 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 <section className="flex min-w-0 flex-col gap-4" data-quill>
                     <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>
                     <KpiTiles
-                        kpis={kpis}
-                        users={users}
+                        kpis={headlineKpis}
+                        users={periodTotals.users}
                         intentClusterCount={intentClusterCount}
                         kpisLoading={kpisLoading}
-                        usersLoading={usersLoading}
+                        usersLoading={periodTotalsLoading}
                         showIntentClusters={!!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]}
                         theme={theme}
                         interval={interval}
