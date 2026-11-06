@@ -25,7 +25,6 @@ import { billingProductDisplayName } from 'lib/logic/billing/billingProductDispl
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
-import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
@@ -46,9 +45,15 @@ export const UnsubscribeSurveyModal = ({
 }): JSX.Element | null => {
     const { trigger, HogfettiComponent } = useHogfetti()
 
-    const { surveyID, surveyResponse, isAddonProduct, unsubscribeModalStep, unsubscribeReasonQuestions } = useValues(
-        billingProductLogic({ product, hogfettiTrigger: trigger })
-    )
+    const {
+        surveyID,
+        surveyResponse,
+        isAddonProduct,
+        unsubscribeModalStep,
+        unsubscribeReasonQuestions,
+        productsToDeactivate,
+        eventsRetentionPlansAfterUnsubscribe,
+    } = useValues(billingProductLogic({ product, hogfettiTrigger: trigger }))
     const {
         setSurveyResponse,
         toggleSurveyReason,
@@ -59,15 +64,7 @@ export const UnsubscribeSurveyModal = ({
         triggerMoreHedgehogs,
     } = useActions(billingProductLogic({ product }))
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
-    const {
-        unsubscribeError,
-        billingLoading,
-        billing,
-        isExternallyBilled,
-        productAnalyticsFreePlan,
-        productAnalyticsPlanAfterPackageDowngrade,
-        currentPlatformAddonPlan,
-    } = useValues(billingLogic)
+    const { unsubscribeError, billingLoading, billing, isExternallyBilled } = useValues(billingLogic)
     const { openSupportForm } = useActions(supportLogic)
     const [randomizedReasons] = useState(() =>
         inStorybook() || inStorybookTestRunner() ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
@@ -85,16 +82,6 @@ export const UnsubscribeSurveyModal = ({
         action = isAddonProduct ? 'Remove addon' : 'Downgrade'
         actionVerb = isAddonProduct ? 'removing this addon' : 'downgrading'
     }
-
-    const productsToDeactivate =
-        billing?.subscription_level === 'paid' && !isAddonProduct ? 'all_products' : product.type
-    const eventsRetentionPlansAfterChange = isPlatformAndSupportAddon(product)
-        ? [productAnalyticsPlanAfterPackageDowngrade]
-        : productsToDeactivate === 'all_products'
-          ? [productAnalyticsFreePlan]
-          : productsToDeactivate === ProductKey.PRODUCT_ANALYTICS
-            ? [productAnalyticsFreePlan, currentPlatformAddonPlan]
-            : null
 
     const handleUnsubscribe = (): void => {
         if (surveyResponse['$survey_response_2'].includes('Not enough hedgehogs')) {
@@ -231,8 +218,8 @@ export const UnsubscribeSurveyModal = ({
                         )}
 
                         {isPlatformAndSupportAddon(product) && <AddonFeatureLossNotice product={product} />}
-                        {eventsRetentionPlansAfterChange && (
-                            <EventsRetentionDowngradeNotice plansAfterChange={eventsRetentionPlansAfterChange} />
+                        {eventsRetentionPlansAfterUnsubscribe && (
+                            <EventsRetentionDowngradeNotice plansAfterChange={eventsRetentionPlansAfterUnsubscribe} />
                         )}
 
                         <LemonLabel>
