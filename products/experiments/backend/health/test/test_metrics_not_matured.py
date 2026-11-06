@@ -197,8 +197,35 @@ class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
             ),
             ("only_a_secondary_held_back", [NO_WINDOW], [FOUR_DAYS], None, None, Status.PASSED, None),
             ("a_primary_that_does_not_parse", [{"metric_type": "funnel"}], [], None, None, Status.NOT_CHECKED, None),
-            ("launched_after_its_start_date", [FOUR_DAYS], [], None, 1, Status.FINDING, "purchase conversion", True),
-            ("launch_hidden_from_a_reader_without_the_flag_history", [FOUR_DAYS], [], None, 1, Status.PASSED, None),
+            (
+                "launched_after_its_start_date",
+                [FOUR_DAYS],
+                [],
+                None,
+                (5, 1),
+                Status.FINDING,
+                "purchase conversion",
+                True,
+            ),
+            (
+                "launch_hidden_from_a_reader_without_the_flag_history",
+                [FOUR_DAYS],
+                [],
+                None,
+                (5, 1),
+                Status.PASSED,
+                None,
+            ),
+            (
+                "start_date_moved_after_the_launch",
+                [FOUR_DAYS],
+                [],
+                None,
+                (3, 5),
+                Status.FINDING,
+                "purchase conversion",
+                True,
+            ),
         ]
     )
     def test_reads_the_windows_of_the_stored_primary_metrics(
@@ -207,7 +234,7 @@ class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
         primary: list[dict[str, Any]],
         secondary: list[dict[str, Any]],
         saved_primary: dict[str, Any] | None,
-        launched_days_ago: int | None,
+        start_and_launch_days_ago: tuple[int, int] | None,
         expected: Status,
         expected_metric: str | None,
         reads_flag_history: bool = False,
@@ -226,18 +253,20 @@ class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
                 },
             },
         )
+        start_days_ago, launch_days_ago = start_and_launch_days_ago or (3, None)
+        start_date = timezone.now() - timedelta(days=start_days_ago)
         experiment = Experiment.objects.create(
             team=self.team,
             name="checkout",
             feature_flag=flag,
-            start_date=timezone.now() - timedelta(days=3 if launched_days_ago is None else 5),
+            start_date=start_date,
             only_count_matured_users=True,
             metrics=[{**metric, "uuid": f"primary-{index}"} for index, metric in enumerate(primary)],
             metrics_secondary=[{**metric, "uuid": f"secondary-{index}"} for index, metric in enumerate(secondary)],
         )
-        launched_at = None
-        if launched_days_ago is not None:
-            launched_at = timezone.now() - timedelta(days=launched_days_ago)
+        counted_from = None
+        if launch_days_ago is not None:
+            launched_at = timezone.now() - timedelta(days=launch_days_ago)
             ActivityLog.objects.create(
                 team_id=self.team.id,
                 scope="Experiment",
@@ -246,6 +275,7 @@ class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
                 detail={"changes": [{"field": "start_date", "before": None, "after": launched_at.isoformat()}]},
                 created_at=launched_at,
             )
+            counted_from = max(start_date, launched_at)
         if saved_primary is not None:
             saved_metric = ExperimentSavedMetric.objects.create(
                 team=self.team, name="Checkout funnel", query={"uuid": "saved-primary", **saved_primary}
@@ -270,7 +300,7 @@ class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
         self.assertEqual(finding is not None, expected == Status.FINDING)
         if finding:
             self.assertEqual(finding.detail.count(f'"{expected_metric}"'), 1)
-        if finding and launched_at is not None:
+        if finding and counted_from is not None:
             self.assertEqual(
-                finding.evidence["first_users_count_at"], (launched_at + timedelta(days=4)).astimezone(UTC).isoformat()
+                finding.evidence["first_users_count_at"], (counted_from + timedelta(days=4)).astimezone(UTC).isoformat()
             )
