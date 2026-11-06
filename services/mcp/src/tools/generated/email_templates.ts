@@ -403,6 +403,9 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
         if (params.sensitive !== undefined) {
             body['sensitive'] = params.sensitive
         }
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/`,
@@ -447,6 +450,9 @@ const workflowsUploadEmailTemplate = (): ToolBase<
         }
         if (params.if_not_superseded !== undefined) {
             body['if_not_superseded'] = params.if_not_superseded
+        }
+        if (params.if_code_managed !== undefined) {
+            body['if_code_managed'] = params.if_code_managed
         }
         if (params.source !== undefined) {
             body['source'] = params.source

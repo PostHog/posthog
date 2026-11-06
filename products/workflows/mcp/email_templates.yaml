@@ -133,7 +133,8 @@ tools:
             changes; ids and Unlayer numbering for added blocks are assigned for you. Operations apply atomically — the
             design is read, the ops applied in order, the result validated and re-rendered to HTML, and saved only if
             valid, otherwise nothing changes. After patching, call workflows-show-email-template so the user sees the
-            result.
+            result. A template whose managed_by is code refuses this with 403 immutable: change its file in the
+            repository and upload it with workflows-upload-email-template instead.
         response:
             exclude:
                 - content
@@ -233,10 +234,17 @@ tools:
             back the complete content with your edited design, plus only the other writable fields you change. The tool
             refuses the read-only fields of a fetched template: created_at, updated_at, transactional_hog_flow_id and
             _posthogUrl. The server re-renders the sent email from the design on save. After updating, call
-            workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.
+            workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link. A
+            template whose managed_by is code refuses every update with 403 immutable: change its file in the repository
+            and upload it with workflows-upload-email-template instead. To move a template made in PostHog into code,
+            send key (such as welcome) as the only field. A key is set once and never changes. The next
+            workflows-upload-email-template with that key updates this template and keeps its id, workflow and sender.
+            Emails your code already sends under that key with workflows-send-email keep their own workflow until that
+            upload, then run through this template's workflow.
         exclude_params:
             - content.email.html
             - draft_content
+            - managed_by
         response:
             exclude:
                 - content

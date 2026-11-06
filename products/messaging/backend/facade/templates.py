@@ -10,10 +10,17 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from posthog.api.tagged_item import current_tag_names
 from posthog.dataclasses import frozen
 
-from products.messaging.backend.facade.contracts import TemplateManagedBy, TemplateUpload, TemplateUploadResult
+from products.messaging.backend.facade.contracts import (
+    TemplateManagedBy,
+    TemplateUpload,
+    TemplateUploadResult,
+    TemplateWriteIntent,
+)
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.services import (
     message_templates as templates_service,
+    template_keys,
+    template_ownership,
     template_saves,
     template_uploads,
 )
@@ -123,10 +130,13 @@ def save_template_draft(
     template_id: UUID,
     draft: dict[str, Any] | None,
     *,
+    intent: TemplateWriteIntent,
     require_workflow_editor: Callable[[UUID], None],
 ) -> MessageTemplateRow:
     return _to_contract(
-        template_saves.save_locked_draft(team_id, template_id, draft, require_workflow_editor=require_workflow_editor)
+        template_saves.save_locked_draft(
+            team_id, template_id, draft, intent=intent, require_workflow_editor=require_workflow_editor
+        )
     )
 
 
@@ -135,6 +145,7 @@ def save_template_fields(
     template_id: UUID,
     fields: dict[str, Any],
     *,
+    intent: TemplateWriteIntent,
     user_id: int | None,
     require_workflow_editor: Callable[[UUID], None],
 ) -> MessageTemplateRow:
@@ -150,6 +161,7 @@ def save_template_fields(
             team_id,
             template_id,
             write,
+            intent=intent,
             user_id=user_id,
             require_workflow_editor=require_workflow_editor,
         )
@@ -161,6 +173,7 @@ def save_template_content(
     template_id: UUID,
     edit: Callable[[dict[str, Any]], dict[str, Any]],
     *,
+    intent: TemplateWriteIntent,
     user_id: int | None,
     require_workflow_editor: Callable[[UUID], None],
 ) -> MessageTemplateRow:
@@ -169,8 +182,49 @@ def save_template_content(
             team_id,
             template_id,
             lambda template: templates_service.edit_content(template, edit),
+            intent=intent,
             user_id=user_id,
             require_workflow_editor=require_workflow_editor,
+        )
+    )
+
+
+def check_template_write(template: MessageTemplateRow, intent: TemplateWriteIntent) -> None:
+    template_keys.check_key_kept(template, intent)
+    template_ownership.check_write(template, intent)
+
+
+def is_release(intent: TemplateWriteIntent) -> bool:
+    return template_ownership.is_release(intent)
+
+
+def release_template(
+    team_id: int, template_id: UUID, *, require_workflow_editor: Callable[[UUID], None]
+) -> MessageTemplateRow:
+    return _to_contract(
+        template_saves.release_template(team_id, template_id, require_workflow_editor=require_workflow_editor)
+    )
+
+
+def is_adoption(intent: TemplateWriteIntent) -> bool:
+    return template_keys.is_adoption(intent)
+
+
+def check_template_key_write(template: MessageTemplateRow, intent: TemplateWriteIntent) -> None:
+    template_keys.check_key_unchanged(template, intent)
+
+
+def adopt_template(
+    team_id: int,
+    template_id: UUID,
+    key: str,
+    *,
+    intent: TemplateWriteIntent,
+    require_workflow_editor: Callable[[UUID], None],
+) -> MessageTemplateRow:
+    return _to_contract(
+        template_keys.adopt_template(
+            team_id, template_id, key, intent=intent, require_workflow_editor=require_workflow_editor
         )
     )
 

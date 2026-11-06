@@ -32,7 +32,7 @@ import type {
     PaginatedOptOutsApi,
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
-    PatchedMessageTemplateApi,
+    PatchedMessageTemplateUpdateApi,
     PatchedSupabaseAuthEmailSettingsUpdateApi,
     PreferencesLinkApi,
     ProviderImportRunApi,
@@ -919,14 +919,14 @@ export const getMessagingTemplatesPartialUpdateUrl = (projectId: string, id: str
 export const messagingTemplatesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedMessageTemplateApi?: NonReadonly<PatchedMessageTemplateApi>,
+    patchedMessageTemplateUpdateApi?: NonReadonly<PatchedMessageTemplateUpdateApi>,
     options?: RequestInit
 ): Promise<MessageTemplateApi> => {
     return apiMutator<MessageTemplateApi>(getMessagingTemplatesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedMessageTemplateApi),
+        body: JSON.stringify(patchedMessageTemplateUpdateApi),
     })
 }
 
@@ -1015,7 +1015,7 @@ export const getMessagingTemplatesByKeyUpdateUrl = (projectId: string, key: stri
 }
 
 /**
- * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. With `if_not_superseded`, an upload of content that is one of the last 100 different contents the template replaced changes nothing and answers `superseded`. An upload keeps the template's sender and never turns a paused template back on.
+ * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. With `if_not_superseded`, an upload of content that is one of the last 100 different contents the template replaced changes nothing and answers `superseded`. With `if_code_managed`, an upload to a template edited in PostHog changes nothing and answers `409`. An upload keeps the template's sender and never turns a paused template back on.
  * @summary Upload a template by key
  */
 export const messagingTemplatesByKeyUpdate = async (

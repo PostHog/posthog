@@ -4,8 +4,10 @@ from uuid import UUID
 
 from django.db import transaction
 
+from products.messaging.backend.facade.contracts import TemplateManagedBy, TemplateWriteIntent
 from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.services.message_templates import record_content_hash
+from products.messaging.backend.services.template_ownership import check_write
 from products.messaging.backend.services.transactional_email import check_still_sendable, sync_transactional_workflow
 
 TemplateWrite = Callable[[MessageTemplate], None]
@@ -17,11 +19,13 @@ def save_template(
     template_id: UUID,
     write: TemplateWrite,
     *,
+    intent: TemplateWriteIntent,
     user_id: int | None,
     require_workflow_editor: WorkflowEditorCheck,
 ) -> MessageTemplate:
     with transaction.atomic():
         template = lock_template(team_id, template_id)
+        check_write(template, intent)
         save_locked_template(template, write, user_id=user_id, require_workflow_editor=require_workflow_editor)
     return template
 
@@ -31,14 +35,29 @@ def save_locked_draft(
     template_id: UUID,
     draft: dict[str, Any] | None,
     *,
+    intent: TemplateWriteIntent,
     require_workflow_editor: WorkflowEditorCheck,
+) -> MessageTemplate:
+    with transaction.atomic():
+        template = lock_template(team_id, template_id)
+        check_write(template, intent)
+        if template.transactional_hog_flow_id:
+            require_workflow_editor(template.transactional_hog_flow_id)
+        template.draft_content = draft
+        template.save(update_fields=["draft_content", "updated_at"])
+    return template
+
+
+def release_template(
+    team_id: int, template_id: UUID, *, require_workflow_editor: WorkflowEditorCheck
 ) -> MessageTemplate:
     with transaction.atomic():
         template = lock_template(team_id, template_id)
         if template.transactional_hog_flow_id:
             require_workflow_editor(template.transactional_hog_flow_id)
-        template.draft_content = draft
-        template.save(update_fields=["draft_content", "updated_at"])
+        if template.managed_by == TemplateManagedBy.CODE:
+            template.managed_by = TemplateManagedBy.GUI
+            template.save(update_fields=["managed_by", "updated_at"])
     return template
 
 

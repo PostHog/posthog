@@ -272,6 +272,8 @@ export const messagingTemplatesPartialUpdateBodyContentOneEmailOneFromOneEmailMa
 
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
 
+export const messagingTemplatesPartialUpdateBodyKeyMax = 400
+
 export const MessagingTemplatesPartialUpdateBody = () => zod.strictObject({
     name: zod
         .string()
@@ -399,6 +401,13 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.strictObject({
         .describe(
             "For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time."
         ),
+    key: zod
+        .string()
+        .max(messagingTemplatesPartialUpdateBodyKeyMax)
+        .optional()
+        .describe(
+            "Give a template that has no key one, so code can take it over: the next upload under this key updates this template and keeps its id, workflow and sender. Code sends that already use this key keep their own workflow until that upload, then run through this template's workflow. Send it as the only field of the PATCH. Letters, digits, hyphens (-) and underscores (_). Set once: a template that has a key keeps it."
+        ),
 })
 
 export const MessagingTemplatesDesignPartialUpdateParams = () => zod.object({
@@ -495,7 +504,7 @@ export const MessagingTemplatesMakeTransactionalCreateBody = () => zod.strictObj
 })
 
 /**
- * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. With `if_not_superseded`, an upload of content that is one of the last 100 different contents the template replaced changes nothing and answers `superseded`. An upload keeps the template's sender and never turns a paused template back on.
+ * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. With `if_not_superseded`, an upload of content that is one of the last 100 different contents the template replaced changes nothing and answers `superseded`. With `if_code_managed`, an upload to a template edited in PostHog changes nothing and answers `409`. An upload keeps the template's sender and never turns a paused template back on.
  * @summary Upload a template by key
  */
 export const MessagingTemplatesByKeyUpdateParams = () => zod.object({
@@ -514,6 +523,7 @@ export const MessagingTemplatesByKeyUpdateParams = () => zod.object({
 export const messagingTemplatesByKeyUpdateBodyNameMax = 400
 
 export const messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault = false
+export const messagingTemplatesByKeyUpdateBodyIfCodeManagedDefault = false
 export const messagingTemplatesByKeyUpdateBodySourceOneRepositoryMax = 400
 
 export const messagingTemplatesByKeyUpdateBodySourceOnePathMax = 400
@@ -542,6 +552,12 @@ export const MessagingTemplatesByKeyUpdateBody = () => zod.strictObject({
         .default(messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault)
         .describe(
             'Set it on uploads a program makes on its own, such as a sync that may hold an older copy of the file. When newer content already replaced this content, the upload changes nothing and answers `superseded`. The check covers the last 100 different contents the template replaced. Content outside those 100 publishes. Leave it out to publish the content in any case, such as to roll back to earlier content.'
+        ),
+    if_code_managed: zod
+        .boolean()
+        .default(messagingTemplatesByKeyUpdateBodyIfCodeManagedDefault)
+        .describe(
+            'Set it so the upload only updates a template that code manages. When the key names a template edited in PostHog, the upload changes nothing and answers `409` with `template_edited_in_posthog`. A new key, or a template managed by code, uploads as usual. Leave it out to take over a template edited in PostHog, so code manages it from then on.'
         ),
     source: zod
         .strictObject({

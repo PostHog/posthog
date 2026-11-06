@@ -8,6 +8,7 @@ from posthog.dataclasses import frozen
 from products.messaging.backend.facade.contracts import (
     ContentHashState,
     SenderUnavailable,
+    TemplateEditedInPostHog,
     TemplateManagedBy,
     TemplateSource,
     TemplateUpload,
@@ -80,6 +81,8 @@ def _upload(
     require_workflow_create: WorkflowCreateCheck,
 ) -> Uploaded:
     template = locked_template_with_key(team_id, upload.key)
+    if upload.if_code_managed and template is not None and template.managed_by != TemplateManagedBy.CODE:
+        raise TemplateEditedInPostHog()
     if template is None or template.managed_by is None:
         _require_the_key_workflow_can_be_taken_over(team_id, upload.key, require_workflow_editor)
     if template is None:
