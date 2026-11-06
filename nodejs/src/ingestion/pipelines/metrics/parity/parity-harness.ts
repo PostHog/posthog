@@ -1,9 +1,6 @@
 import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
 
-import { MessageKey } from '~/common/kafka/producer'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { IngestionOutputMessage } from '~/common/outputs/types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
 import { getDefaultMetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
@@ -11,7 +8,7 @@ import {
     MetricsPipelineConsumer,
     MetricsPipelineConsumerDeps,
 } from '~/ingestion/pipelines/metrics/metrics-pipeline-consumer'
-import { toKafkaMessage } from '~/logs/parity/parity-harness'
+import { CapturingIngestionOutputs, indexInputs, toKafkaMessage } from '~/logs/parity/parity-harness'
 
 import type {
     MetricsParityError,
@@ -38,51 +35,6 @@ export function toError(spec: MetricsParityError): Error {
             return Object.assign(cause, { isRetriable: false })
         case 'error':
             return cause
-    }
-}
-
-type CapturedMessage = { batch: number; output: string; message: IngestionOutputMessage }
-
-class CapturingIngestionOutputs extends IngestionOutputs<string> {
-    public readonly captured: CapturedMessage[] = []
-    public currentBatch = 0
-    private readonly remainingFaults: number[]
-
-    constructor(private readonly scenario: MetricsParityScenario) {
-        super({})
-        this.remainingFaults = scenario.produce_faults.map((fault) => fault.times)
-    }
-
-    private faultFor(output: string, message: IngestionOutputMessage): Error | null {
-        for (let i = 0; i < this.scenario.produce_faults.length; i++) {
-            const fault = this.scenario.produce_faults[i]
-            if (fault.output !== output || this.remainingFaults[i] <= 0) {
-                continue
-            }
-            if (fault.team_id !== undefined && message.headers?.team_id !== fault.team_id) {
-                continue
-            }
-            this.remainingFaults[i]--
-            return toError(fault.error)
-        }
-        return null
-    }
-
-    override async produce(output: string, message: IngestionOutputMessage & { key: MessageKey }): Promise<void> {
-        await this.queueMessages(output, [message])
-    }
-
-    override queueMessages(output: string, messages: IngestionOutputMessage[]): Promise<void> {
-        for (const message of messages) {
-            const fault = this.faultFor(output, message)
-            if (fault) {
-                return Promise.reject(fault)
-            }
-        }
-        for (const message of messages) {
-            this.captured.push({ batch: this.currentBatch, output, message })
-        }
-        return Promise.resolve()
     }
 }
 
@@ -134,30 +86,12 @@ function canonicalValue(
     return { kind: 'bytes', sha256: createHash('sha256').update(value).digest('hex'), length: value.length }
 }
 
-function indexInputs(scenario: MetricsParityScenario): Map<string, { batch: number; index: number }> {
-    const inputs = new Map<string, { batch: number; index: number }>()
-    scenario.batches.forEach((batch, batchIndex) =>
-        batch.forEach((message, index) => {
-            if (message.value_b64 === null) {
-                return
-            }
-            if (inputs.has(message.value_b64)) {
-                throw new Error(
-                    `scenario ${scenario.name} repeats an input value at batch ${batchIndex} index ${index}`
-                )
-            }
-            inputs.set(message.value_b64, { batch: batchIndex, index })
-        })
-    )
-    return inputs
-}
-
 /** The caller empties `PARITY_REDIS_URL` before the call, and mocks `KafkaConsumerV2`, which the consumer constructs. */
 export async function runMetricsParityScenario(
     scenario: MetricsParityScenario,
     setClock: (nowMs: number) => void
 ): Promise<MetricsParityExpected> {
-    const outputs = new CapturingIngestionOutputs(scenario)
+    const outputs = new CapturingIngestionOutputs(scenario.produce_faults, toError)
     const teamsByToken = new Map(scenario.teams.map((team) => [team.api_token, team]))
     const teamsById = new Map(scenario.teams.map((team) => [team.id, team]))
     const lookupFaultsLeft = new Map(
