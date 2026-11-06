@@ -38,18 +38,27 @@ export function AccountViewRenderer({ view, accountId, externalId, projectId }: 
 
     return (
         <div className="@container/account-view grid grid-cols-12 gap-3 py-3" data-attr="account-view-content">
-            {components.map((component) => (
-                <AccountViewTile
-                    key={`${component.nodeId}:${tileConfigReloads[view.id] ?? 0}`}
-                    view={view}
-                    component={component}
-                    componentCount={components.length}
-                    projectId={projectId}
-                    accountId={accountId}
-                    externalId={externalId}
-                    spanClassName={SPAN_CLASSES[component.span] ?? SPAN_CLASSES[12]}
-                />
-            ))}
+            {components.map((component) => {
+                // A failed save remounts tiles to reset them. Dot matrix tiles restore from their props
+                // instead, because a remount would throw away an unsaved query.
+                const instanceId =
+                    component.kind === 'dot_matrix'
+                        ? component.nodeId
+                        : `${component.nodeId}:${tileConfigReloads[view.id] ?? 0}`
+                return (
+                    <AccountViewTile
+                        key={instanceId}
+                        instanceId={instanceId}
+                        view={view}
+                        component={component}
+                        componentCount={components.length}
+                        projectId={projectId}
+                        accountId={accountId}
+                        externalId={externalId}
+                        spanClassName={SPAN_CLASSES[component.span] ?? SPAN_CLASSES[12]}
+                    />
+                )
+            })}
         </div>
     )
 }
