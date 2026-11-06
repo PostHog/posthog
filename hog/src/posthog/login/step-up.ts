@@ -55,7 +55,6 @@ export async function promptStepUp(ctx: Context, scopes: readonly string[]): Pro
     return true
 }
 
-// The scopes the login holds and the wanted ones it lacks. Undefined when the credentials can't step up.
 async function loginScopes(
     ctx: Context,
     credentials: Credentials | undefined,
@@ -102,7 +101,6 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
 
 // Only a login knows its scopes without asking PostHog, so a personal API key meets the 403 instead.
 export async function ensureScopes(ctx: Context, scopes: readonly string[], action = 'for this'): Promise<void> {
-    // Without credentials the command reports that itself, where it would have anyway.
     const credentials = await ctx.credentials().catch(() => undefined)
     const missing = (await loginScopes(ctx, credentials, scopes))?.missing ?? []
     // A name hog can't put in a command leaves the check to PostHog's 403.
