@@ -17,7 +17,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -139,7 +139,7 @@ def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> 
             },
         ),
     )
-    with tags_context(product=Product.SURVEYS):
+    with tags_context(product=Product.SURVEYS, feature=Feature.QUERY):
         tag_queries(name="survey_site_snapshot_moment")
         response = execute_hogql_query(
             query=query,
