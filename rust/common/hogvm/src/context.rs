@@ -13,13 +13,14 @@ use crate::{
 
 /// A global value whose objects keep their key order, as a JavaScript object does. `serde_json`
 /// sorts object keys, so a host that needs the reference VM's iteration order passes these
-/// instead of [`ExecutionContext::globals`]. Object keys must be unique.
+/// instead of [`ExecutionContext::globals`]. Object keys must be unique. Strings are shared, so
+/// each read of a global copies its structure but not its text.
 #[derive(Debug, Clone, PartialEq)]
 pub enum OrderedJson {
     Null,
     Bool(bool),
     Number(Num),
-    String(String),
+    String(Arc<str>),
     Array(Vec<OrderedJson>),
     Object(Vec<(String, OrderedJson)>),
 }

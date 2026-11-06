@@ -150,7 +150,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         Ok(HogLiteral::Number(arr.len().into()).into())
                     }
                     HogLiteral::Object(obj) => Ok(HogLiteral::Number(obj.len().into()).into()),
-                    HogLiteral::String(str) => Ok(HogLiteral::Number(str.len().into()).into()),
+                    // JavaScript `length` counts UTF-16 code units.
+                    HogLiteral::String(str) => Ok(HogLiteral::Number(utf16_len(str).into()).into()),
                     _ => Err(VmError::NativeCallFailed(
                         "length() only supports arrays, objects and strings".to_string(),
                     )),
@@ -280,9 +281,15 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let (HogLiteral::Array(vals) | HogLiteral::Tuple(vals)) = vals else {
                     return Ok(HogLiteral::from(String::new()).into());
                 };
+                let separators = sep.len().saturating_mul(vals.len().saturating_sub(1));
+                vm.heap.assert_can_allocate(separators)?;
                 let mut parts = Vec::with_capacity(vals.len());
+                let mut bytes = separators;
                 for val in vals.iter() {
-                    parts.push(to_string(&vm.heap, val, 0)?);
+                    let part = to_string(&vm.heap, val, 0)?;
+                    bytes = bytes.saturating_add(part.len());
+                    vm.heap.assert_can_allocate(bytes)?;
+                    parts.push(part);
                 }
                 Ok(HogLiteral::from(parts.join(sep)).into())
             }),
@@ -752,23 +759,28 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         "substring takes 2 or 3 arguments".to_string(),
                     ));
                 }
-                let chars: Vec<char> = match args[0].deref(&vm.heap)? {
-                    HogLiteral::String(s) => s.chars().collect(),
+                // JavaScript `slice` indexes UTF-16 code units. A Rust string cannot hold half of a
+                // surrogate pair, so a pair that the slice splits becomes U+FFFD.
+                let units: Vec<u16> = match args[0].deref(&vm.heap)? {
+                    HogLiteral::String(s) => s.encode_utf16().collect(),
                     _ => return Ok(HogLiteral::from(String::new()).into()),
                 };
+                let total = units.len() as i64;
                 // start is 1-based.
-                let start_idx = args[1].deref(&vm.heap)?.try_as::<Num>()?.to_integer() - 1;
-                let length = if args.len() > 2 {
-                    args[2].deref(&vm.heap)?.try_as::<Num>()?.to_integer()
-                } else {
-                    chars.len() as i64 - start_idx
+                let start_idx = args[1]
+                    .deref(&vm.heap)?
+                    .try_as::<Num>()?
+                    .to_integer()
+                    .saturating_sub(1);
+                let length = match args.get(2).map(|a| a.deref(&vm.heap)).transpose()? {
+                    Some(HogLiteral::Number(n)) => n.to_integer(),
+                    _ => total.saturating_sub(start_idx),
                 };
-                if start_idx < 0 || length < 0 || start_idx >= chars.len() as i64 {
+                if start_idx < 0 || length < 0 || start_idx >= total {
                     return Ok(HogLiteral::from(String::new()).into());
                 }
-                let s_u = start_idx as usize;
-                let e_u = ((start_idx + length) as usize).min(chars.len());
-                Ok(HogLiteral::from(chars[s_u..e_u].iter().collect::<String>()).into())
+                let end = start_idx.saturating_add(length).min(total) as usize;
+                Ok(HogLiteral::from(String::from_utf16_lossy(&units[start_idx as usize..end])).into())
             }),
         ),
         (
@@ -782,6 +794,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let s: &str = subject.try_as()?;
                 let from: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let to: &str = args[2].deref(&vm.heap)?.try_as()?;
+                vm.heap
+                    .assert_can_allocate(s.len().saturating_add(to.len()))?;
                 Ok(HogLiteral::from(s.replacen(from, to, 1)).into())
             }),
         ),
@@ -796,6 +810,17 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let s: &str = subject.try_as()?;
                 let from: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let to: &str = args[2].deref(&vm.heap)?.try_as()?;
+                // An empty pattern matches between every character, so the result can be |s| * |to|.
+                let matches = if from.is_empty() {
+                    s.chars().count() + 1
+                } else {
+                    s.matches(from).count()
+                };
+                let bytes = matches
+                    .checked_mul(to.len())
+                    .and_then(|added| (s.len() - matches * from.len()).checked_add(added))
+                    .ok_or_else(|| VmError::OutOfResource("Heap Memory".to_string()))?;
+                vm.heap.assert_can_allocate(bytes)?;
                 Ok(HogLiteral::from(s.replace(from, to)).into())
             }),
         ),
@@ -813,18 +838,35 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 }
                 let sep: &str = args[0].deref(&vm.heap)?.try_as()?;
                 let s: &str = args[1].deref(&vm.heap)?.try_as()?;
-                let parts: Vec<HogValue> = if args.len() > 2 {
+                let max = if args.len() > 2 {
                     let max = args[2].deref(&vm.heap)?.try_as::<Num>()?.to_integer();
-                    let max = if max < 0 { 0 } else { max as usize };
-                    s.split(sep)
+                    if max < 0 {
+                        0
+                    } else {
+                        max as usize
+                    }
+                } else {
+                    usize::MAX
+                };
+                // JavaScript `split('')` gives one element per character and no empty ends.
+                let pieces: Vec<&str> = if sep.is_empty() {
+                    s.char_indices()
+                        .map(|(i, c)| &s[i..i + c.len_utf8()])
                         .take(max)
-                        .map(|p| HogLiteral::from(p.to_string()).into())
                         .collect()
                 } else {
-                    s.split(sep)
-                        .map(|p| HogLiteral::from(p.to_string()).into())
-                        .collect()
+                    s.split(sep).take(max).collect()
                 };
+                // Each element is a value of its own, so a short separator over a long string adds up.
+                let bytes = pieces
+                    .len()
+                    .saturating_mul(std::mem::size_of::<HogValue>())
+                    .saturating_add(pieces.iter().map(|p| p.len()).sum::<usize>());
+                vm.heap.assert_can_allocate(bytes)?;
+                let parts: Vec<HogValue> = pieces
+                    .into_iter()
+                    .map(|p| HogLiteral::from(p.to_string()).into())
+                    .collect();
                 Ok(HogLiteral::Array(parts).into())
             }),
         ),
@@ -2164,8 +2206,9 @@ fn position_impl(
     } else {
         (s, n)
     };
+    // JavaScript `indexOf` counts UTF-16 code units.
     match s.find(&n) {
-        Some(byte_idx) => Ok(s[..byte_idx].chars().count() as i64 + 1),
+        Some(byte_idx) => Ok(utf16_len(&s[..byte_idx]) as i64 + 1),
         None => Ok(0),
     }
 }
@@ -3010,6 +3053,11 @@ fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {
             msg.as_ref()
         )))
     }
+}
+
+/// JavaScript `str.length`: UTF-16 code units.
+fn utf16_len(s: &str) -> usize {
+    s.chars().map(char::len_utf16).sum()
 }
 
 fn assert_argc(args: &[HogValue], count: usize, name: impl AsRef<str>) -> Result<(), VmError> {
