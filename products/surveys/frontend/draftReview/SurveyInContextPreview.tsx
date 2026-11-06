@@ -141,12 +141,12 @@ export function SurveyInContextPreview({
                     </div>
                     <div
                         className={cn(
-                            'absolute flex max-h-[calc(100%-2rem)] flex-col rounded',
+                            'absolute flex max-h-[calc(100%-2rem)] max-w-[calc(100%-2rem)] flex-col rounded',
                             POSITION_CLASSES[survey.appearance?.position ?? SurveyPosition.Right],
                             highlightClasses(highlightedArea === 'survey')
                         )}
                     >
-                        <div className="min-h-0 overflow-y-auto rounded">{preview}</div>
+                        <div className="min-h-0 overflow-auto rounded">{preview}</div>
                     </div>
                 </div>
             </div>
