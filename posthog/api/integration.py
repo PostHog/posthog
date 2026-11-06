@@ -76,7 +76,7 @@ from posthog.dns_hosts import lookup_dns_host
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.event_usage import report_user_action
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord, IntegrationUsage
@@ -3181,7 +3181,12 @@ class IntegrationViewSet(
     # declared after it in this class body.
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if request.query_params.get("kind") in (None, "", "email"):
-            sandbox_email_sender_for_reads(self.team, request=request, provisioned_by="integrations_list")
+            sandbox_email_sender_for_reads(
+                self.team,
+                user=request.user,
+                analytics_props=get_request_analytics_properties(request),
+                provisioned_by="integrations_list",
+            )
         # A GitHub row connected while GitHub was flaky may still carry the numeric installation id
         # as its account name. Healing here (throttled inside ensure_account_name) fixes the display
         # everywhere the row is listed, including surfaces that never open the repository picker.

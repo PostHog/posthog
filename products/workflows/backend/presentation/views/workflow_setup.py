@@ -8,6 +8,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.dataclasses import frozen
+from posthog.event_usage import get_request_analytics_properties
 from posthog.utils import absolute_uri
 
 from products.workflows.backend.facade.api import sandbox_email_sender_for_reads
@@ -116,7 +117,12 @@ class WorkflowSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         own_sender_ready = all(done[key] for key in _REQUIRED_TO_SEND)
         sandbox_sender_only = (
             not own_sender_ready
-            and sandbox_email_sender_for_reads(self.team, request=self.request, provisioned_by="setup_status")
+            and sandbox_email_sender_for_reads(
+                self.team,
+                user=self.request.user,
+                analytics_props=get_request_analytics_properties(self.request),
+                provisioned_by="setup_status",
+            )
             is not None
         )
         return Response(
