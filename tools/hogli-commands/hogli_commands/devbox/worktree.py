@@ -390,7 +390,10 @@ def _reset_recreated_mirror(target: _WorktreeTarget) -> None:
     "--on-clean",
     type=click.Choice([*WORKTREE_BOX_CLEANUP_ACTIONS, "keep"]),
     default=None,
-    help="Save what `hogli worktrees:clean` does with a worktree's devbox when it removes the worktree.",
+    help=(
+        "Save what `hogli worktrees:clean` does with a worktree's devbox when it removes the worktree. "
+        "With --auto, only saves the setting."
+    ),
 )
 @click.option(
     "--auto",
@@ -432,6 +435,9 @@ def devbox_worktree(
         if provider is not None:
             save_worktree_provider(provider)
             click.echo(f"Worktree devboxes now run on {provider}.")
+        if on_clean is not None:
+            _save_on_clean(on_clean)
+            click.echo(f"`hogli worktrees:clean` now does this with a removed worktree's devbox: {on_clean}.")
         return
 
     root = _detect_local_posthog_checkout()
@@ -539,11 +545,16 @@ def _claim_box(
     )
     if owner is not None:
         _fail(f"Devbox '{target.workspace_name}' belongs to the worktree at {owner}. Pick another `--label`.")
+    if on_clean is not None:
+        _save_on_clean(on_clean)
+    return git_dir, worktree_id
+
+
+def _save_on_clean(on_clean: str) -> None:
     if on_clean == "keep":
         clear_worktree_box_cleanup()
-    elif on_clean is not None:
+    else:
         save_worktree_box_cleanup(on_clean)
-    return git_dir, worktree_id
 
 
 def _drop_abandoned_mirror(target: _WorktreeTarget) -> None:
