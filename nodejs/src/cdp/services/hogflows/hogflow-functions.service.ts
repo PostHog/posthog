@@ -142,7 +142,11 @@ export class HogFlowFunctionsService {
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
             hogFunction,
-            state: { ...functionState, ...(invocation.state.send && { send: invocation.state.send }) },
+            state: {
+                ...functionState,
+                ...(invocation.state.send && { send: invocation.state.send }),
+                ...(invocation.state.scheduledAt && { scheduledAt: invocation.state.scheduledAt }),
+            },
         }
 
         return hogFunctionInvocation

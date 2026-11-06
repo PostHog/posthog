@@ -12,7 +12,7 @@ import { JobQueue } from '../job-queue/job-queue.interface'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailAttachmentsService } from '../messaging/email-attachments.service'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
-import { EmailStatusService } from '../messaging/email-status.service'
+import { EmailStatusService, EmailStatusUpdate, uuidtCreatedAt } from '../messaging/email-status.service'
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
@@ -32,17 +32,33 @@ import {
 } from './transactional-email'
 
 const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
+const SCHEDULED_AT_FINGERPRINT_MARKER = 'scheduled_at'
+// Counted from the message's creation, so a later reschedule cannot extend it.
+const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
 const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 
+// A request without `scheduled_at` keeps the fingerprint that older versions store, so their keys still match.
 const transactionalEmailFingerprint = (
     hogFlowId: string,
     { to, distinct_id, variables }: TransactionalEmailRequest,
-    send: QueuedSend | undefined
+    send: QueuedSend | undefined,
+    scheduledAt: Date | null
 ): string => {
-    const templateRequest = [hogFlowId, to, distinct_id, variables]
-    return IdempotencyKeys.fingerprint(
-        send ? [...templateRequest, ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send)] : templateRequest
-    )
+    const request: unknown[] = [hogFlowId, to, distinct_id, variables]
+    if (send) {
+        request.push(ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send))
+    }
+    if (scheduledAt) {
+        request.push(SCHEDULED_AT_FINGERPRINT_MARKER, scheduledAt.toISOString())
+    }
+    return IdempotencyKeys.fingerprint(request)
+}
+
+const warnTelemetryFlushFailed = (error: unknown, invocationId: string): void => {
+    logger.warn('⚠️', 'Transactional email telemetry flush failed', {
+        error: error instanceof Error ? error.message : String(error),
+        invocation_id: invocationId,
+    })
 }
 
 type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
@@ -76,7 +92,7 @@ export type TransactionalSendsDeps = {
 }
 
 export type TransactionalSendResult =
-    | { outcome: 'queued' | 'replayed'; invocationId: string }
+    | { outcome: 'queued' | 'replayed'; invocationId: string; scheduledAt: string | null }
     | { outcome: TransactionalSendRefusal }
 
 export class TransactionalSends {
@@ -89,13 +105,14 @@ export class TransactionalSends {
         stages: TransactionalEmailStageTimer
     ): Promise<TransactionalSendResult> {
         const { idempotencyKeys } = this.deps
-        const { idempotency_key: idempotencyKey } = request
+        const { to, idempotency_key: idempotencyKey } = request
+        const requestedAt = request.scheduled_at ? new Date(request.scheduled_at) : null
 
         stages.start('build')
         const files = decodeAttachments(request.send)
         const send = request.send ? queuedSend(request.send, files) : undefined
         const invocation = this.buildInvocation(team, hogFlow, request, send)
-        const fingerprint = transactionalEmailFingerprint(hogFlow.id, request, send)
+        const fingerprint = transactionalEmailFingerprint(hogFlow.id, request, send, requestedAt)
         if (idempotencyKey) {
             // Checked before the quota, so a retry of a send that went out gets its answer even
             // when the team has hit its quota since.
@@ -103,7 +120,12 @@ export class TransactionalSends {
             const reservation = await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, invocation.id)
             switch (reservation.status) {
                 case 'replayed':
-                    return { outcome: 'replayed', invocationId: reservation.invocationId }
+                    // No status row: the send may have been moved or canceled since, and a newer row would hide that.
+                    return {
+                        outcome: 'replayed',
+                        invocationId: reservation.invocationId,
+                        scheduledAt: reservation.scheduledAt ?? null,
+                    }
                 case 'in_flight':
                     return { outcome: 'idempotency_key_in_flight' }
                 case 'conflict':
@@ -112,9 +134,19 @@ export class TransactionalSends {
                     return { outcome: 'idempotency_unavailable' }
             }
         }
+        const tooFarAhead =
+            requestedAt !== null &&
+            requestedAt.getTime() > uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS
+        const scheduledAt = !tooFarAhead && requestedAt && requestedAt.getTime() > Date.now() ? requestedAt : null
+        if (scheduledAt) {
+            invocation.queueScheduledAt = DateTime.fromJSDate(scheduledAt)
+            invocation.state.scheduledAt = scheduledAt.toISOString()
+        }
         try {
             stages.start('checks')
-            const refusal = await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request))
+            const refusal = tooFarAhead
+                ? 'invalid_scheduled_at'
+                : await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request))
             if (refusal) {
                 if (idempotencyKey) {
                     stages.start('idempotency')
@@ -145,21 +177,33 @@ export class TransactionalSends {
         }
         if (idempotencyKey) {
             stages.start('idempotency')
-            await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
+            await idempotencyKeys.markQueued(
+                team.id,
+                idempotencyKey,
+                fingerprint,
+                invocation.id,
+                scheduledAt?.toISOString()
+            )
         }
         stages.start('metrics_flush')
-        this.deps.emailStatus.queue({ teamId: team.id, messageId: invocation.id, status: 'queued' })
+        this.writeStatus({
+            teamId: team.id,
+            messageId: invocation.id,
+            status: scheduledAt ? 'scheduled' : 'queued',
+            recipient: to,
+            functionId: hogFlow.id,
+            scheduledAt: scheduledAt ?? undefined,
+        })
         // Best-effort rows, so the answer waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
-        const warnTelemetryFlushFailed = (error: unknown) =>
-            logger.warn('⚠️', 'Transactional email telemetry flush failed', {
-                error: error instanceof Error ? error.message : String(error),
-                invocation_id: invocation.id,
-            })
-        void this.deps.emailStatus.flush().catch(warnTelemetryFlushFailed)
         const { produced } = await this.deps.invocationResultsRows.handOffQueuedRows()
-        void produced.catch(warnTelemetryFlushFailed)
+        void produced.catch((error) => warnTelemetryFlushFailed(error, invocation.id))
 
-        return { outcome: 'queued', invocationId: invocation.id }
+        return { outcome: 'queued', invocationId: invocation.id, scheduledAt: scheduledAt?.toISOString() ?? null }
+    }
+
+    private writeStatus(update: EmailStatusUpdate & { status: 'queued' | 'scheduled' }): void {
+        this.deps.emailStatus.queue(update)
+        void this.deps.emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, update.messageId))
     }
 
     private buildInvocation(

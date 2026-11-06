@@ -182,6 +182,7 @@ const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number
     recipient_suppressed: 422,
     quota_limited: 429,
     recipient_unreachable: 422,
+    invalid_scheduled_at: 400,
 }
 
 export class CdpApi {
@@ -1247,13 +1248,15 @@ export class CdpApi {
                 if ('invocationId' in result) {
                     const replayed = result.outcome === 'replayed'
                     return reply(result.outcome, 202, {
-                        status: 'queued',
+                        status: result.scheduledAt ? 'scheduled' : 'queued',
                         invocation_id: result.invocationId,
+                        scheduled_at: result.scheduledAt,
                         replayed,
                     })
                 }
                 return reply(result.outcome, TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome], {
                     error: result.outcome,
+                    ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }),
                 })
             } catch (e) {
                 logger.error('Error queueing transactional email', {

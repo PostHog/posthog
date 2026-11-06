@@ -3652,10 +3652,14 @@ if (not res.success) { throw Error(res.error) }`,
             const invocation = flowInvocation(emailFlow(step()))
             invocation.state.variables = { name: 'Ada' }
             invocation.state.send = send()
+            invocation.state.scheduledAt = '2026-12-01T09:00:00.000Z'
 
             const result = await executor.execute(invocation)
 
             expect(result.invocation.queueParameters).toEqual(expected())
+            expect(result.invocation.state.currentAction?.hogFunctionState?.scheduledAt).toEqual(
+                '2026-12-01T09:00:00.000Z'
+            )
         })
 
         it.each([

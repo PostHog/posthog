@@ -640,6 +640,18 @@ describe('EmailService', () => {
             it.each([
                 ['workflow', 'bulk', 'false', 'its rescheduled time', (): void => {}, 5_000, 60_000],
                 ['transactional_api', 'fast', 'false', 'its creation', transactionalSend, 60_000, Infinity],
+                [
+                    'transactional_api',
+                    'fast',
+                    'false',
+                    'its scheduled time when it was scheduled',
+                    (): void => {
+                        transactionalSend()
+                        invocation.state.scheduledAt = DateTime.utc().minus({ seconds: 30 }).toISO()!
+                    },
+                    30_000,
+                    60_000,
+                ],
                 // Alerts leave out a wait that the team sending cap causes on purpose.
                 [
                     'transactional_api',
@@ -1601,8 +1613,19 @@ describe('EmailService', () => {
             await emailStatusService.flush()
 
             const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
+            const sendingDomain = status === 'sent' || reason === 'provider_error' ? 'posthog-test.com' : ''
             expect(rows).toEqual(
-                status ? [expect.objectContaining({ team_id: team.id, message_id: invocation.id, status, reason })] : []
+                status
+                    ? [
+                          expect.objectContaining({
+                              team_id: team.id,
+                              message_id: invocation.id,
+                              status,
+                              reason,
+                              sending_domain: sendingDomain,
+                          }),
+                      ]
+                    : []
             )
         })
 

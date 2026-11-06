@@ -2216,6 +2216,10 @@ describe('CDP API', () => {
             payload: Record<string, unknown>
         ) => supertest(app).post(`/api/projects/${team.id}/hog_flows/${flowId}/${route}`).set(headers).send(payload)
 
+        const DAY_MS = 24 * 60 * 60 * 1000
+        const inDays = (days: number): string => new Date(Date.now() + days * DAY_MS).toISOString()
+        const toClickHouseTime = (date: Date): string => date.toISOString().replace('T', ' ').replace('Z', '000')
+
         const codeSend = {
             content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
             from: { integrationId: 12, email: 'security@example.com', name: 'Example' },
@@ -2296,7 +2300,13 @@ describe('CDP API', () => {
                 expect.anything()
             )
             expect(emailStatusRows()).toEqual([
-                expect.objectContaining({ team_id: team.id, message_id: res.body.invocation_id, status: 'queued' }),
+                expect.objectContaining({
+                    team_id: team.id,
+                    message_id: res.body.invocation_id,
+                    status: 'queued',
+                    recipient: 'user@example.com',
+                    function_id: hogFlow.id,
+                }),
             ])
         })
 
@@ -2370,6 +2380,7 @@ describe('CDP API', () => {
                     expect(replayed.body).toEqual({
                         status: 'queued',
                         invocation_id: sent.body.invocation_id,
+                        scheduled_at: null,
                         replayed: true,
                     })
                     expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
@@ -2394,6 +2405,16 @@ describe('CDP API', () => {
                     'the other route',
                     ['transactional_email', body],
                     ['transactional_email/send', { ...body, send: codeSend }],
+                ],
+                [
+                    'another scheduled time',
+                    ['transactional_email', { ...body, scheduled_at: inDays(2) }],
+                    ['transactional_email', { ...body, scheduled_at: inDays(3) }],
+                ],
+                [
+                    'a scheduled time added',
+                    ['transactional_email/send', { ...body, send: codeSend }],
+                    ['transactional_email/send', { ...body, send: codeSend, scheduled_at: inDays(2) }],
                 ],
                 [
                     'another named sender',
@@ -2465,6 +2486,40 @@ describe('CDP API', () => {
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(2)
             })
 
+            it('returns the first scheduled send for a retry that names the same time in another offset', async () => {
+                const scheduledAt = new Date(Date.now() + 2 * DAY_MS)
+                scheduledAt.setUTCMilliseconds(0)
+                const inBerlin = new Date(scheduledAt.getTime() + 2 * 60 * 60 * 1000)
+                    .toISOString()
+                    .replace('.000Z', '+02:00')
+
+                const first = await sendKeyedOn('transactional_email', {
+                    ...body,
+                    scheduled_at: scheduledAt.toISOString(),
+                })
+                const retry = await sendKeyedOn('transactional_email', { ...body, scheduled_at: inBerlin })
+
+                expect(retry.status).toEqual(202)
+                expect(retry.body).toEqual({ ...first.body, replayed: true })
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                const scheduledRow = expect.objectContaining({
+                    message_id: first.body.invocation_id,
+                    status: 'scheduled',
+                    recipient: body.to,
+                    scheduled_at: toClickHouseTime(scheduledAt),
+                })
+                expect(emailStatusRows()).toEqual([scheduledRow])
+            })
+
+            it('frees the key when the scheduled time is too far ahead', async () => {
+                const tooFar = await sendKeyedOn('transactional_email', { ...body, scheduled_at: inDays(31) })
+                const retry = await sendKeyedOn('transactional_email', { ...body, scheduled_at: inDays(2) })
+
+                expect(tooFar.status).toEqual(400)
+                expect(retry.status).toEqual(202)
+                expect(retry.body).toMatchObject({ status: 'scheduled', replayed: false })
+            })
+
             it('refuses a keyed send when no idempotency store is configured', async () => {
                 const keys = api['transactionalEmailIdempotencyKeys']
                 api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(null, 'transactional-email')
@@ -2477,6 +2532,78 @@ describe('CDP API', () => {
                 } finally {
                     api['transactionalEmailIdempotencyKeys'] = keys
                 }
+            })
+        })
+
+        describe('with a scheduled_at', () => {
+            const sendAt = (route: 'transactional_email' | 'transactional_email/send', scheduledAt: string) =>
+                sendOn(
+                    route,
+                    hogFlow.id,
+                    { Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` },
+                    {
+                        ...(route === 'transactional_email' ? body : { ...body, send: codeSend }),
+                        scheduled_at: scheduledAt,
+                    }
+                )
+
+            it.each(['transactional_email', 'transactional_email/send'] as const)(
+                'parks a send on %s until its time on the fast lane',
+                async (route) => {
+                    // The 30 days count from the message's creation, a moment after this line.
+                    const scheduledAt = new Date(Date.now() + 30 * DAY_MS).toISOString()
+
+                    const res = await sendAt(route, scheduledAt)
+
+                    expect(res.status).toEqual(202)
+                    expect(res.body).toEqual({
+                        status: 'scheduled',
+                        invocation_id: expect.any(String),
+                        scheduled_at: scheduledAt,
+                        replayed: false,
+                    })
+                    const [invocation] = mockQueueInvocations.mock.calls[0][0]
+                    expect(invocation.queueScheduledAt.toJSDate().toISOString()).toEqual(scheduledAt)
+                    expect(invocation.state.scheduledAt).toEqual(scheduledAt)
+                    expect(invocation.queuePriority).toEqual(0)
+                    expect(emailStatusRows()).toEqual([
+                        expect.objectContaining({
+                            message_id: res.body.invocation_id,
+                            status: 'scheduled',
+                            recipient: body.to,
+                            function_id: hogFlow.id,
+                            scheduled_at: toClickHouseTime(new Date(scheduledAt)),
+                        }),
+                    ])
+                }
+            )
+
+            it('sends at once when the time has passed', async () => {
+                const res = await sendAt('transactional_email', new Date(Date.now() - 60_000).toISOString())
+
+                expect(res.status).toEqual(202)
+                expect(res.body).toMatchObject({ status: 'queued', scheduled_at: null })
+                const [invocation] = mockQueueInvocations.mock.calls[0][0]
+                expect(invocation.queueScheduledAt).toBeUndefined()
+                expect(emailStatusRows()).toEqual([expect.objectContaining({ status: 'queued' })])
+            })
+
+            it.each([
+                ['more than 30 days ahead', inDays(30.01), 'invalid_scheduled_at'],
+                ['without an offset', '2026-12-01T09:00:00', 'invalid_request'],
+                ['that is not a time', 'tomorrow', 'invalid_request'],
+            ])('refuses a time %s and queues nothing', async (_desc, scheduledAt, outcome) => {
+                const before = await outcomeCount(outcome)
+
+                const res = await sendAt('transactional_email/send', scheduledAt)
+
+                expect(res.status).toEqual(400)
+                expect(await outcomeCount(outcome)).toEqual(before + 1)
+                if (outcome === 'invalid_scheduled_at') {
+                    expect(res.body).toEqual({ error: 'invalid_scheduled_at', reason: 'too_far' })
+                }
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+                expect(emailStatusRows()).toEqual([])
             })
         })
 
