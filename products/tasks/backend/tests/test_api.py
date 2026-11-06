@@ -4702,6 +4702,27 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         mock_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("with_message", {"pending_user_message": "Keep going"}, TaskClientProvenance.POSTHOG_DESKTOP),
+            ("without_message", {}, TaskClient.SLACK),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_records_last_client_only_for_a_prompt(
+        self, _name: str, body: dict, expected: TaskClient | TaskClientProvenance, _mock_workflow
+    ) -> None:
+        task = self.create_task()
+        Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
+
+        response = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV).post(
+            f"/api/projects/@current/tasks/{task.id}/run/", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.last_client, expected)
+
     @patch("posthog.storage.object_storage.copy")
     @patch("posthog.storage.object_storage.tag")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
