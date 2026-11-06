@@ -5,6 +5,7 @@ from typing import Any
 import requests
 from requests.adapters import BaseAdapter
 from requests.models import PreparedRequest
+from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
 
@@ -34,9 +35,20 @@ class FivetranAuthError(FivetranAPIError):
 class FivetranClient:
     """Read-only client for the Fivetran REST API. It never calls a write endpoint."""
 
-    def __init__(self, credentials: FivetranCredentials, base_url: str = FIVETRAN_API_URL) -> None:
+    def __init__(
+        self,
+        credentials: FivetranCredentials,
+        base_url: str = FIVETRAN_API_URL,
+        *,
+        retry: Retry | None = None,
+        timeout: tuple[float, float] = _TIMEOUT_SECONDS,
+    ) -> None:
+        """`retry=None` keeps the shared retries for background reads. A check inside a web request passes
+        `Retry(total=0)` and a short `timeout`, so a slow Fivetran cannot hold a web worker."""
         self._base_url = base_url
+        self._timeout = timeout
         self._session = make_tracked_session(
+            retry=retry,
             headers={"Accept": "application/json;version=2"},
             redact_values=(credentials.api_key, credentials.api_secret),
             # Response bodies carry connection config, so keep them out of HTTP sample capture.
@@ -78,7 +90,7 @@ class FivetranClient:
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
-            response = self._session.get(f"{self._base_url}{path}", params=params, timeout=_TIMEOUT_SECONDS)
+            response = self._session.get(f"{self._base_url}{path}", params=params, timeout=self._timeout)
         except requests.RequestException as error:
             raise FivetranAPIError(0, f"could not reach Fivetran ({type(error).__name__})") from error
         if not response.ok:
