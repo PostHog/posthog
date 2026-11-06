@@ -11,6 +11,7 @@ MIGRATION_RISK = Attestation(
     name="Migration risk",
     check="Migration risk",
     app_id=2492437,
+    authors=None,
     lifts=("migrations",),
     paths=(r"(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$", r"(?:^|/)migrations/max_migration\.txt$"),
     publisher_paths=(r"(?:^|/)migration_analysis/",),

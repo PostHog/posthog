@@ -455,16 +455,18 @@ class Pipeline:
         top_dirs = file_info["top_dirs"]
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
-        results = resolve_results(POLICY.attestations, pr.check_runs, pr.deny_paths)
-        attested = lifted_files(POLICY.attestations, results, pr.deny_paths)
+        bot_login = self.admitted_bot.login if self.admitted_bot else None
+        rules = tuple(rule for rule in POLICY.attestations if rule.applies_to(bot_login))
+        results = resolve_results(rules, pr.check_runs, pr.deny_paths)
+        attested = lifted_files(rules, results, pr.deny_paths)
         deny = detect_deny_categories(pr.deny_paths, attested)
         attestation_lifted = bool(attested) and deny != detect_deny_categories(pr.deny_paths)
 
-        pending_rules = pending(POLICY.attestations, results, pr.deny_paths)
+        pending_rules = pending(rules, results, pr.deny_paths)
 
         def lifted(assumed: Iterable[Attestation]) -> dict[str, frozenset[str]]:
             passing = assume_passing(assumed, results, pr.deny_paths)
-            return lifted_files(POLICY.attestations, passing, pr.deny_paths)
+            return lifted_files(rules, passing, pr.deny_paths)
 
         def unattested(assumed: Iterable[Attestation]) -> list[str]:
             listed = {path for files in lifted(assumed).values() for path in files}
@@ -567,7 +569,7 @@ class Pipeline:
             # Lift file by file, not by category, so a denied file outside an attestation's paths stays denied.
             "pending_attestations_clear_deny": clears_deny(pending_rules),
             # A failed result can pass on a re-run, so the deny is not one only a human can clear.
-            "attestations_could_clear_deny": clears_deny(POLICY.attestations),
+            "attestations_could_clear_deny": clears_deny(rules),
             "unattested_files": unattested(()),
             "pending_attestations_attest_every_file": not unattested(pending_rules),
             "allow_listed_only": allow_only,

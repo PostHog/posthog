@@ -482,6 +482,7 @@ attestations:
     - name: 'Migration risk'
       check: 'Migration risk'
       app_id: 2492437
+      authors: 'anyone'
       lifts: ['migrations']
       paths: ['(?:^|/)migrations/[^/]+\\.py$']
       publisher_paths: ['(?:^|/)migration_analysis/']

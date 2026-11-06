@@ -127,7 +127,10 @@ class Attestation:
     nothing outside them. The publisher's own trigger must cover them, or such a PR waits for a run
     that never comes. `publisher_paths` are regexes for the in-repo files that produce the result,
     such as its workflow and the scripts that workflow runs. A PR that edits one ran its own copy
-    of them, so its result lifts nothing and waits for nothing.
+    of them, so its result lifts nothing and waits for nothing. `authors` is None when the result
+    lifts for anyone's PR, or the logins of the `bot_authors` entries whose admitted PRs it lifts for.
+    A proof that a change is what one bot would write proves nothing when a person or another bot
+    chose the change, so such a proof names its bot.
     """
 
     name: str
@@ -136,6 +139,11 @@ class Attestation:
     publisher_paths: tuple[str, ...]
     check: str
     app_id: int
+    authors: frozenset[str] | None
+
+    def applies_to(self, admitted_bot_login: str | None) -> bool:
+        """Whether the result may lift for a PR, given the login of the bot the PR was admitted under."""
+        return self.authors is None or admitted_bot_login in self.authors
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -514,7 +522,7 @@ def _assert_self_governance(deny: dict[str, DenyCategory]) -> None:
         _require(token in paths, f"deny.stamphog_policy: self-governance must cover {token!r}")
 
 
-_ATTESTATION_KEYS = {"name", "lifts", "paths", "publisher_paths", "check", "app_id"}
+_ATTESTATION_KEYS = {"name", "lifts", "paths", "publisher_paths", "check", "app_id", "authors"}
 
 
 def _nonempty_strings(raw: object, context: str) -> tuple[str, ...]:
@@ -531,7 +539,9 @@ def _optional_string(spec: dict, key: str, context: str) -> str | None:
     return value
 
 
-def _parse_attestations(raw: object, deny: dict[str, DenyCategory]) -> tuple[Attestation, ...]:
+def _parse_attestations(
+    raw: object, deny: dict[str, DenyCategory], bot_authors: tuple[BotAuthor, ...]
+) -> tuple[Attestation, ...]:
     _require(isinstance(raw, list), "attestations: must be a list")
     parsed: list[Attestation] = []
     for index, spec in enumerate(raw):
@@ -555,12 +565,30 @@ def _parse_attestations(raw: object, deny: dict[str, DenyCategory]) -> tuple[Att
         check = _optional_string(spec, "check", context)
         _require(check is not None, f"{context}.check: required")
         app_id = _require_positive_int(spec.get("app_id"), f"{context}.app_id")
+        parsed_authors = _parse_attestation_authors(spec.get("authors"), bot_authors, f"{context}.authors")
         parsed.append(
             Attestation(
-                name=name, lifts=lifts, paths=paths, publisher_paths=publisher_paths, check=check, app_id=app_id
+                name=name,
+                lifts=lifts,
+                paths=paths,
+                publisher_paths=publisher_paths,
+                check=check,
+                app_id=app_id,
+                authors=parsed_authors,
             )
         )
     return tuple(parsed)
+
+
+def _parse_attestation_authors(raw: object, bot_authors: tuple[BotAuthor, ...], context: str) -> frozenset[str] | None:
+    if raw == "anyone":
+        return None
+    logins = frozenset(_nonempty_strings(raw, context))
+    admitted = {bot.login for bot in bot_authors}
+    _require(
+        logins <= admitted, f"{context}: must be 'anyone' or logins from bot_authors, not {sorted(logins - admitted)}"
+    )
+    return logins
 
 
 def _parse_bot_authors(raw: object) -> tuple[BotAuthor, ...]:
@@ -809,6 +837,7 @@ def _parse_policy(raw: Any, *, lockfile_names: Iterable[str], ownership_formats:
     overrides = _parse_overrides(raw["overrides"])
     _require_ceilings_cover_globals(size_gate, overrides)
     deny = _parse_deny(raw["deny"], lockfile_names)
+    bot_authors = _parse_bot_authors(raw.get("bot_authors", []))
     return Policy(
         version=1,
         deny=deny,
@@ -820,8 +849,8 @@ def _parse_policy(raw: Any, *, lockfile_names: Iterable[str], ownership_formats:
         familiarity=_parse_familiarity(raw["familiarity"]),
         ownership=_parse_ownership(raw["ownership"], ownership_formats),
         deny_exceptions=_parse_deny_exceptions(raw.get("deny_exceptions", {}), deny),
-        attestations=_parse_attestations(raw.get("attestations", []), deny),
-        bot_authors=_parse_bot_authors(raw.get("bot_authors", [])),
+        attestations=_parse_attestations(raw.get("attestations", []), deny, bot_authors),
+        bot_authors=bot_authors,
     )
 
 

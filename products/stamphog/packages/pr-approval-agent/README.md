@@ -394,6 +394,7 @@ Unlike CODEOWNERS, the category only stops stamphog: any human approval still co
 An **attestation** (`attestations` in the policy) lifts named deny categories for the files a passing CI result lists.
 The shipped default declares none, because each one names a repository's own CI job.
 An entry is read from the head commit's check runs, and must name the numeric id of the App that publishes it (`app_id`) and the in-repo files that produce it (`publisher_paths`).
+It must also name whose PRs it lifts for (`authors`): `anyone`, or the logins of admitted `bot_authors` entries.
 A PR that edits a publisher file ran its own copy of it, so the result lifts nothing and waits for nothing.
 See `attestations.py` for the model.
 
