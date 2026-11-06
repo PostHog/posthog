@@ -1,5 +1,6 @@
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     ActionsNode,
     AnyDataWarehouseNode,
@@ -9,7 +10,6 @@ import {
     GroupNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { EntityType, EntityTypes } from '~/types'
 
 /**
@@ -97,22 +97,6 @@ const ENTITY_TYPE_BY_SERIES_NODE_KIND: Partial<Record<string, EntityType>> = {
 /** For the parts of the UI still keyed by the legacy entity type. */
 export function seriesNodeEntityType(node: SeriesNode | null | undefined): EntityType | undefined {
     return node ? ENTITY_TYPE_BY_SERIES_NODE_KIND[node.kind] : undefined
-}
-
-export function seriesNodeKindForEntityType(
-    type: EntityType | null | undefined,
-    warehouseKind: WarehouseSeriesNodeKind
-): SeriesNode['kind'] {
-    switch (type) {
-        case EntityTypes.ACTIONS:
-            return NodeKind.ActionsNode
-        case EntityTypes.DATA_WAREHOUSE:
-            return warehouseKind
-        case EntityTypes.GROUPS:
-            return NodeKind.GroupNode
-        default:
-            return NodeKind.EventsNode
-    }
 }
 
 /**

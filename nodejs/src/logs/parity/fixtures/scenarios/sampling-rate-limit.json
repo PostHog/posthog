@@ -1,0 +1,3383 @@
+{
+ "scenario": {
+  "name": "sampling-rate-limit",
+  "description": "Rate-limit drop rules counting records and bytes, across batches.",
+  "consumer": "logs",
+  "batch_now_ms": [
+   1736944633250,
+   1736944634750,
+   1736944693250
+  ],
+  "config": {
+   "LOGS_INGESTION_CONSUMER_GROUP_ID": "ingestion-logs",
+   "LOGS_INGESTION_CONSUMER_CONSUME_TOPIC": "logs_ingestion_test",
+   "LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC": "logs_ingestion_overflow_test",
+   "LOGS_INGESTION_CONSUMER_DLQ_TOPIC": "logs_ingestion_dlq_test",
+   "LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC": "clickhouse_logs_test",
+   "LOGS_REDIS_HOST": "127.0.0.1",
+   "LOGS_REDIS_PORT": 6379,
+   "LOGS_REDIS_PASSWORD": "",
+   "LOGS_REDIS_TLS": false,
+   "LOGS_LIMITER_ENABLED_TEAMS": "*",
+   "LOGS_LIMITER_DISABLED_FOR_TEAMS": "",
+   "LOGS_LIMITER_BUCKET_SIZE_KB": 10000,
+   "LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND": 1000,
+   "LOGS_LIMITER_TTL_SECONDS": 86400,
+   "LOGS_LIMITER_TEAM_BUCKET_SIZE_KB": "",
+   "LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND": "",
+   "LOGS_SAMPLING_ENABLED_TEAMS": "*",
+   "LOGS_SAMPLING_KILLSWITCH": false,
+   "LOGS_METRICS_RULES_ENABLED_TEAMS": "",
+   "LOGS_METRICS_RULES_KILLSWITCH": false,
+   "LOGS_METRICS_RULES_EXPORT_URL": "",
+   "LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS": "",
+   "LOGS_RETENTION_ENABLED_TEAMS": "",
+   "LOGS_BACKFILL_ENABLED_TEAMS": "",
+   "LOGS_RETENTION_KILLSWITCH": false,
+   "LOGS_INTERNAL_INGESTION_ENABLED_TEAMS": "",
+   "LOGS_INTERNAL_INGESTION_SIGNING_KEYS": "",
+   "LOGS_INTERNAL_PRODUCER_URL": "",
+   "LOGS_INTERNAL_PRODUCER_TEAMS": "",
+   "LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT": 20,
+   "LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES": 67108864,
+   "LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS": 60000,
+   "LOGS_PATTERN_MASKING_ENABLED_TEAMS": "",
+   "LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS": "",
+   "LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS": "",
+   "LOGS_BILLING_PRORATE_ENABLED": true,
+   "LOGS_TRANSFORMATIONS_ENABLED_TEAMS": "",
+   "LOGS_TRANSFORMATIONS_KILLSWITCH": false,
+   "LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS": 10,
+   "LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS": 100,
+   "LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS": 2000,
+   "LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION": 3,
+   "REDIS_URL": "",
+   "REDIS_POOL_MIN_SIZE": 1,
+   "REDIS_POOL_MAX_SIZE": 3,
+   "TRACES_INGESTION_CONSUMER_GROUP_ID": "ingestion-traces",
+   "TRACES_INGESTION_CONSUMER_CONSUME_TOPIC": "ingestion-traces_test",
+   "TRACES_INGESTION_CONSUMER_OVERFLOW_TOPIC": "ingestion-traces-overflow_test",
+   "TRACES_INGESTION_CONSUMER_DLQ_TOPIC": "ingestion-traces-dlq_test",
+   "TRACES_INGESTION_CONSUMER_CLICKHOUSE_TOPIC": "clickhouse_traces_test",
+   "TRACES_REDIS_HOST": "127.0.0.1",
+   "TRACES_REDIS_PORT": 6379,
+   "TRACES_REDIS_PASSWORD": "",
+   "TRACES_REDIS_TLS": false,
+   "TRACES_LIMITER_ENABLED_TEAMS": "*",
+   "TRACES_LIMITER_DISABLED_FOR_TEAMS": "",
+   "TRACES_LIMITER_BUCKET_SIZE_KB": 10000,
+   "TRACES_LIMITER_REFILL_RATE_KB_PER_SECOND": 1000,
+   "TRACES_LIMITER_TTL_SECONDS": 86400,
+   "TRACES_LIMITER_TEAM_BUCKET_SIZE_KB": "",
+   "TRACES_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND": "",
+   "TRACES_METRICS_RULES_ENABLED_TEAMS": "",
+   "TRACES_METRICS_RULES_KILLSWITCH": false,
+   "TRACES_METRICS_RULES_EXPORT_URL": "",
+   "TRACES_DEFAULT_METRIC_RULES_ENABLED_TEAMS": "",
+   "TRACES_RETENTION_ENABLED_TEAMS": "",
+   "TRACES_RETENTION_KILLSWITCH": false
+  },
+  "teams": [
+   {
+    "id": 101,
+    "api_token": "phc_parity_plain",
+    "logs_settings": null
+   },
+   {
+    "id": 102,
+    "api_token": "phc_parity_json",
+    "logs_settings": {
+     "json_parse_logs": true
+    }
+   },
+   {
+    "id": 103,
+    "api_token": "phc_parity_pii",
+    "logs_settings": {
+     "pii_scrub_logs": true
+    }
+   },
+   {
+    "id": 104,
+    "api_token": "phc_parity_both",
+    "logs_settings": {
+     "json_parse_logs": true,
+     "pii_scrub_logs": true,
+     "retention_days": 30
+    }
+   },
+   {
+    "id": 105,
+    "api_token": "phc_parity_attr",
+    "logs_settings": {
+     "json_parse_logs": true,
+     "json_parse_logs_attribute_key": "payload",
+     "retention_days": 90
+    }
+   },
+   {
+    "id": 106,
+    "api_token": "phc_parity_ret7",
+    "logs_settings": {
+     "retention_days": 7
+    }
+   }
+  ],
+  "quota_limited_tokens": [],
+  "sampling_rules": {
+   "102": [
+    {
+     "id": "rate-bytes",
+     "rule_type": "rate_limit",
+     "scope_service": null,
+     "scope_path_pattern": null,
+     "scope_attribute_filters": [],
+     "config": {
+      "kb_per_second": 1,
+      "burst_kb": 2
+     }
+    }
+   ],
+   "104": [
+    {
+     "id": "rate-records",
+     "rule_type": "rate_limit",
+     "scope_service": null,
+     "scope_path_pattern": null,
+     "scope_attribute_filters": [],
+     "config": {
+      "logs_per_second": 2,
+      "burst_logs": 3
+     }
+    }
+   ]
+  },
+  "retention_rules": {},
+  "metric_rules": {},
+  "pattern_message_keys": {},
+  "traces_retention_days": {},
+  "team_lookup_faults": {},
+  "team_by_id_faults": {},
+  "team_by_id_missing": [],
+  "metric_rules_faults": {},
+  "metric_emit_faults": [],
+  "pattern_keys_faults": {},
+  "omit_deps": [],
+  "produce_faults": [],
+  "batches": [
+   [
+    {
+     "topic": "logs_ingestion",
+     "partition": 1,
+     "offset": 0,
+     "timestamp": 1736944632250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "phc_parity_both"
+      ],
+      [
+       "bytes_uncompressed",
+       "11394"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "7596"
+      ],
+      [
+       "bytes_compressed",
+       "3798"
+      ],
+      [
+       "record_count",
+       "6"
+      ],
+      [
+       "created_at",
+       "2025-01-15T12:36:53.149Z"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGALHsibmFtZSI6IkxvZ1JlY29yZCIsInR5cGUiOiJyZWNvcmQiLCJmaWVsZHMiOlt7Im5hbWUiOiJ1dWlkIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlVuaXF1ZSBpZGVudGlmaWVyIGZvciB0aGUgbG9nIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIGxvZyBpcyBhIHBhcnQgb2YuIn0seyJuYW1lIjoic3Bhbl9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoidHJhY2VfZmxhZ3MiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiRmxhZ3MgYXNzb2NpYXRlZCB3aXRoIHRoZSB0cmFjZS4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSBwcmltYXJ5IHRpbWVzdGFtcCBvZiB0aGUgZXZlbnQsIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgZXZlbnQgd2FzIG9ic2VydmVkIG9yIGluZ2VzdGVkLCBpbiBtaWNyb3NlY29uZHMgc2luY2UgZXBvY2guIn0seyJuYW1lIjoiYm9keSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbWFpbiBjb250ZW50IG9yIG1lc3NhZ2Ugb2YgdGhlIGxvZy4ifSx7Im5hbWUiOiJzZXZlcml0eV90ZXh0IiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6Ikh1bWFuLXJlYWRhYmxlIHNldmVyaXR5IGxldmVsIChlLmcuLCAnSU5GTycsICdFUlJPUicpLiJ9LHsibmFtZSI6InNldmVyaXR5X251bWJlciIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJOdW1lcmljIHJlcHJlc2VudGF0aW9uIG9mIHRoZSBzZXZlcml0eSBsZXZlbC4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIGV2ZW50LiJ9LHsibmFtZSI6InJlc291cmNlX2F0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQXR0cmlidXRlcyBkZXNjcmliaW5nIHRoZSByZXNvdXJjZSB0aGF0IHByb2R1Y2VkIHRoZSBsb2cgKGUuZy4sIGhvc3QsIHJlZ2lvbikuIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIG9mIHRoZSBsaWJyYXJ5IG9yIGZyYW1ld29yayB0aGF0IGNhcHR1cmVkIHRoZSBsb2cuIn0seyJuYW1lIjoiZXZlbnRfbmFtZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbmFtZSBvZiBhIHNwZWNpZmljIGV2ZW50IHRoYXQgb2NjdXJyZWQuIn0seyJuYW1lIjoiYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBIG1hcCBvZiBjdXN0b20gc3RyaW5nLXZhbHVlZCBhdHRyaWJ1dGVzIGFzc29jaWF0ZWQgd2l0aCB0aGUgbG9nLiJ9LHsibmFtZSI6ImJ5dGVzX3VuY29tcHJlc3NlZCIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiTG9naWNhbCBjb250ZW50IHNpemUgb2YgdGhlIHJvdyAoc3VtIG9mIGJ5dGUgbGVuZ3RocyBvZiBzdHJpbmcvbWFwIGZpZWxkcykuIFVzZWQgYnkgZHJvcC1ydWxlIGFjY291bnRpbmc7IGRvZXMgbm90IGluY2x1ZGUgZml4ZWQtd2lkdGggbnVtZXJpYyBvciB0aW1lc3RhbXAgZmllbGRzLiJ9LHsibmFtZSI6InJldGVudGlvbl9kYXlzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRlZmF1bHQiOm51bGwsImRvYyI6IlBlci1yb3cgcmV0ZW50aW9uIGluIGRheXMsIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIgZnJvbSB0ZWFtIHJldGVudGlvbiBydWxlcy4gTnVsbCB3aGVuIHVuc2V0IOKAlCBDbGlja0hvdXNlIHRoZW4gZmFsbHMgYmFjayB0byB0aGUgYmF0Y2ggYHJldGVudGlvbi1kYXlzYCBoZWFkZXIuIGNhcHR1cmUtbG9ncyBhbHdheXMgd3JpdGVzIG51bGw7IGl0IGRvZXMgbm90IGV2YWx1YXRlIHRlYW0gcnVsZXMuIn0seyJuYW1lIjoicGF0dGVybiIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkZWZhdWx0IjpudWxsLCJkb2MiOiJNYXNrZWQgbG9nIGJvZHksIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIuIElkZW50aWZpZXJzIGFyZSByZXBsYWNlZCB3aXRoIHBsYWNlaG9sZGVycywgc28gdHdvIGxpbmVzIGRpZmZlcmluZyBvbmx5IGJ5IGEgcmVxdWVzdCBpZCBzaGFyZSBvbmUgcGF0dGVybi4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgbWFzay4ifSx7Im5hbWUiOiJwYXR0ZXJuX3ZlcnNpb24iLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiTWFza2luZyBydWxlIHNldCB0aGF0IHByb2R1Y2VkIGBwYXR0ZXJuYC4gQSBydWxlIGNoYW5nZSByZS1tYXNrcyBldmVyeSBsaW5lLCBzbyB0aGUgZGV0ZWN0b3IgY29tcGFyZXMgd2l0aGluIGEgdmVyc2lvbiBhbmQgdHJlYXRzIGEgY2hhbmdlIGFzIGEgY29sZCBzdGFydC4gTnVsbCByZWFkcyBhcyB2ZXJzaW9uIDAgaW4gQ2xpY2tIb3VzZSwgbWFya2luZyBhIHJvdyB3cml0dGVuIGJlZm9yZSBtYXNraW5nLiBjYXB0dXJlLWxvZ3MgYWx3YXlzIHdyaXRlcyBudWxsLiJ9XSwiZG9jIjoiU2NoZW1hIGZvciBhIHN0cnVjdHVyZWQgbG9nIG9yIHRyYWNlIGV2ZW50LiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkABDwg/1YhYIWG+Khg4RGhhgMlA4otS/9YBsYBRwAtjbFR5AsNwfoYzZ2Pbx6n0dnGkSzgFmrOTyPz8SRw4ilCFWjP4m9pe1t1PO5jV5Nx2OSHj+lL8y3tdH2oisvJzEBf1CfhhYLOX0ZtQCoALsANXdHJ93lu8d9GTV9dNHdHSggNZy4oerucjY1IwOWp6/VZlYlJAs6fLM2NzCguDCghcxrEWPcU6VxZ/bbEr/+tJrzDdyt+XN/fkZfTcHUbNDYxa9MVf8pUxVki3BCXnud+3yORMG3mUzrs0I8XXvdqr2RNCAhGfl009GLXkWhSTKH6ilHr6LQSL34UQdG41WDJ1Kc3KkerS7CQMsShyxQS0Y7+Uz4lKbH66IvDEPZF4Zh+IUVOq/rXh+3pjoBjRs3mrJLXmmeJJOXU9Qd+mFljNSU7sZNWLQE4BAxIdC0RMJQmSGgmtcwAFkaey61gX+qObLpI5zpStpcQZne8udANedbAWdzn82XyPQyVfLlQ7dMquC5tq0ZGFvhuvyctiXQ9tORq5DYrMYhKEZ4NbWxQI09Zqokxo37/XbNo9fcdZ4tOroJd73vC+J19b/00d9dF8wlfhi9dHd0m7ujByPeBDjxIIMRr2c8X/DrTT76+recuss9hOEYhmMoJs3ETwy/GSyEeZn0ihyARLMEXmmSqieLwURvfbb10XPTZ3d3VBQhQmeJVHe/dmrCuMwNajXuk3EgDphWCyrmCgQPnIyovJZhDJPx4PrbNbMy2qY2nxUGag0Tjiywms0VyUQvDGFejKhIRvRi12dbL8mIAoQddKKukGk8JebMkZcaoapWQwlRo5JExRYqM2+wsAlisQH1OsalcWOMvRYY49Waxu8rjo66y310d0JJpueOVH/cxC2f5N9eHnSaZO7B9dk2yF8QtHUlneZyGpqyS04bnVa+qWSSQM01s05zPUk1eVjeMtBHSBI4sPp9nclHLz+zj7o7+u5xYPk5p6W7/FdTyUfnAYUjjYjd40SYS2nu3eUxbFR5TjRwpPHKczWiROel5+lDyc1H/zK1mWjr7o6QIWzCBJHTOIqPiwpeorq4aHVViu+ZMepI0QYjANjBACgCH58cAtvV5cHn8IIffG3AVBzQRwYUuQY5BAcJZWtcQQzCopke7SCNVv7YcpbgOupFNuDbsuvYVrNixzO8kHdvnQNmDx/nrNIA7SK/mWOL6BwvENF5OJtXGcIBfcFbMh91gRsQ8IP9WIWCFhvioYOERoYY"
+    },
+    {
+     "topic": "logs_ingestion",
+     "partition": 0,
+     "offset": 1,
+     "timestamp": 1736944632250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "phc_parity_json"
+      ],
+      [
+       "bytes_uncompressed",
+       "11976"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "7984"
+      ],
+      [
+       "bytes_compressed",
+       "3992"
+      ],
+      [
+       "record_count",
+       "8"
+      ],
+      [
+       "created_at",
+       "2025-01-15T12:37:09.063Z"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGALHsibmFtZSI6IkxvZ1JlY29yZCIsInR5cGUiOiJyZWNvcmQiLCJmaWVsZHMiOlt7Im5hbWUiOiJ1dWlkIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlVuaXF1ZSBpZGVudGlmaWVyIGZvciB0aGUgbG9nIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIGxvZyBpcyBhIHBhcnQgb2YuIn0seyJuYW1lIjoic3Bhbl9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoidHJhY2VfZmxhZ3MiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiRmxhZ3MgYXNzb2NpYXRlZCB3aXRoIHRoZSB0cmFjZS4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSBwcmltYXJ5IHRpbWVzdGFtcCBvZiB0aGUgZXZlbnQsIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgZXZlbnQgd2FzIG9ic2VydmVkIG9yIGluZ2VzdGVkLCBpbiBtaWNyb3NlY29uZHMgc2luY2UgZXBvY2guIn0seyJuYW1lIjoiYm9keSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbWFpbiBjb250ZW50IG9yIG1lc3NhZ2Ugb2YgdGhlIGxvZy4ifSx7Im5hbWUiOiJzZXZlcml0eV90ZXh0IiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6Ikh1bWFuLXJlYWRhYmxlIHNldmVyaXR5IGxldmVsIChlLmcuLCAnSU5GTycsICdFUlJPUicpLiJ9LHsibmFtZSI6InNldmVyaXR5X251bWJlciIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJOdW1lcmljIHJlcHJlc2VudGF0aW9uIG9mIHRoZSBzZXZlcml0eSBsZXZlbC4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIGV2ZW50LiJ9LHsibmFtZSI6InJlc291cmNlX2F0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQXR0cmlidXRlcyBkZXNjcmliaW5nIHRoZSByZXNvdXJjZSB0aGF0IHByb2R1Y2VkIHRoZSBsb2cgKGUuZy4sIGhvc3QsIHJlZ2lvbikuIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIG9mIHRoZSBsaWJyYXJ5IG9yIGZyYW1ld29yayB0aGF0IGNhcHR1cmVkIHRoZSBsb2cuIn0seyJuYW1lIjoiZXZlbnRfbmFtZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbmFtZSBvZiBhIHNwZWNpZmljIGV2ZW50IHRoYXQgb2NjdXJyZWQuIn0seyJuYW1lIjoiYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBIG1hcCBvZiBjdXN0b20gc3RyaW5nLXZhbHVlZCBhdHRyaWJ1dGVzIGFzc29jaWF0ZWQgd2l0aCB0aGUgbG9nLiJ9LHsibmFtZSI6ImJ5dGVzX3VuY29tcHJlc3NlZCIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiTG9naWNhbCBjb250ZW50IHNpemUgb2YgdGhlIHJvdyAoc3VtIG9mIGJ5dGUgbGVuZ3RocyBvZiBzdHJpbmcvbWFwIGZpZWxkcykuIFVzZWQgYnkgZHJvcC1ydWxlIGFjY291bnRpbmc7IGRvZXMgbm90IGluY2x1ZGUgZml4ZWQtd2lkdGggbnVtZXJpYyBvciB0aW1lc3RhbXAgZmllbGRzLiJ9LHsibmFtZSI6InJldGVudGlvbl9kYXlzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRlZmF1bHQiOm51bGwsImRvYyI6IlBlci1yb3cgcmV0ZW50aW9uIGluIGRheXMsIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIgZnJvbSB0ZWFtIHJldGVudGlvbiBydWxlcy4gTnVsbCB3aGVuIHVuc2V0IOKAlCBDbGlja0hvdXNlIHRoZW4gZmFsbHMgYmFjayB0byB0aGUgYmF0Y2ggYHJldGVudGlvbi1kYXlzYCBoZWFkZXIuIGNhcHR1cmUtbG9ncyBhbHdheXMgd3JpdGVzIG51bGw7IGl0IGRvZXMgbm90IGV2YWx1YXRlIHRlYW0gcnVsZXMuIn0seyJuYW1lIjoicGF0dGVybiIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkZWZhdWx0IjpudWxsLCJkb2MiOiJNYXNrZWQgbG9nIGJvZHksIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIuIElkZW50aWZpZXJzIGFyZSByZXBsYWNlZCB3aXRoIHBsYWNlaG9sZGVycywgc28gdHdvIGxpbmVzIGRpZmZlcmluZyBvbmx5IGJ5IGEgcmVxdWVzdCBpZCBzaGFyZSBvbmUgcGF0dGVybi4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgbWFzay4ifSx7Im5hbWUiOiJwYXR0ZXJuX3ZlcnNpb24iLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiTWFza2luZyBydWxlIHNldCB0aGF0IHByb2R1Y2VkIGBwYXR0ZXJuYC4gQSBydWxlIGNoYW5nZSByZS1tYXNrcyBldmVyeSBsaW5lLCBzbyB0aGUgZGV0ZWN0b3IgY29tcGFyZXMgd2l0aGluIGEgdmVyc2lvbiBhbmQgdHJlYXRzIGEgY2hhbmdlIGFzIGEgY29sZCBzdGFydC4gTnVsbCByZWFkcyBhcyB2ZXJzaW9uIDAgaW4gQ2xpY2tIb3VzZSwgbWFya2luZyBhIHJvdyB3cml0dGVuIGJlZm9yZSBtYXNraW5nLiBjYXB0dXJlLWxvZ3MgYWx3YXlzIHdyaXRlcyBudWxsLiJ9XSwiZG9jIjoiU2NoZW1hIGZvciBhIHN0cnVjdHVyZWQgbG9nIG9yIHRyYWNlIGV2ZW50LiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkAE/dL6CBwCdRkROsoz/VSg8QmBEotS/9YFQIFSIAhj/kSpCacQ6MMvdprN6b248ic6lWgSJfKFmEEI2MMcYSmIkl6vvGly0vLWfcNxa2IW4PCICVFMZptamrfVvp/qIZU/BtkFt91Nc2JyYDywDRAM4ATmKMMX4lIqOPpaip6tHVL7Bnaoosf/3ZnyabnjDbL39l36cXln/q/er1hUV7BbK82Mv1yp7jjn2Sebu3bzzhbq3qVO9Vt+zIog8cu/rnssEdN+BIRR6OdHwKdxtz+TzTdfoZaYOgyfJbKf2zXH5Prz8Tommy/DQ11fdnOeccYUgoKIe72cjye+juhTlHHGaV5gkcMSywHGaVxggNKU6u3P3Dq8AILRUhdsi8S82GJE1GNaQcAXYMe0pxskTPOZNDtJwzjpZzzrS8wQM+OUIw/VIeILSYwOQQQSP67TV0rIHu1vl5T4u+MP6dDuKcbeW/wG3u92ePwrdTU/tqX75vm+3P3mVdV3/5qY7S6QublFRVGbLEcY0BVJlqC1QKme+oENHlEYYvuDRk9cBY8MaF6Laf58YbrEVf/6p6ozUyqoa2Zu1/Tta3tTq2e/sQwBznkbygW5b3GnD8aGt+TKvmOmoeGuXq18f9PQkpKYko5lMlSBLlt1qfL3xNQZKFqwwWd99HL7ao4KRQZM6kyoQVUAZSUwGsLhY1LRiGYqXoOZ0pjnl+DvP9aiCUdnm+wq42QUKrmg4q7CZ8+am6fT/7d2ducb/u1ZsFQr1OPFdT1CuaBvUqrjqdeOrW5L36y++96gtzroBQmXI1dHfcxA2cLCAnPXjWHOjBsSMkAJDouNtoG8kxk9/zKssbddqqppS+kLKuyXsHvm22Y+oCZT9VwjYjSZSvc13zdbPX6crXnRp1Qnsr6u73dcJXIh32L9vpIMxjbiQiA5GGmK/s+ySeaGpGiZtdhT8+uG5gkXE8ww2aBkVHUc7IPCtFGGMAWY4dY+xBxiy5YsZxkaAAcmnFAxcy31VJ05ORm4uWpK6tnw4KrEQX2gnj2PNOB1/YsQuRJAV9sjxxCXfL4y2XOFtpO3WKmk5ib0V9W6vsK0Zp0WDToovjHi2BLa4uHhLIfGjhCs/KjxCmNiguyRUQcX5ED8qpcuyOcbSTbZ/nZNvxHfr5vKZe6st3tW+zP/ulnMucy0wq5UgamWk5W7aJ2xSHhMagHJB4omYr4m42UnT1C/zyt5TeL8yB8YMHm+EXd8c6GChxiDFuhTmTxUbwZnoJPiBQAiESyKQ8JAmxgNQzICBDATneCUvqRwQ+hE9Lt+iL44aYHvoNrYrxZAQweQnCcLwolEQOBgRRG3e8potcXGIlJGaIaTt8cOQ0LLnDMbIKA3420JDcXQcs5QI5R3EoQHxkKpDph4BY0kcQ4EPE/2JY8zvHjlfAFL8HTNeTQPAB9DCq4HmBHxokgI4fIAiSEiRmPm9HXAojIOX78TYU+iwu9gc8CtJlOBtEJGVlCE/dL6CBwCdRkROsoz/VSg8="
+    }
+   ],
+   [
+    {
+     "topic": "logs_ingestion",
+     "partition": 2,
+     "offset": 2,
+     "timestamp": 1736944632250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "phc_parity_both"
+      ],
+      [
+       "bytes_uncompressed",
+       "10767"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "7178"
+      ],
+      [
+       "bytes_compressed",
+       "3589"
+      ],
+      [
+       "record_count",
+       "5"
+      ],
+      [
+       "created_at",
+       "2025-01-15T12:37:03.742Z"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGALHsibmFtZSI6IkxvZ1JlY29yZCIsInR5cGUiOiJyZWNvcmQiLCJmaWVsZHMiOlt7Im5hbWUiOiJ1dWlkIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlVuaXF1ZSBpZGVudGlmaWVyIGZvciB0aGUgbG9nIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIGxvZyBpcyBhIHBhcnQgb2YuIn0seyJuYW1lIjoic3Bhbl9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoidHJhY2VfZmxhZ3MiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiRmxhZ3MgYXNzb2NpYXRlZCB3aXRoIHRoZSB0cmFjZS4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSBwcmltYXJ5IHRpbWVzdGFtcCBvZiB0aGUgZXZlbnQsIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgZXZlbnQgd2FzIG9ic2VydmVkIG9yIGluZ2VzdGVkLCBpbiBtaWNyb3NlY29uZHMgc2luY2UgZXBvY2guIn0seyJuYW1lIjoiYm9keSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbWFpbiBjb250ZW50IG9yIG1lc3NhZ2Ugb2YgdGhlIGxvZy4ifSx7Im5hbWUiOiJzZXZlcml0eV90ZXh0IiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6Ikh1bWFuLXJlYWRhYmxlIHNldmVyaXR5IGxldmVsIChlLmcuLCAnSU5GTycsICdFUlJPUicpLiJ9LHsibmFtZSI6InNldmVyaXR5X251bWJlciIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJOdW1lcmljIHJlcHJlc2VudGF0aW9uIG9mIHRoZSBzZXZlcml0eSBsZXZlbC4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIGV2ZW50LiJ9LHsibmFtZSI6InJlc291cmNlX2F0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQXR0cmlidXRlcyBkZXNjcmliaW5nIHRoZSByZXNvdXJjZSB0aGF0IHByb2R1Y2VkIHRoZSBsb2cgKGUuZy4sIGhvc3QsIHJlZ2lvbikuIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIG9mIHRoZSBsaWJyYXJ5IG9yIGZyYW1ld29yayB0aGF0IGNhcHR1cmVkIHRoZSBsb2cuIn0seyJuYW1lIjoiZXZlbnRfbmFtZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbmFtZSBvZiBhIHNwZWNpZmljIGV2ZW50IHRoYXQgb2NjdXJyZWQuIn0seyJuYW1lIjoiYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBIG1hcCBvZiBjdXN0b20gc3RyaW5nLXZhbHVlZCBhdHRyaWJ1dGVzIGFzc29jaWF0ZWQgd2l0aCB0aGUgbG9nLiJ9LHsibmFtZSI6ImJ5dGVzX3VuY29tcHJlc3NlZCIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiTG9naWNhbCBjb250ZW50IHNpemUgb2YgdGhlIHJvdyAoc3VtIG9mIGJ5dGUgbGVuZ3RocyBvZiBzdHJpbmcvbWFwIGZpZWxkcykuIFVzZWQgYnkgZHJvcC1ydWxlIGFjY291bnRpbmc7IGRvZXMgbm90IGluY2x1ZGUgZml4ZWQtd2lkdGggbnVtZXJpYyBvciB0aW1lc3RhbXAgZmllbGRzLiJ9LHsibmFtZSI6InJldGVudGlvbl9kYXlzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRlZmF1bHQiOm51bGwsImRvYyI6IlBlci1yb3cgcmV0ZW50aW9uIGluIGRheXMsIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIgZnJvbSB0ZWFtIHJldGVudGlvbiBydWxlcy4gTnVsbCB3aGVuIHVuc2V0IOKAlCBDbGlja0hvdXNlIHRoZW4gZmFsbHMgYmFjayB0byB0aGUgYmF0Y2ggYHJldGVudGlvbi1kYXlzYCBoZWFkZXIuIGNhcHR1cmUtbG9ncyBhbHdheXMgd3JpdGVzIG51bGw7IGl0IGRvZXMgbm90IGV2YWx1YXRlIHRlYW0gcnVsZXMuIn0seyJuYW1lIjoicGF0dGVybiIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkZWZhdWx0IjpudWxsLCJkb2MiOiJNYXNrZWQgbG9nIGJvZHksIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIuIElkZW50aWZpZXJzIGFyZSByZXBsYWNlZCB3aXRoIHBsYWNlaG9sZGVycywgc28gdHdvIGxpbmVzIGRpZmZlcmluZyBvbmx5IGJ5IGEgcmVxdWVzdCBpZCBzaGFyZSBvbmUgcGF0dGVybi4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgbWFzay4ifSx7Im5hbWUiOiJwYXR0ZXJuX3ZlcnNpb24iLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiTWFza2luZyBydWxlIHNldCB0aGF0IHByb2R1Y2VkIGBwYXR0ZXJuYC4gQSBydWxlIGNoYW5nZSByZS1tYXNrcyBldmVyeSBsaW5lLCBzbyB0aGUgZGV0ZWN0b3IgY29tcGFyZXMgd2l0aGluIGEgdmVyc2lvbiBhbmQgdHJlYXRzIGEgY2hhbmdlIGFzIGEgY29sZCBzdGFydC4gTnVsbCByZWFkcyBhcyB2ZXJzaW9uIDAgaW4gQ2xpY2tIb3VzZSwgbWFya2luZyBhIHJvdyB3cml0dGVuIGJlZm9yZSBtYXNraW5nLiBjYXB0dXJlLWxvZ3MgYWx3YXlzIHdyaXRlcyBudWxsLiJ9XSwiZG9jIjoiU2NoZW1hIGZvciBhIHN0cnVjdHVyZWQgbG9nIG9yIHRyYWNlIGV2ZW50LiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkAMPvqTBpkL3tgyLZOOsB10AK8gootS/9YCQDfRUABmiYTbAScg7gKOgCoGBsOgYD72NQj3aDDlZdT+cfd/TIN2iZG8bys7BuIlkSWpqcTaz94+wFn3pCbx9BIIa3/ydb53yKbDgOJ/XLIsr6Jy8DfwCCAIUA7q0Gtps44jK3kalhEOJBQa/uXqlTVt316Bfe5v35KbpT9ZMs5/vQL57falf45O801b8/f8dVn/yts6J/fqqHOv0iSAZ3HV2p8DEl1MFdR1dJUFVNUu4+csAlioSt5Ig5iqEdQ/MGKYVKybRhoEkDidFzzjTcLOdsm+Wc8ywv8ESXv3zGQUxOwctxcHBuOtKmI4Nq52vd/t4vkr+J75Om7kwhdGHphrsH4AnKhFW6YsxHtIhBAAhrAgqGkxouRgBQXkY3McYCiBzTbC0Wbfn279Vqyb7vj+RvcjP/et3Kmsv0ENfr9pW8zRPzXJovmt09V+b4eZr4L63u1lL30GGr3ZJDNM0Bui6rBu53bMGxrNxsNZqZf3x6iEPh67ZBdq9qCuRBfzs62tfj7cZWtzsdM57rRt/dD9ru3yuEAWESUeThB5O7tzYcGZmAIEGIuQjUhx0JJE8IsHicEIXQkSswOk3EyfHXSlppltn8Ae6vq4VB3cKcfd9f6dO+WtWpflfN7nKjKTwdGONXFsrucAkWKyw8OQZhM+VWmSSNmAcfvKihUGEIKIGVStNDRgSq0W2vJMcYY8fuqnllzJk23nAtNhW31a5QBWV3KuNNbganNGPJhZXjorUJ9jhMnDHnQCRFszplyaJMZDB+1pONXhs54dgxxm+b+Tb7MN9mSxcHLPmPtRzbajQz1wBGJkcHGgAqgwwbMR84ogyE412ZQjhJxJtpIcJLP9bteNpNWQWEOAZkwA57hv0i9OwIUzjIVis1acMIyabWhYMksd5XM2HYeIfAWpkkZWAIw++pMGmQve2DItk46wHXQA=="
+    },
+    {
+     "topic": "logs_ingestion",
+     "partition": 2,
+     "offset": 3,
+     "timestamp": 1736944632250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "phc_parity_json"
+      ],
+      [
+       "bytes_uncompressed",
+       "13626"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "9084"
+      ],
+      [
+       "bytes_compressed",
+       "4542"
+      ],
+      [
+       "record_count",
+       "8"
+      ],
+      [
+       "created_at",
+       "2025-01-15T12:37:01.565Z"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGALHsibmFtZSI6IkxvZ1JlY29yZCIsInR5cGUiOiJyZWNvcmQiLCJmaWVsZHMiOlt7Im5hbWUiOiJ1dWlkIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlVuaXF1ZSBpZGVudGlmaWVyIGZvciB0aGUgbG9nIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIGxvZyBpcyBhIHBhcnQgb2YuIn0seyJuYW1lIjoic3Bhbl9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoidHJhY2VfZmxhZ3MiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiRmxhZ3MgYXNzb2NpYXRlZCB3aXRoIHRoZSB0cmFjZS4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSBwcmltYXJ5IHRpbWVzdGFtcCBvZiB0aGUgZXZlbnQsIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgZXZlbnQgd2FzIG9ic2VydmVkIG9yIGluZ2VzdGVkLCBpbiBtaWNyb3NlY29uZHMgc2luY2UgZXBvY2guIn0seyJuYW1lIjoiYm9keSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbWFpbiBjb250ZW50IG9yIG1lc3NhZ2Ugb2YgdGhlIGxvZy4ifSx7Im5hbWUiOiJzZXZlcml0eV90ZXh0IiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6Ikh1bWFuLXJlYWRhYmxlIHNldmVyaXR5IGxldmVsIChlLmcuLCAnSU5GTycsICdFUlJPUicpLiJ9LHsibmFtZSI6InNldmVyaXR5X251bWJlciIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJOdW1lcmljIHJlcHJlc2VudGF0aW9uIG9mIHRoZSBzZXZlcml0eSBsZXZlbC4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIGV2ZW50LiJ9LHsibmFtZSI6InJlc291cmNlX2F0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQXR0cmlidXRlcyBkZXNjcmliaW5nIHRoZSByZXNvdXJjZSB0aGF0IHByb2R1Y2VkIHRoZSBsb2cgKGUuZy4sIGhvc3QsIHJlZ2lvbikuIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIG9mIHRoZSBsaWJyYXJ5IG9yIGZyYW1ld29yayB0aGF0IGNhcHR1cmVkIHRoZSBsb2cuIn0seyJuYW1lIjoiZXZlbnRfbmFtZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbmFtZSBvZiBhIHNwZWNpZmljIGV2ZW50IHRoYXQgb2NjdXJyZWQuIn0seyJuYW1lIjoiYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBIG1hcCBvZiBjdXN0b20gc3RyaW5nLXZhbHVlZCBhdHRyaWJ1dGVzIGFzc29jaWF0ZWQgd2l0aCB0aGUgbG9nLiJ9LHsibmFtZSI6ImJ5dGVzX3VuY29tcHJlc3NlZCIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiTG9naWNhbCBjb250ZW50IHNpemUgb2YgdGhlIHJvdyAoc3VtIG9mIGJ5dGUgbGVuZ3RocyBvZiBzdHJpbmcvbWFwIGZpZWxkcykuIFVzZWQgYnkgZHJvcC1ydWxlIGFjY291bnRpbmc7IGRvZXMgbm90IGluY2x1ZGUgZml4ZWQtd2lkdGggbnVtZXJpYyBvciB0aW1lc3RhbXAgZmllbGRzLiJ9LHsibmFtZSI6InJldGVudGlvbl9kYXlzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRlZmF1bHQiOm51bGwsImRvYyI6IlBlci1yb3cgcmV0ZW50aW9uIGluIGRheXMsIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIgZnJvbSB0ZWFtIHJldGVudGlvbiBydWxlcy4gTnVsbCB3aGVuIHVuc2V0IOKAlCBDbGlja0hvdXNlIHRoZW4gZmFsbHMgYmFjayB0byB0aGUgYmF0Y2ggYHJldGVudGlvbi1kYXlzYCBoZWFkZXIuIGNhcHR1cmUtbG9ncyBhbHdheXMgd3JpdGVzIG51bGw7IGl0IGRvZXMgbm90IGV2YWx1YXRlIHRlYW0gcnVsZXMuIn0seyJuYW1lIjoicGF0dGVybiIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkZWZhdWx0IjpudWxsLCJkb2MiOiJNYXNrZWQgbG9nIGJvZHksIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIuIElkZW50aWZpZXJzIGFyZSByZXBsYWNlZCB3aXRoIHBsYWNlaG9sZGVycywgc28gdHdvIGxpbmVzIGRpZmZlcmluZyBvbmx5IGJ5IGEgcmVxdWVzdCBpZCBzaGFyZSBvbmUgcGF0dGVybi4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgbWFzay4ifSx7Im5hbWUiOiJwYXR0ZXJuX3ZlcnNpb24iLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiTWFza2luZyBydWxlIHNldCB0aGF0IHByb2R1Y2VkIGBwYXR0ZXJuYC4gQSBydWxlIGNoYW5nZSByZS1tYXNrcyBldmVyeSBsaW5lLCBzbyB0aGUgZGV0ZWN0b3IgY29tcGFyZXMgd2l0aGluIGEgdmVyc2lvbiBhbmQgdHJlYXRzIGEgY2hhbmdlIGFzIGEgY29sZCBzdGFydC4gTnVsbCByZWFkcyBhcyB2ZXJzaW9uIDAgaW4gQ2xpY2tIb3VzZSwgbWFya2luZyBhIHJvdyB3cml0dGVuIGJlZm9yZSBtYXNraW5nLiBjYXB0dXJlLWxvZ3MgYWx3YXlzIHdyaXRlcyBudWxsLiJ9XSwiZG9jIjoiU2NoZW1hIGZvciBhIHN0cnVjdHVyZWQgbG9nIG9yIHRyYWNlIGV2ZW50LiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkAPzE4NWG1jJLkd94KfGOB4QQ5BkotS/9YBoKRTMAGnKIFj+A7iYdVRXZWO/lJZN4584zN7MllPr5XJwzGIsPaW93t7tQo0Z6rlilNsI+5FpL9t57J2wJ45J+kovt0IHuQwKRAWoBJQEAxpx5UwmOnRijHAU8sAARo6GCU+yzQ0OeJzL6TBAZEdpwsdAvWHEyGYrdW5Aw8aaYbSoEaa1bGE45OG3Nlmx58g2mQtitNcNROV1dSfza+zGYbaYDdjt+zZazcSv8GBjmwNqtSsg4IIY5kOoGiEsQb2E41dKBC0EaOAPDGniztWyyDLH7nWLEgRlnq0IQF0QbjZqsQLSe9ADGbFIsGNObrWmxpHjKFlY+Se/JTm+yQhgrBs5kMBqsGjXZVAjSbDkWixUsWJDAwSVMFjKKYldoijxBhIgWK6f4RGiO2VLFx51BfrLUvnxYAokVZdd1B7TELgaGNqobNaqnKhgOwk3GFGPntSQI8GaTyi2I3eVTzHZ7gpjt1sq5MoTLbrA3gTRYrQVKyXDgwBwEpii7wQbEpmjChQgSI5qiDBkybIyuMfqK4oMgbiq8Vd9WFb5lDBwHNGm0phKhH1bigCaNvPh4U4ZK7K6waRMCyoEGPpziDUgfEl6udHRYJMYNBxqBqnywoud51PXkeV598jzPe/JOxP3VvrVt7Vqb1p61ZW2v9ou2i/ZH+9K2tCttSnvSlrQ92q/Zrtnf7Dvbzq6z6ew5W872Zr9ku2R/sq9sK7vKprKnbCnbk/1qV39923Zt2rNlezHwcTjYrQIIwvIn0ZYxsUuhZoIQIwycjHCKE2h1jvRYQ3W1SId9tKMNmj2saKnEblYmGZm67lFgVXxsijVbzgYrJpvBcLBCW81qAplFcyRxiR0BH22GtCQUKeEULVExTgogEhKAUQ+pS3hCCArEirUpSoxdFwVWDYhd7OLVP0Rt6MDhRoNd+BDV4fgzWjj1fi4KFrLCQ+UOxYrVYCywJptVgTVWDQqKFQNvMKkcePwaOdqtAEwBowcJIzAxRqYkKOYZRZP4OMU/LSG/hQY+XKohKYJAhQ8urEgFWAKpcGGBBGGNyibVlGNTvKq05eFLwXA03nJqACX+LQf49vBrgLX39wRK/NkMRsu9Pc/zXq7v2kqnxK8hi7pVNL8rxa80vynFpxR/0vyWFF/S/PYovkfz+zXxXzO/XRPfNfP7m/jfzO878e/Mbzvx7czvOvHrzG868enM7znx58SXM7+9ie/N/H5J/JdL4rtkfn8S/5P5fSX+lfltJb6V+V0lfpX5TSU+lfk9Jf6U+S0lvpT4nszvF/4rv134rvz+8L/8vvg3vy2+ze+KX/Ob4tP8nvgzvyW+zF6+lYE4XZaEoUMndh3sCh9AUxoMMvMlx4A5K0BEOiveX8mYLWPgQ+FwsEP1oaDwoWKgjIasRk2GC3OHsnqLWZlkZIpgzRZrRdlsOMWuk/H62vX19/X92n5dv6Zfz6/l197Xr9uu29/te9verrfp7Xlb3vZuv2y7bH+2r21ru9qmtqdtaduz/artqgFd13UzGYwGtnBgjqpB7brYxUqnJJEiRIkZIA7ZbEbOeaiB2RayXq4dOnJU4aAKc7gbN1uNNss2ZFM1aIAxqSgYCwfiYKAIFq7ZZCFshwxnmwqpQgAoA2bNniJsYneoCAYejsaEAeMUs0SgkAZJhmrEhJKSQ2ekPKDCih+f2N1kTKfZpFrg7EaD5QBBzGw4mNQvvC7+6+a36+K7bn5/F/+7+X0v/r349uZ3vfj15je9+PTm97z48+a3vPjy5rd38b2b3y+L/7L57bL4Lpvfn8X/bH5fi39tfluLby1+tflNLT61+T0t/rT5LS2+tPntWXzP5ver4r9qfrsqvqvm91fxv5rft+Lfmt+24tua37Xi14pPa37Pij9rfsuKL2t+exXfq/n9ovgvmt8uiu+i+f1R/I/m96X4l+a3pfg2RCBgApERGTsf6UFM4ENieokg6ycq8r8r2+/d9CAAE9xL3wRQnv3SYkCjCLUoAJy6fu8Cz3i7tvC+IMcbuItO7CbKMsWixDl6lWc9hqzDWM1IuIvMDTiGdUbKwpM8SH48HRzW9waAdQyU2ap+Z2gwwH4F6nuQlu2H6XzusnkSDv5L+3r08bLEO8yH/ABOFpVCxpZ8IAIGZ9oxJgfhtVKiYCPh0CeXNbM1oIPQZ7ZEDQydOo/DOohV6XVvuHAbJJKyOwT8xODVhtYyS5HfeCnxjgeE"
+    }
+   ],
+   [
+    {
+     "topic": "logs_ingestion",
+     "partition": 3,
+     "offset": 4,
+     "timestamp": 1736944632250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "phc_parity_both"
+      ],
+      [
+       "bytes_uncompressed",
+       "12213"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "8142"
+      ],
+      [
+       "bytes_compressed",
+       "4071"
+      ],
+      [
+       "record_count",
+       "5"
+      ],
+      [
+       "created_at",
+       "2025-01-15T12:37:08.239Z"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGALHsibmFtZSI6IkxvZ1JlY29yZCIsInR5cGUiOiJyZWNvcmQiLCJmaWVsZHMiOlt7Im5hbWUiOiJ1dWlkIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlVuaXF1ZSBpZGVudGlmaWVyIGZvciB0aGUgbG9nIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIGxvZyBpcyBhIHBhcnQgb2YuIn0seyJuYW1lIjoic3Bhbl9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoidHJhY2VfZmxhZ3MiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiRmxhZ3MgYXNzb2NpYXRlZCB3aXRoIHRoZSB0cmFjZS4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSBwcmltYXJ5IHRpbWVzdGFtcCBvZiB0aGUgZXZlbnQsIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgZXZlbnQgd2FzIG9ic2VydmVkIG9yIGluZ2VzdGVkLCBpbiBtaWNyb3NlY29uZHMgc2luY2UgZXBvY2guIn0seyJuYW1lIjoiYm9keSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbWFpbiBjb250ZW50IG9yIG1lc3NhZ2Ugb2YgdGhlIGxvZy4ifSx7Im5hbWUiOiJzZXZlcml0eV90ZXh0IiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6Ikh1bWFuLXJlYWRhYmxlIHNldmVyaXR5IGxldmVsIChlLmcuLCAnSU5GTycsICdFUlJPUicpLiJ9LHsibmFtZSI6InNldmVyaXR5X251bWJlciIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJOdW1lcmljIHJlcHJlc2VudGF0aW9uIG9mIHRoZSBzZXZlcml0eSBsZXZlbC4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIGV2ZW50LiJ9LHsibmFtZSI6InJlc291cmNlX2F0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQXR0cmlidXRlcyBkZXNjcmliaW5nIHRoZSByZXNvdXJjZSB0aGF0IHByb2R1Y2VkIHRoZSBsb2cgKGUuZy4sIGhvc3QsIHJlZ2lvbikuIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIG9mIHRoZSBsaWJyYXJ5IG9yIGZyYW1ld29yayB0aGF0IGNhcHR1cmVkIHRoZSBsb2cuIn0seyJuYW1lIjoiZXZlbnRfbmFtZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbmFtZSBvZiBhIHNwZWNpZmljIGV2ZW50IHRoYXQgb2NjdXJyZWQuIn0seyJuYW1lIjoiYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBIG1hcCBvZiBjdXN0b20gc3RyaW5nLXZhbHVlZCBhdHRyaWJ1dGVzIGFzc29jaWF0ZWQgd2l0aCB0aGUgbG9nLiJ9LHsibmFtZSI6ImJ5dGVzX3VuY29tcHJlc3NlZCIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiTG9naWNhbCBjb250ZW50IHNpemUgb2YgdGhlIHJvdyAoc3VtIG9mIGJ5dGUgbGVuZ3RocyBvZiBzdHJpbmcvbWFwIGZpZWxkcykuIFVzZWQgYnkgZHJvcC1ydWxlIGFjY291bnRpbmc7IGRvZXMgbm90IGluY2x1ZGUgZml4ZWQtd2lkdGggbnVtZXJpYyBvciB0aW1lc3RhbXAgZmllbGRzLiJ9LHsibmFtZSI6InJldGVudGlvbl9kYXlzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRlZmF1bHQiOm51bGwsImRvYyI6IlBlci1yb3cgcmV0ZW50aW9uIGluIGRheXMsIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIgZnJvbSB0ZWFtIHJldGVudGlvbiBydWxlcy4gTnVsbCB3aGVuIHVuc2V0IOKAlCBDbGlja0hvdXNlIHRoZW4gZmFsbHMgYmFjayB0byB0aGUgYmF0Y2ggYHJldGVudGlvbi1kYXlzYCBoZWFkZXIuIGNhcHR1cmUtbG9ncyBhbHdheXMgd3JpdGVzIG51bGw7IGl0IGRvZXMgbm90IGV2YWx1YXRlIHRlYW0gcnVsZXMuIn0seyJuYW1lIjoicGF0dGVybiIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkZWZhdWx0IjpudWxsLCJkb2MiOiJNYXNrZWQgbG9nIGJvZHksIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIuIElkZW50aWZpZXJzIGFyZSByZXBsYWNlZCB3aXRoIHBsYWNlaG9sZGVycywgc28gdHdvIGxpbmVzIGRpZmZlcmluZyBvbmx5IGJ5IGEgcmVxdWVzdCBpZCBzaGFyZSBvbmUgcGF0dGVybi4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgbWFzay4ifSx7Im5hbWUiOiJwYXR0ZXJuX3ZlcnNpb24iLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiTWFza2luZyBydWxlIHNldCB0aGF0IHByb2R1Y2VkIGBwYXR0ZXJuYC4gQSBydWxlIGNoYW5nZSByZS1tYXNrcyBldmVyeSBsaW5lLCBzbyB0aGUgZGV0ZWN0b3IgY29tcGFyZXMgd2l0aGluIGEgdmVyc2lvbiBhbmQgdHJlYXRzIGEgY2hhbmdlIGFzIGEgY29sZCBzdGFydC4gTnVsbCByZWFkcyBhcyB2ZXJzaW9uIDAgaW4gQ2xpY2tIb3VzZSwgbWFya2luZyBhIHJvdyB3cml0dGVuIGJlZm9yZSBtYXNraW5nLiBjYXB0dXJlLWxvZ3MgYWx3YXlzIHdyaXRlcyBudWxsLiJ9XSwiZG9jIjoiU2NoZW1hIGZvciBhIHN0cnVjdHVyZWQgbG9nIG9yIHRyYWNlIGV2ZW50LiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkACFG078TMI00UIewOoOdVE4KthIotS/9YD0GjSQAKlIsEEXA3CYd8CCrZWzMcIIuvOq+WH2snI9HUVJjeKvf3SB2b5mo251k6Mna4P4HbZ1e3XpJIm2Tvfc0zXwbSS8D5Tla77f2IgEVAQABvgChC/b6T9FLmFzgK5agXhKVJAm2xJQJSFzBI0cYTGVy4YKBLHAFwlrgKJrEMIIUg1rhjjQyOktEmcDVyPpagBeARKD3V+HHAj9P/VT4or4LfMU+L65WoOp9oRfr82JQK3z/RQB4POkCpUkSmWU1GlgQDSpIUJEGDpsHY3J4SzRJtw8yy7IdJDL7CxVs9YGqCU+wAofAVUlK2AuMsQBdBWSWHQgkeglkfS0TiAqHXOBrgZTh+OnIA1JEhxAgdqSmGR1EfeMLhIUqomt9oVaY+sDVizStpc6PNlTikKERROr8aOMkzJAjSaSUChiswVEjiw8SHgli9aLJFQtaiIwhXqSQAWOJFU1u23a7nm3bbs+2bVvP9kEG+bPSfqX5k9I+pf2N5k+v7+XPrt/lU/7EfZw/uT6XP2//5k/bt/mz9mv+pH2aP7f+ll8kAEsUG0eUyJGZHAM9ERxgIKHhkSFiqKRwyVGPzpwQQ0T6kQZNWpIYmYExF2xHBftG08oV4/lKdH2oQxhDUkpUwUCWaYTBVAp0ZLaZ6AVwFFGvAzL71pMSxxdIiaPp1eUFD8ePJLNLHxE+PhxKcqsmauowNVWPaizRFaS1Qi0FCgmJKw1EhatPc4GvWMqIkiMubmRGIM2rBIHuqMEje4gFIUR8qJGwfRnxo4eaLwg0WQEcyexGKeqkKPo/Ltf3n/mflvha8Z/+TwoMg0KhVpTrUy5/blx/4/Knd/vezZ/d7Xc3f55u/3TzJ759fPMnd/vczZ/39u/t25s/6+3Xmz/p7dObP7fb327+9Gzfs/mzs/3O5s+T7Z9s/sS2j23+5Gyfs/nz2v61+dPavrX9avMntX1q8+dm+5vNn17tezV/drXf1fx5qv1TzZ+49nHNn1ztczV/3tq/NX/a2rc1f9bar7VPa/7can+r+dOjfa+j/Y7mzxPtn2j+xLSPaf7kaJ+j+fPS/qX509K+pQFZlg0AIrMsX4KDh5c4k9Whciccv5L0YCIDhw0laSvVhoZQmlcnVKqNLUCqUUqvlnJ9qBJFjIiZM0NKOSWIkhkRuNzwwiOZNAlA4YwZHV22vM2IMm/AkNDkDVBFZkZGtN/6fOoTVy6+8f2W+Frxon4KhL3A1os61EuCtWIiqjSGpCxTIEyMsWjFeog+1wIqS5nMpJGH+x7Onx3udzh/nnD/hPMnxn2M+xzOnxf3L86fFvctzp8V9yvOnxT3Kc6fG+5vOH96XN/j8mfH9Tsuf564/onLn5jrYy5/clyf4/qXy5+W61suf1auX7n8GS0gUCIxgrGrB2RAsxpwuFADYxXtymDARMc02QSGZGEAmbaxHwSrqmibqsmZw5GPwWSxPLi2Uejeu5BmvF0lvC/c8QZs0YnShIex5O4ZWbvJQZZAaR/jfQxoTwBXwru7sp9Pt2vxAXkRKdpugj7CdOMKgVz7MT/VYL2h8xS3QURSVoYhRtO/EzCNNFCHsDqDnVRO"
+    },
+    {
+     "topic": "logs_ingestion",
+     "partition": 1,
+     "offset": 5,
+     "timestamp": 1736944632250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "phc_parity_json"
+      ],
+      [
+       "bytes_uncompressed",
+       "11628"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "7752"
+      ],
+      [
+       "bytes_compressed",
+       "3876"
+      ],
+      [
+       "record_count",
+       "8"
+      ],
+      [
+       "created_at",
+       "2025-01-15T12:37:04.365Z"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGALHsibmFtZSI6IkxvZ1JlY29yZCIsInR5cGUiOiJyZWNvcmQiLCJmaWVsZHMiOlt7Im5hbWUiOiJ1dWlkIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlVuaXF1ZSBpZGVudGlmaWVyIGZvciB0aGUgbG9nIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIGxvZyBpcyBhIHBhcnQgb2YuIn0seyJuYW1lIjoic3Bhbl9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoidHJhY2VfZmxhZ3MiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiRmxhZ3MgYXNzb2NpYXRlZCB3aXRoIHRoZSB0cmFjZS4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSBwcmltYXJ5IHRpbWVzdGFtcCBvZiB0aGUgZXZlbnQsIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgZXZlbnQgd2FzIG9ic2VydmVkIG9yIGluZ2VzdGVkLCBpbiBtaWNyb3NlY29uZHMgc2luY2UgZXBvY2guIn0seyJuYW1lIjoiYm9keSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbWFpbiBjb250ZW50IG9yIG1lc3NhZ2Ugb2YgdGhlIGxvZy4ifSx7Im5hbWUiOiJzZXZlcml0eV90ZXh0IiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6Ikh1bWFuLXJlYWRhYmxlIHNldmVyaXR5IGxldmVsIChlLmcuLCAnSU5GTycsICdFUlJPUicpLiJ9LHsibmFtZSI6InNldmVyaXR5X251bWJlciIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJOdW1lcmljIHJlcHJlc2VudGF0aW9uIG9mIHRoZSBzZXZlcml0eSBsZXZlbC4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIGV2ZW50LiJ9LHsibmFtZSI6InJlc291cmNlX2F0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQXR0cmlidXRlcyBkZXNjcmliaW5nIHRoZSByZXNvdXJjZSB0aGF0IHByb2R1Y2VkIHRoZSBsb2cgKGUuZy4sIGhvc3QsIHJlZ2lvbikuIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIG9mIHRoZSBsaWJyYXJ5IG9yIGZyYW1ld29yayB0aGF0IGNhcHR1cmVkIHRoZSBsb2cuIn0seyJuYW1lIjoiZXZlbnRfbmFtZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbmFtZSBvZiBhIHNwZWNpZmljIGV2ZW50IHRoYXQgb2NjdXJyZWQuIn0seyJuYW1lIjoiYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBIG1hcCBvZiBjdXN0b20gc3RyaW5nLXZhbHVlZCBhdHRyaWJ1dGVzIGFzc29jaWF0ZWQgd2l0aCB0aGUgbG9nLiJ9LHsibmFtZSI6ImJ5dGVzX3VuY29tcHJlc3NlZCIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiTG9naWNhbCBjb250ZW50IHNpemUgb2YgdGhlIHJvdyAoc3VtIG9mIGJ5dGUgbGVuZ3RocyBvZiBzdHJpbmcvbWFwIGZpZWxkcykuIFVzZWQgYnkgZHJvcC1ydWxlIGFjY291bnRpbmc7IGRvZXMgbm90IGluY2x1ZGUgZml4ZWQtd2lkdGggbnVtZXJpYyBvciB0aW1lc3RhbXAgZmllbGRzLiJ9LHsibmFtZSI6InJldGVudGlvbl9kYXlzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRlZmF1bHQiOm51bGwsImRvYyI6IlBlci1yb3cgcmV0ZW50aW9uIGluIGRheXMsIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIgZnJvbSB0ZWFtIHJldGVudGlvbiBydWxlcy4gTnVsbCB3aGVuIHVuc2V0IOKAlCBDbGlja0hvdXNlIHRoZW4gZmFsbHMgYmFjayB0byB0aGUgYmF0Y2ggYHJldGVudGlvbi1kYXlzYCBoZWFkZXIuIGNhcHR1cmUtbG9ncyBhbHdheXMgd3JpdGVzIG51bGw7IGl0IGRvZXMgbm90IGV2YWx1YXRlIHRlYW0gcnVsZXMuIn0seyJuYW1lIjoicGF0dGVybiIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkZWZhdWx0IjpudWxsLCJkb2MiOiJNYXNrZWQgbG9nIGJvZHksIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIuIElkZW50aWZpZXJzIGFyZSByZXBsYWNlZCB3aXRoIHBsYWNlaG9sZGVycywgc28gdHdvIGxpbmVzIGRpZmZlcmluZyBvbmx5IGJ5IGEgcmVxdWVzdCBpZCBzaGFyZSBvbmUgcGF0dGVybi4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgbWFzay4ifSx7Im5hbWUiOiJwYXR0ZXJuX3ZlcnNpb24iLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiTWFza2luZyBydWxlIHNldCB0aGF0IHByb2R1Y2VkIGBwYXR0ZXJuYC4gQSBydWxlIGNoYW5nZSByZS1tYXNrcyBldmVyeSBsaW5lLCBzbyB0aGUgZGV0ZWN0b3IgY29tcGFyZXMgd2l0aGluIGEgdmVyc2lvbiBhbmQgdHJlYXRzIGEgY2hhbmdlIGFzIGEgY29sZCBzdGFydC4gTnVsbCByZWFkcyBhcyB2ZXJzaW9uIDAgaW4gQ2xpY2tIb3VzZSwgbWFya2luZyBhIHJvdyB3cml0dGVuIGJlZm9yZSBtYXNraW5nLiBjYXB0dXJlLWxvZ3MgYWx3YXlzIHdyaXRlcyBudWxsLiJ9XSwiZG9jIjoiU2NoZW1hIGZvciBhIHN0cnVjdHVyZWQgbG9nIG9yIHRyYWNlIGV2ZW50LiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkAGkjuxxAD9CnF6Z3HevO6BkQsA8otS/9YOQadR4AVvfLSYBecQ4LZpUdInFABOecEH4nEipxS0EUAA1KTjGTwcL/DYL48oaV7V5X/bKddwhSrv8C0gA3qbX/u9V9RCVYZlo5vYUtv3+nLwO9AK8AugBET3eWLNgyYIHsAcgoMOEJyQhAmRZWkTIKiYX8JenhMcYBrjzGbe+9scnt+7fX3dnd8pGrEB6rLfr62HcokUFoQ+xLkRRJkSzFVs395b3M8vz+zDL7OO/5hvLQ241Hu0nYmeKOR9OJ5s1WE3ElzibWbjxbEMqj5f5uYIrttob/isqaUmfMU5B/RWURUYIjxor/l8lYoxxN8WkieydZ0mDZoSJMEDIN5vy4g8XARn6SJG1BIkmSNZEkSVIkPXxOrLxWLbLymy2sxxvodlivo+24ukCZfn+7q0ClEpDaokDage+18MiclUanzrkuqnMznWP5m6Rzp86lW+WpSKzq9lfngppEivK1CW15Xr9Zno46niR7XYopbzVPytvxDfL5aHf7XL6kZfuHsuPeqUrufn1cb+A5j1VhH4QrKeyU7/KJGs4cTdtJmqdZkrCVYkmKNpM0c0dzulcV5WUkVu31/eNvLiIqKhJSitImyfBxHIY+wN5Wo5lljMmYLCwo/48/JDAQgYAUhiRGulStOPBBZ/6amcf6x3fjXtsfyrQvrNxFd/on5b2+f2Pbew/Bm1h/7IVHpdEZdFlNsenxhcfjCEdGuEngY+uQfQ4IlQsb9wRKjZiqCcIzLG7kp7mPMX78wg10+6l1erauQPbUTnomFAqPhLrdO9Wn3jo4S3Xw1DsdPLVOB0+N6plu2j6xs6o+damDraEUF2/o/Ph/PER31QZoCZXUizsBGGMBw8dqi+oYxlY5tMB5jMHAht6II+oGBekADRcqqAr5cS8rjzHW5GbVNSPxNXem3TOromv7g6RK6svw/69gmAixRUMNVvZTUy0FaOyASGpRSXnQQQSZnvw3IY/T3TkwBQsUl1DXx/faqddXdPeAdM8L43/dXmIaotEEysuMKv9/xekqTgwuPIayjxVZ/fCj35okOQp+BxsK5be5qh6bNVerulYV/e3R3S+wp7NAvovBnoem20s6RhQ0IGACCUQCVLXwLkZH9+7MRyOEeao86loyYxKTrpUBBs0aa8fDRUFzRiLgE50YeAUXo9SGSUulgfmNQDisHzXK8fZ4MTjiBStEZJBjeuiP4argMtji/mitfyXxw5G7Qr/kJeTMCLswEJfCCKb4iWFQ7/HKXRJc1KhoNIxQhCOPm1LGtwAcqTwh/NqUslP2eqoKRS+QMcXZICIpA0NpI7scQA/Qpxemdx3rzugZ"
+    }
+   ]
+  ]
+ },
+ "expected": {
+  "batches": [
+   {
+    "error": null
+   },
+   {
+    "error": null
+   },
+   {
+    "error": null
+   }
+  ],
+  "outputs": [
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested\",\"count\":1698}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 1698,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_records\",\"count\":7984}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 7984,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_records",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_retention_14d\",\"count\":1698}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 1698,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_retention_14d",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_received\",\"count\":11976}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 11976,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_ingested\",\"count\":1}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 1,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_ingested",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_received\",\"count\":8}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 8,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"rate-bytes\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_dropped_by_rule\",\"count\":1954}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 1954,
+      "instance_id": "rate-bytes",
+      "metric_kind": "usage",
+      "metric_name": "bytes_dropped_by_rule",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"rate-bytes\",\"metric_kind\":\"usage\",\"metric_name\":\"sampling_records_dropped_by_rule\",\"count\":7}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 7,
+      "instance_id": "rate-bytes",
+      "metric_kind": "usage",
+      "metric_name": "sampling_records_dropped_by_rule",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:00:00.000\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"retention_byte_days\",\"count\":308370}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 308370,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "retention_byte_days",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested\",\"count\":10279}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 10279,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_records\",\"count\":7596}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 7596,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_records",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_retention_30d\",\"count\":10279}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 10279,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_retention_30d",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_received\",\"count\":11394}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 11394,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"pii_replacements\",\"count\":1}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 1,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "pii_replacements",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_ingested\",\"count\":3}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 3,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_ingested",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_received\",\"count\":6}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 6,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"rate-records\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_dropped_by_rule\",\"count\":747}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 747,
+      "instance_id": "rate-records",
+      "metric_kind": "usage",
+      "metric_name": "bytes_dropped_by_rule",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"rate-records\",\"metric_kind\":\"usage\",\"metric_name\":\"sampling_records_dropped_by_rule\",\"count\":3}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 3,
+      "instance_id": "rate-records",
+      "metric_kind": "usage",
+      "metric_name": "sampling_records_dropped_by_rule",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "logs",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "3426",
+     "bytes_uncompressed": "10279",
+     "bytes_uncompressed_records": "7596",
+     "created_at": "2025-01-15T12:36:53.149Z",
+     "json-parse": "true",
+     "record_count": "3",
+     "retention-days": "30",
+     "source_partition": "1",
+     "source_topic": "logs_ingestion",
+     "team_id": "104",
+     "token": "phc_parity_both"
+    },
+    "value": {
+     "kind": "avro",
+     "schema": {
+      "name": "LogRecord",
+      "type": "record",
+      "fields": [
+       {
+        "name": "uuid",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Unique identifier for the log record."
+       },
+       {
+        "name": "trace_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the trace this log is a part of."
+       },
+       {
+        "name": "span_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the span within the trace."
+       },
+       {
+        "name": "trace_flags",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Flags associated with the trace."
+       },
+       {
+        "name": "timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The primary timestamp of the event, in microseconds since epoch."
+       },
+       {
+        "name": "observed_timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The timestamp when the event was observed or ingested, in microseconds since epoch."
+       },
+       {
+        "name": "body",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The main content or message of the log."
+       },
+       {
+        "name": "severity_text",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Human-readable severity level (e.g., 'INFO', 'ERROR')."
+       },
+       {
+        "name": "severity_number",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Numeric representation of the severity level."
+       },
+       {
+        "name": "service_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the service that generated the event."
+       },
+       {
+        "name": "resource_attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "Attributes describing the resource that produced the log (e.g., host, region)."
+       },
+       {
+        "name": "instrumentation_scope",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the library or framework that captured the log."
+       },
+       {
+        "name": "event_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of a specific event that occurred."
+       },
+       {
+        "name": "attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "A map of custom string-valued attributes associated with the log."
+       },
+       {
+        "name": "bytes_uncompressed",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "Logical content size of the row (sum of byte lengths of string/map fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
+       },
+       {
+        "name": "retention_days",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Per-row retention in days, stamped by the Node consumer from team retention rules. Null when unset — ClickHouse then falls back to the batch `retention-days` header. capture-logs always writes null; it does not evaluate team rules."
+       },
+       {
+        "name": "pattern",
+        "type": [
+         "null",
+         "string"
+        ],
+        "default": null,
+        "doc": "Masked log body, stamped by the Node consumer. Identifiers are replaced with placeholders, so two lines differing only by a request id share one pattern. capture-logs always writes null; it does not mask."
+       },
+       {
+        "name": "pattern_version",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Masking rule set that produced `pattern`. A rule change re-masks every line, so the detector compares within a version and treats a change as a cold start. Null reads as version 0 in ClickHouse, marking a row written before masking. capture-logs always writes null."
+       }
+      ],
+      "doc": "Schema for a structured log or trace event."
+     },
+     "codec": "zstandard",
+     "records": [
+      {
+       "attributes": {},
+       "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "bytes_uncompressed": 361,
+       "event_name": "request",
+       "instrumentation_scope": "io.opentelemetry.http",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "k8s.pod.name": "\"pod-1\"",
+        "service.name": "\"web\""
+       },
+       "retention_days": null,
+       "service_name": "web",
+       "severity_number": 17,
+       "severity_text": "ERROR",
+       "span_id": {
+        "$bytes": "a6c27b80cfcc2a06"
+       },
+       "timestamp": 1736944115883977,
+       "trace_flags": null,
+       "trace_id": {
+        "$bytes": "05f08330ee7401456a94d8576ad929b3"
+       },
+       "uuid": "00000000-0000-4000-8000-000000000000"
+      },
+      {
+       "attributes": {
+        "1": "raw-unquoted",
+        "a.b.c.d.0": "1",
+        "a.b.c.d.1": "2",
+        "a.b.c.d.2.e": "\"deep\"",
+        "b": "true",
+        "http.method": "\"{{REDACTED}}\"",
+        "k": "3.5",
+        "url.path": "\"/api/v1/items\"",
+        "z": "\"null\""
+       },
+       "body": "{\"1\":\"int-key\",\"a\":{\"b\":{\"c\":{\"d\":[1,2,{\"e\":\"deep\"}]}}},\"z\":null,\"b\":true}",
+       "bytes_uncompressed": 620,
+       "event_name": null,
+       "instrumentation_scope": "scope@1.0",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "k8s.pod.name": "\"pod-3\"",
+        "service.name": "\"api\""
+       },
+       "retention_days": null,
+       "service_name": null,
+       "severity_number": 0,
+       "severity_text": "",
+       "span_id": {
+        "$bytes": "2d83d54d98c23564"
+       },
+       "timestamp": 1736942382841328,
+       "trace_flags": 1,
+       "trace_id": {
+        "$bytes": "348e0f4a7e4c9ef5352d5927bc6672ed"
+       },
+       "uuid": "00000000-0000-4000-8000-000000000001"
+      },
+      {
+       "attributes": {},
+       "body": "{not valid json",
+       "bytes_uncompressed": 367,
+       "event_name": null,
+       "instrumentation_scope": null,
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "service.name": "\"web\""
+       },
+       "retention_days": null,
+       "service_name": "worker",
+       "severity_number": 0,
+       "severity_text": "",
+       "span_id": null,
+       "timestamp": 1736942307585704,
+       "trace_flags": 1,
+       "trace_id": {
+        "$bytes": "62121eeb1e41c47815c536f915758ac8"
+       },
+       "uuid": "00000000-0000-4000-8000-000000000002"
+      }
+     ]
+    }
+   },
+   {
+    "batch": 0,
+    "output": "logs",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "566",
+     "bytes_uncompressed": "1698",
+     "bytes_uncompressed_records": "7984",
+     "created_at": "2025-01-15T12:37:09.063Z",
+     "json-parse": "true",
+     "record_count": "1",
+     "retention-days": "14",
+     "source_partition": "0",
+     "source_topic": "logs_ingestion",
+     "team_id": "102",
+     "token": "phc_parity_json"
+    },
+    "value": {
+     "kind": "avro",
+     "schema": {
+      "name": "LogRecord",
+      "type": "record",
+      "fields": [
+       {
+        "name": "uuid",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Unique identifier for the log record."
+       },
+       {
+        "name": "trace_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the trace this log is a part of."
+       },
+       {
+        "name": "span_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the span within the trace."
+       },
+       {
+        "name": "trace_flags",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Flags associated with the trace."
+       },
+       {
+        "name": "timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The primary timestamp of the event, in microseconds since epoch."
+       },
+       {
+        "name": "observed_timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The timestamp when the event was observed or ingested, in microseconds since epoch."
+       },
+       {
+        "name": "body",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The main content or message of the log."
+       },
+       {
+        "name": "severity_text",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Human-readable severity level (e.g., 'INFO', 'ERROR')."
+       },
+       {
+        "name": "severity_number",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Numeric representation of the severity level."
+       },
+       {
+        "name": "service_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the service that generated the event."
+       },
+       {
+        "name": "resource_attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "Attributes describing the resource that produced the log (e.g., host, region)."
+       },
+       {
+        "name": "instrumentation_scope",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the library or framework that captured the log."
+       },
+       {
+        "name": "event_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of a specific event that occurred."
+       },
+       {
+        "name": "attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "A map of custom string-valued attributes associated with the log."
+       },
+       {
+        "name": "bytes_uncompressed",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "Logical content size of the row (sum of byte lengths of string/map fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
+       },
+       {
+        "name": "retention_days",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Per-row retention in days, stamped by the Node consumer from team retention rules. Null when unset — ClickHouse then falls back to the batch `retention-days` header. capture-logs always writes null; it does not evaluate team rules."
+       },
+       {
+        "name": "pattern",
+        "type": [
+         "null",
+         "string"
+        ],
+        "default": null,
+        "doc": "Masked log body, stamped by the Node consumer. Identifiers are replaced with placeholders, so two lines differing only by a request id share one pattern. capture-logs always writes null; it does not mask."
+       },
+       {
+        "name": "pattern_version",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Masking rule set that produced `pattern`. A rule change re-masks every line, so the detector compares within a version and treats a change as a cold start. Null reads as version 0 in ClickHouse, marking a row written before masking. capture-logs always writes null."
+       }
+      ],
+      "doc": "Schema for a structured log or trace event."
+     },
+     "codec": "zstandard",
+     "records": [
+      {
+       "attributes": {
+        "big": "12345678901234567000",
+        "count": "{\"nested\":{\"json\":\"payload\",\"n\":1}}",
+        "exp": "1e+21",
+        "frac": "0.30000000000000004",
+        "neg": "0",
+        "small": "1e-7",
+        "user.email": "\"GET\""
+       },
+       "body": "{\"big\":12345678901234567000,\"small\":1e-7,\"neg\":0,\"exp\":1e+21,\"frac\":0.30000000000000004}",
+       "bytes_uncompressed": null,
+       "event_name": "job.done",
+       "instrumentation_scope": "io.opentelemetry.http",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": null,
+       "retention_days": null,
+       "service_name": "worker",
+       "severity_number": 9,
+       "severity_text": "INFO",
+       "span_id": {
+        "$bytes": "9e5381a7570f0450"
+       },
+       "timestamp": 1736942637575886,
+       "trace_flags": 1,
+       "trace_id": {
+        "$bytes": "a2ff5467f09e059a4f2f4760b348f2d6"
+       },
+       "uuid": "00000000-0000-4000-8000-000000001000"
+      }
+     ]
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested\",\"count\":1734}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 1734,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_records\",\"count\":9084}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 9084,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_records",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_retention_14d\",\"count\":1734}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 1734,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_retention_14d",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_received\",\"count\":13626}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 13626,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_ingested\",\"count\":3}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 3,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_ingested",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_received\",\"count\":8}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 8,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"rate-bytes\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_dropped_by_rule\",\"count\":2441}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 2441,
+      "instance_id": "rate-bytes",
+      "metric_kind": "usage",
+      "metric_name": "bytes_dropped_by_rule",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"rate-bytes\",\"metric_kind\":\"usage\",\"metric_name\":\"sampling_records_dropped_by_rule\",\"count\":5}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 5,
+      "instance_id": "rate-bytes",
+      "metric_kind": "usage",
+      "metric_name": "sampling_records_dropped_by_rule",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:00:00.000\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"retention_byte_days\",\"count\":271680}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 271680,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "retention_byte_days",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested\",\"count\":9056}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 9056,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_records\",\"count\":7178}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 7178,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_records",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_retention_30d\",\"count\":9056}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 9056,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_retention_30d",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_received\",\"count\":10767}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 10767,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"pii_replacements\",\"count\":2}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 2,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "pii_replacements",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_ingested\",\"count\":4}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 4,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_ingested",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_received\",\"count\":5}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 5,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"rate-records\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_dropped_by_rule\",\"count\":702}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 702,
+      "instance_id": "rate-records",
+      "metric_kind": "usage",
+      "metric_name": "bytes_dropped_by_rule",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:37:14.750\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"rate-records\",\"metric_kind\":\"usage\",\"metric_name\":\"sampling_records_dropped_by_rule\",\"count\":1}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 1,
+      "instance_id": "rate-records",
+      "metric_kind": "usage",
+      "metric_name": "sampling_records_dropped_by_rule",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:37:14.750"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "logs",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "3019",
+     "bytes_uncompressed": "9056",
+     "bytes_uncompressed_records": "7178",
+     "created_at": "2025-01-15T12:37:03.742Z",
+     "json-parse": "true",
+     "record_count": "4",
+     "retention-days": "30",
+     "source_partition": "2",
+     "source_topic": "logs_ingestion",
+     "team_id": "104",
+     "token": "phc_parity_both"
+    },
+    "value": {
+     "kind": "avro",
+     "schema": {
+      "name": "LogRecord",
+      "type": "record",
+      "fields": [
+       {
+        "name": "uuid",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Unique identifier for the log record."
+       },
+       {
+        "name": "trace_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the trace this log is a part of."
+       },
+       {
+        "name": "span_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the span within the trace."
+       },
+       {
+        "name": "trace_flags",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Flags associated with the trace."
+       },
+       {
+        "name": "timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The primary timestamp of the event, in microseconds since epoch."
+       },
+       {
+        "name": "observed_timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The timestamp when the event was observed or ingested, in microseconds since epoch."
+       },
+       {
+        "name": "body",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The main content or message of the log."
+       },
+       {
+        "name": "severity_text",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Human-readable severity level (e.g., 'INFO', 'ERROR')."
+       },
+       {
+        "name": "severity_number",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Numeric representation of the severity level."
+       },
+       {
+        "name": "service_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the service that generated the event."
+       },
+       {
+        "name": "resource_attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "Attributes describing the resource that produced the log (e.g., host, region)."
+       },
+       {
+        "name": "instrumentation_scope",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the library or framework that captured the log."
+       },
+       {
+        "name": "event_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of a specific event that occurred."
+       },
+       {
+        "name": "attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "A map of custom string-valued attributes associated with the log."
+       },
+       {
+        "name": "bytes_uncompressed",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "Logical content size of the row (sum of byte lengths of string/map fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
+       },
+       {
+        "name": "retention_days",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Per-row retention in days, stamped by the Node consumer from team retention rules. Null when unset — ClickHouse then falls back to the batch `retention-days` header. capture-logs always writes null; it does not evaluate team rules."
+       },
+       {
+        "name": "pattern",
+        "type": [
+         "null",
+         "string"
+        ],
+        "default": null,
+        "doc": "Masked log body, stamped by the Node consumer. Identifiers are replaced with placeholders, so two lines differing only by a request id share one pattern. capture-logs always writes null; it does not mask."
+       },
+       {
+        "name": "pattern_version",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Masking rule set that produced `pattern`. A rule change re-masks every line, so the detector compares within a version and treats a change as a cold start. Null reads as version 0 in ClickHouse, marking a row written before masking. capture-logs always writes null."
+       }
+      ],
+      "doc": "Schema for a structured log or trace event."
+     },
+     "codec": "zstandard",
+     "records": [
+      {
+       "attributes": {
+        "1": "3.5",
+        "http.method": "\"GET\"",
+        "ip": "42",
+        "level": "\"GET\"",
+        "msg": "\"hello\"",
+        "user.email": "\"{{REDACTED}}\"",
+        "user.id": "7"
+       },
+       "body": "{\"level\":\"info\",\"msg\":\"hello\",\"user\":{\"id\":7,\"email\":\"{{REDACTED}}\"}}",
+       "bytes_uncompressed": 837,
+       "event_name": "job.done",
+       "instrumentation_scope": "scope@1.0",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "service.name": "\"web\""
+       },
+       "retention_days": null,
+       "service_name": "worker",
+       "severity_number": 9,
+       "severity_text": "INFO",
+       "span_id": {
+        "$bytes": "eb360e2cc73d3c0c"
+       },
+       "timestamp": 1736941483404773,
+       "trace_flags": 1,
+       "trace_id": {
+        "$bytes": "b096b728e531ace22a97543176f289b9"
+       },
+       "uuid": "00000000-0000-4000-8000-000000002000"
+      },
+      {
+       "attributes": {
+        "0": "1",
+        "1": "\"two\"",
+        "2.three": "3",
+        "3.0": "4",
+        "3.1.0": "5",
+        "level": "\"10.1.2.3\""
+       },
+       "body": "[1,\"two\",{\"three\":3},[4,[5]]]",
+       "bytes_uncompressed": 732,
+       "event_name": "request",
+       "instrumentation_scope": "io.opentelemetry.http",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "service.name": "\"web\""
+       },
+       "retention_days": null,
+       "service_name": "web",
+       "severity_number": 5,
+       "severity_text": "DEBUG",
+       "span_id": {
+        "$bytes": "7b5be97512716a07"
+       },
+       "timestamp": 1736944370420596,
+       "trace_flags": 1,
+       "trace_id": {
+        "$bytes": "402105913de41c8f2182fa7c17d9ccae"
+       },
+       "uuid": "00000000-0000-4000-8000-000000002001"
+      },
+      {
+       "attributes": {},
+       "body": "Authorization: Bearer {{REDACTED}} token=sk_live_FAKEFAKEFAKE1234",
+       "bytes_uncompressed": 795,
+       "event_name": null,
+       "instrumentation_scope": null,
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "k8s.pod.name": "\"pod-4\"",
+        "service.name": "\"worker\""
+       },
+       "retention_days": null,
+       "service_name": null,
+       "severity_number": 9,
+       "severity_text": "INFO",
+       "span_id": {
+        "$bytes": "7e97011a91959804"
+       },
+       "timestamp": 1736942099398617,
+       "trace_flags": 1,
+       "trace_id": {
+        "$bytes": "2445f1aa8a1cf3fa3fc0168167a7c10b"
+       },
+       "uuid": "00000000-0000-4000-8000-000000002002"
+      },
+      {
+       "attributes": {},
+       "body": "GET /api/users/4985 200 60ms",
+       "bytes_uncompressed": 659,
+       "event_name": "job.done",
+       "instrumentation_scope": null,
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "service.name": "\"worker\""
+       },
+       "retention_days": null,
+       "service_name": "web",
+       "severity_number": 0,
+       "severity_text": "",
+       "span_id": {
+        "$bytes": "3ab3ea220eb76e8d"
+       },
+       "timestamp": 1736942316532599,
+       "trace_flags": null,
+       "trace_id": {
+        "$bytes": "12632d22d4121ac712fcb86e4aca8a9e"
+       },
+       "uuid": "00000000-0000-4000-8000-000000002003"
+      }
+     ]
+    }
+   },
+   {
+    "batch": 1,
+    "output": "logs",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "578",
+     "bytes_uncompressed": "1734",
+     "bytes_uncompressed_records": "9084",
+     "created_at": "2025-01-15T12:37:01.565Z",
+     "json-parse": "true",
+     "record_count": "3",
+     "retention-days": "14",
+     "source_partition": "2",
+     "source_topic": "logs_ingestion",
+     "team_id": "102",
+     "token": "phc_parity_json"
+    },
+    "value": {
+     "kind": "avro",
+     "schema": {
+      "name": "LogRecord",
+      "type": "record",
+      "fields": [
+       {
+        "name": "uuid",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Unique identifier for the log record."
+       },
+       {
+        "name": "trace_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the trace this log is a part of."
+       },
+       {
+        "name": "span_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the span within the trace."
+       },
+       {
+        "name": "trace_flags",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Flags associated with the trace."
+       },
+       {
+        "name": "timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The primary timestamp of the event, in microseconds since epoch."
+       },
+       {
+        "name": "observed_timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The timestamp when the event was observed or ingested, in microseconds since epoch."
+       },
+       {
+        "name": "body",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The main content or message of the log."
+       },
+       {
+        "name": "severity_text",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Human-readable severity level (e.g., 'INFO', 'ERROR')."
+       },
+       {
+        "name": "severity_number",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Numeric representation of the severity level."
+       },
+       {
+        "name": "service_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the service that generated the event."
+       },
+       {
+        "name": "resource_attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "Attributes describing the resource that produced the log (e.g., host, region)."
+       },
+       {
+        "name": "instrumentation_scope",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the library or framework that captured the log."
+       },
+       {
+        "name": "event_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of a specific event that occurred."
+       },
+       {
+        "name": "attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "A map of custom string-valued attributes associated with the log."
+       },
+       {
+        "name": "bytes_uncompressed",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "Logical content size of the row (sum of byte lengths of string/map fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
+       },
+       {
+        "name": "retention_days",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Per-row retention in days, stamped by the Node consumer from team retention rules. Null when unset — ClickHouse then falls back to the batch `retention-days` header. capture-logs always writes null; it does not evaluate team rules."
+       },
+       {
+        "name": "pattern",
+        "type": [
+         "null",
+         "string"
+        ],
+        "default": null,
+        "doc": "Masked log body, stamped by the Node consumer. Identifiers are replaced with placeholders, so two lines differing only by a request id share one pattern. capture-logs always writes null; it does not mask."
+       },
+       {
+        "name": "pattern_version",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Masking rule set that produced `pattern`. A rule change re-masks every line, so the detector compares within a version and treats a change as a cold start. Null reads as version 0 in ClickHouse, marking a row written before masking. capture-logs always writes null."
+       }
+      ],
+      "doc": "Schema for a structured log or trace event."
+     },
+     "codec": "zstandard",
+     "records": [
+      {
+       "attributes": {
+        "0": "1",
+        "1": "\"two\"",
+        "2.three": "3",
+        "3.0": "4",
+        "3.1.0": "5",
+        "ip": "raw-unquoted"
+       },
+       "body": "[1,\"two\",{\"three\":3},[4,[5]]]",
+       "bytes_uncompressed": 723,
+       "event_name": null,
+       "instrumentation_scope": "scope@1.0",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "k8s.pod.name": "\"pod-1\"",
+        "service.name": "\"api\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "severity_number": 5,
+       "severity_text": "DEBUG",
+       "span_id": {
+        "$bytes": "81140b9841bfbea2"
+       },
+       "timestamp": 1736941952855183,
+       "trace_flags": null,
+       "trace_id": {
+        "$bytes": "8177dc663bc1afe93c797daa45d68470"
+       },
+       "uuid": "00000000-0000-4000-8000-000000003000"
+      },
+      {
+       "attributes": {
+        "1": "{\"nested\":{\"json\":\"payload\",\"n\":1}}",
+        "http.method": "\"GET\"",
+        "url.path": "\"10.1.2.3\""
+       },
+       "body": "ERROR something failed at 2025-01-15T12:31:52.202Z code=105",
+       "bytes_uncompressed": 305,
+       "event_name": "request",
+       "instrumentation_scope": "io.opentelemetry.http",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "service.name": "\"worker\""
+       },
+       "retention_days": null,
+       "service_name": "worker",
+       "severity_number": 9,
+       "severity_text": "info",
+       "span_id": {
+        "$bytes": "7ba68a8a48319ce1"
+       },
+       "timestamp": 1736941731359860,
+       "trace_flags": null,
+       "trace_id": {
+        "$bytes": "f2933eab6ea5d8dfce819fa7b032e02d"
+       },
+       "uuid": "00000000-0000-4000-8000-000000003001"
+      },
+      {
+       "attributes": {
+        "1": "\"GET\"",
+        "count": "42"
+       },
+       "body": "{not valid json",
+       "bytes_uncompressed": 719,
+       "event_name": "request",
+       "instrumentation_scope": null,
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "service.name": "\"web\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "severity_number": 17,
+       "severity_text": "ERROR",
+       "span_id": {
+        "$bytes": "468b1d2e88bf8107"
+       },
+       "timestamp": 1736943001476436,
+       "trace_flags": null,
+       "trace_id": {
+        "$bytes": "dcde41d0ff637fed0387e50896af33fe"
+       },
+       "uuid": "00000000-0000-4000-8000-000000003004"
+      }
+     ]
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:38:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested\",\"count\":11628}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 11628,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:38:13.250"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:38:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_records\",\"count\":7752}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 7752,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_records",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:38:13.250"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:38:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_retention_14d\",\"count\":11628}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 11628,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_retention_14d",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:38:13.250"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:38:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_received\",\"count\":11628}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 11628,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:38:13.250"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:38:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_ingested\",\"count\":8}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 8,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_ingested",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:38:13.250"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":102,\"timestamp\":\"2025-01-15 12:38:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_received\",\"count\":8}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 8,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:38:13.250"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:00:00.000\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"retention_byte_days\",\"count\":366390}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 366390,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "retention_byte_days",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:38:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested\",\"count\":12213}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 12213,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:38:13.250"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:38:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_records\",\"count\":8142}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 8142,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_records",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:38:13.250"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:38:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_retention_30d\",\"count\":12213}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 12213,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_retention_30d",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:38:13.250"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:38:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_received\",\"count\":12213}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 12213,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:38:13.250"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:38:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"pii_replacements\",\"count\":4}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 4,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "pii_replacements",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:38:13.250"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:38:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_ingested\",\"count\":5}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 5,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_ingested",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:38:13.250"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":104,\"timestamp\":\"2025-01-15 12:38:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_received\",\"count\":5}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 5,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 104,
+      "timestamp": "2025-01-15 12:38:13.250"
+     }
+    }
+   },
+   {
+    "batch": 2,
+    "output": "logs",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "3876",
+     "bytes_uncompressed": "11628",
+     "bytes_uncompressed_records": "7752",
+     "created_at": "2025-01-15T12:37:04.365Z",
+     "json-parse": "true",
+     "record_count": "8",
+     "retention-days": "14",
+     "source_partition": "1",
+     "source_topic": "logs_ingestion",
+     "team_id": "102",
+     "token": "phc_parity_json"
+    },
+    "value": {
+     "kind": "avro",
+     "schema": {
+      "name": "LogRecord",
+      "type": "record",
+      "fields": [
+       {
+        "name": "uuid",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Unique identifier for the log record."
+       },
+       {
+        "name": "trace_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the trace this log is a part of."
+       },
+       {
+        "name": "span_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the span within the trace."
+       },
+       {
+        "name": "trace_flags",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Flags associated with the trace."
+       },
+       {
+        "name": "timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The primary timestamp of the event, in microseconds since epoch."
+       },
+       {
+        "name": "observed_timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The timestamp when the event was observed or ingested, in microseconds since epoch."
+       },
+       {
+        "name": "body",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The main content or message of the log."
+       },
+       {
+        "name": "severity_text",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Human-readable severity level (e.g., 'INFO', 'ERROR')."
+       },
+       {
+        "name": "severity_number",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Numeric representation of the severity level."
+       },
+       {
+        "name": "service_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the service that generated the event."
+       },
+       {
+        "name": "resource_attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "Attributes describing the resource that produced the log (e.g., host, region)."
+       },
+       {
+        "name": "instrumentation_scope",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the library or framework that captured the log."
+       },
+       {
+        "name": "event_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of a specific event that occurred."
+       },
+       {
+        "name": "attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "A map of custom string-valued attributes associated with the log."
+       },
+       {
+        "name": "bytes_uncompressed",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "Logical content size of the row (sum of byte lengths of string/map fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
+       },
+       {
+        "name": "retention_days",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Per-row retention in days, stamped by the Node consumer from team retention rules. Null when unset — ClickHouse then falls back to the batch `retention-days` header. capture-logs always writes null; it does not evaluate team rules."
+       },
+       {
+        "name": "pattern",
+        "type": [
+         "null",
+         "string"
+        ],
+        "default": null,
+        "doc": "Masked log body, stamped by the Node consumer. Identifiers are replaced with placeholders, so two lines differing only by a request id share one pattern. capture-logs always writes null; it does not mask."
+       },
+       {
+        "name": "pattern_version",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Masking rule set that produced `pattern`. A rule change re-masks every line, so the detector compares within a version and treats a change as a cold start. Null reads as version 0 in ClickHouse, marking a row written before masking. capture-logs always writes null."
+       }
+      ],
+      "doc": "Schema for a structured log or trace event."
+     },
+     "codec": "zstandard",
+     "records": [
+      {
+       "attributes": null,
+       "body": "request 3fa85f64-5717-4562-b3fc-2c963f66afa6 took 12ms on host ip-10-0-0-1",
+       "bytes_uncompressed": 740,
+       "event_name": null,
+       "instrumentation_scope": "io.opentelemetry.http",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": null,
+       "retention_days": null,
+       "service_name": "api",
+       "severity_number": 5,
+       "severity_text": "DEBUG",
+       "span_id": {
+        "$bytes": "b218bd5db86c8c10"
+       },
+       "timestamp": 1736941193314816,
+       "trace_flags": 1,
+       "trace_id": {
+        "$bytes": "921cd4ff9efb1de1a0dd7f99c9e9cbb3"
+       },
+       "uuid": "00000000-0000-4000-8000-000000005000"
+      },
+      {
+       "attributes": {
+        "k": "\"/api/v1/items\"",
+        "payload": "\"{\\\"stringified\\\":\\\"json\\\",\\\"arr\\\":[1,2]}\"",
+        "url.path": "true"
+       },
+       "body": "ERROR something failed at 2025-01-15T12:20:52.274Z code=178",
+       "bytes_uncompressed": 106,
+       "event_name": "job.done",
+       "instrumentation_scope": "io.opentelemetry.http",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "k8s.pod.name": "\"pod-1\"",
+        "service.name": "\"worker\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "severity_number": 9,
+       "severity_text": "info",
+       "span_id": {
+        "$bytes": "1b0dce1baeff834f"
+       },
+       "timestamp": 1736944561048330,
+       "trace_flags": null,
+       "trace_id": {
+        "$bytes": "3faa9531a5d401e3055b67833b118c05"
+       },
+       "uuid": "00000000-0000-4000-8000-000000005001"
+      },
+      {
+       "attributes": {
+        "1": "\"int-key\"",
+        "a.b.c.d.0": "1",
+        "a.b.c.d.1": "2",
+        "a.b.c.d.2.e": "\"deep\"",
+        "b": "true",
+        "z": "\"null\""
+       },
+       "body": "{\"1\":\"int-key\",\"a\":{\"b\":{\"c\":{\"d\":[1,2,{\"e\":\"deep\"}]}}},\"z\":null,\"b\":true}",
+       "bytes_uncompressed": 57,
+       "event_name": null,
+       "instrumentation_scope": "io.opentelemetry.http",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "k8s.pod.name": "\"pod-1\"",
+        "service.name": "\"worker\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "severity_number": 0,
+       "severity_text": "",
+       "span_id": null,
+       "timestamp": 1736943969672975,
+       "trace_flags": 1,
+       "trace_id": {
+        "$bytes": "ef82c473c2b3ff86abb5ae2ff2ca62a3"
+       },
+       "uuid": "00000000-0000-4000-8000-000000005002"
+      },
+      {
+       "attributes": {
+        "http.method": "\"carol@example.com\""
+       },
+       "body": "{\"deep\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}",
+       "bytes_uncompressed": 114,
+       "event_name": "job.done",
+       "instrumentation_scope": "io.opentelemetry.http",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "k8s.pod.name": "\"pod-2\"",
+        "service.name": "\"worker\""
+       },
+       "retention_days": null,
+       "service_name": null,
+       "severity_number": 17,
+       "severity_text": "ERROR",
+       "span_id": {
+        "$bytes": "98659d17f351a82b"
+       },
+       "timestamp": 1736942875276749,
+       "trace_flags": null,
+       "trace_id": {
+        "$bytes": "9381e57d3bbadfec8bb4376540bf9f5c"
+       },
+       "uuid": "00000000-0000-4000-8000-000000005003"
+      },
+      {
+       "attributes": {
+        "count": "\"{\\\"stringified\\\":\\\"json\\\",\\\"arr\\\":[1,2]}\"",
+        "ip": "\"/api/v1/items\"",
+        "payload": "42",
+        "user.email": "\"{\\\"stringified\\\":\\\"json\\\",\\\"arr\\\":[1,2]}\""
+       },
+       "body": "12345",
+       "bytes_uncompressed": 285,
+       "event_name": "request",
+       "instrumentation_scope": "io.opentelemetry.http",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "k8s.pod.name": "\"pod-3\"",
+        "service.name": "\"web\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "severity_number": 9,
+       "severity_text": "INFO",
+       "span_id": null,
+       "timestamp": 1736942723921179,
+       "trace_flags": 1,
+       "trace_id": {
+        "$bytes": "3a38021380bad2a7ac41ab0f2b121749"
+       },
+       "uuid": "00000000-0000-4000-8000-000000005004"
+      },
+      {
+       "attributes": {
+        "http.method": "\"/healthz\"",
+        "k": "raw-unquoted",
+        "payload": "\"/api/v1/items\""
+       },
+       "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "bytes_uncompressed": 273,
+       "event_name": "request",
+       "instrumentation_scope": null,
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "service.name": "\"worker\""
+       },
+       "retention_days": null,
+       "service_name": "web",
+       "severity_number": 5,
+       "severity_text": "DEBUG",
+       "span_id": {
+        "$bytes": "949ad088f8ca7ac8"
+       },
+       "timestamp": 1736943037228000,
+       "trace_flags": 1,
+       "trace_id": {
+        "$bytes": "459408630219f96aed6d5d6f26c4520a"
+       },
+       "uuid": "00000000-0000-4000-8000-000000005005"
+      },
+      {
+       "attributes": {},
+       "body": "plain text log line",
+       "bytes_uncompressed": 417,
+       "event_name": "job.done",
+       "instrumentation_scope": null,
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "k8s.pod.name": "\"pod-0\"",
+        "service.name": "\"web\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "severity_number": 17,
+       "severity_text": "ERROR",
+       "span_id": {
+        "$bytes": "6e9143ce4c5687ca"
+       },
+       "timestamp": 1736942012429770,
+       "trace_flags": 1,
+       "trace_id": {
+        "$bytes": "14e150471fb9b5016a4afee61901b0b0"
+       },
+       "uuid": "00000000-0000-4000-8000-000000005006"
+      },
+      {
+       "attributes": null,
+       "body": "",
+       "bytes_uncompressed": 778,
+       "event_name": "request",
+       "instrumentation_scope": "io.opentelemetry.http",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": null,
+       "service_name": null,
+       "severity_number": 9,
+       "severity_text": "info",
+       "span_id": null,
+       "timestamp": 1736944572887867,
+       "trace_flags": null,
+       "trace_id": {
+        "$bytes": "3e8bb5d0e61e305ff3612e2df44e08d8"
+       },
+       "uuid": "00000000-0000-4000-8000-000000005007"
+      }
+     ]
+    }
+   },
+   {
+    "batch": 2,
+    "output": "logs",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "4071",
+     "bytes_uncompressed": "12213",
+     "bytes_uncompressed_records": "8142",
+     "created_at": "2025-01-15T12:37:08.239Z",
+     "json-parse": "true",
+     "record_count": "5",
+     "retention-days": "30",
+     "source_partition": "3",
+     "source_topic": "logs_ingestion",
+     "team_id": "104",
+     "token": "phc_parity_both"
+    },
+    "value": {
+     "kind": "avro",
+     "schema": {
+      "name": "LogRecord",
+      "type": "record",
+      "fields": [
+       {
+        "name": "uuid",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Unique identifier for the log record."
+       },
+       {
+        "name": "trace_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the trace this log is a part of."
+       },
+       {
+        "name": "span_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the span within the trace."
+       },
+       {
+        "name": "trace_flags",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Flags associated with the trace."
+       },
+       {
+        "name": "timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The primary timestamp of the event, in microseconds since epoch."
+       },
+       {
+        "name": "observed_timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The timestamp when the event was observed or ingested, in microseconds since epoch."
+       },
+       {
+        "name": "body",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The main content or message of the log."
+       },
+       {
+        "name": "severity_text",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Human-readable severity level (e.g., 'INFO', 'ERROR')."
+       },
+       {
+        "name": "severity_number",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Numeric representation of the severity level."
+       },
+       {
+        "name": "service_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the service that generated the event."
+       },
+       {
+        "name": "resource_attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "Attributes describing the resource that produced the log (e.g., host, region)."
+       },
+       {
+        "name": "instrumentation_scope",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the library or framework that captured the log."
+       },
+       {
+        "name": "event_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of a specific event that occurred."
+       },
+       {
+        "name": "attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "A map of custom string-valued attributes associated with the log."
+       },
+       {
+        "name": "bytes_uncompressed",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "Logical content size of the row (sum of byte lengths of string/map fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
+       },
+       {
+        "name": "retention_days",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Per-row retention in days, stamped by the Node consumer from team retention rules. Null when unset — ClickHouse then falls back to the batch `retention-days` header. capture-logs always writes null; it does not evaluate team rules."
+       },
+       {
+        "name": "pattern",
+        "type": [
+         "null",
+         "string"
+        ],
+        "default": null,
+        "doc": "Masked log body, stamped by the Node consumer. Identifiers are replaced with placeholders, so two lines differing only by a request id share one pattern. capture-logs always writes null; it does not mask."
+       },
+       {
+        "name": "pattern_version",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Masking rule set that produced `pattern`. A rule change re-masks every line, so the detector compares within a version and treats a change as a cold start. Null reads as version 0 in ClickHouse, marking a row written before masking. capture-logs always writes null."
+       }
+      ],
+      "doc": "Schema for a structured log or trace event."
+     },
+     "codec": "zstandard",
+     "records": [
+      {
+       "attributes": {
+        "leading": "\"whitespace\"",
+        "level": "\"/healthz\""
+       },
+       "body": "  {\"leading\": \"whitespace\"}  ",
+       "bytes_uncompressed": 533,
+       "event_name": "request",
+       "instrumentation_scope": null,
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "service.name": "\"web\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "severity_number": 9,
+       "severity_text": "INFO",
+       "span_id": {
+        "$bytes": "aa52c7848beb1916"
+       },
+       "timestamp": 1736943384939094,
+       "trace_flags": 1,
+       "trace_id": {
+        "$bytes": "bfae7c7f5d7a4e70a4c83fc2b37a6c49"
+       },
+       "uuid": "00000000-0000-4000-8000-000000004000"
+      },
+      {
+       "attributes": {
+        "1": "42",
+        "level": "\"info\"",
+        "msg": "\"hello\"",
+        "user.email": "\"{\\\"stringified\\\":\\\"json\\\",\\\"arr\\\":[1,2]}\"",
+        "user.id": "7"
+       },
+       "body": "{\"level\":\"info\",\"msg\":\"hello\",\"user\":{\"id\":7,\"email\":\"{{REDACTED}}\"}}",
+       "bytes_uncompressed": 125,
+       "event_name": "job.done",
+       "instrumentation_scope": "io.opentelemetry.http",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "service.name": "\"web\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "severity_number": 9,
+       "severity_text": "info",
+       "span_id": null,
+       "timestamp": 1736943642012886,
+       "trace_flags": null,
+       "trace_id": {
+        "$bytes": "ae398cde21eefce85f2b3c1c49331c84"
+       },
+       "uuid": "00000000-0000-4000-8000-000000004001"
+      },
+      {
+       "attributes": {
+        "http.method": "\"/healthz\"",
+        "ip": "\"{{REDACTED}}\"",
+        "url.path": "true"
+       },
+       "body": "user {{REDACTED}} logged in from 192.168.1.20",
+       "bytes_uncompressed": 300,
+       "event_name": null,
+       "instrumentation_scope": "scope@1.0",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "k8s.pod.name": "\"pod-0\"",
+        "service.name": "\"api\""
+       },
+       "retention_days": null,
+       "service_name": null,
+       "severity_number": 17,
+       "severity_text": "ERROR",
+       "span_id": {
+        "$bytes": "848f31260a73e80c"
+       },
+       "timestamp": 1736941596791480,
+       "trace_flags": null,
+       "trace_id": {
+        "$bytes": "13d3ea919550d3302bea93a4a13fa23a"
+       },
+       "uuid": "00000000-0000-4000-8000-000000004002"
+      },
+      {
+       "attributes": {
+        "1": "raw-unquoted",
+        "count": "42",
+        "ip": "raw-unquoted",
+        "k": "raw-unquoted",
+        "k0": "0",
+        "k1": "1",
+        "k10": "10",
+        "k11": "11",
+        "k12": "12",
+        "k13": "13",
+        "k14": "14",
+        "k15": "15",
+        "k16": "16",
+        "k17": "17",
+        "k18": "18",
+        "k19": "19",
+        "k2": "2",
+        "k20": "20",
+        "k21": "21",
+        "k22": "22",
+        "k23": "23",
+        "k24": "24",
+        "k25": "25",
+        "k26": "26",
+        "k27": "27",
+        "k28": "28",
+        "k29": "29",
+        "k3": "3",
+        "k30": "30",
+        "k31": "31",
+        "k32": "32",
+        "k33": "33",
+        "k34": "34",
+        "k35": "35",
+        "k36": "36",
+        "k37": "37",
+        "k38": "38",
+        "k39": "39",
+        "k4": "4",
+        "k40": "40",
+        "k41": "41",
+        "k42": "42",
+        "k43": "43",
+        "k44": "44",
+        "k45": "45",
+        "k46": "46",
+        "k47": "47",
+        "k48": "48",
+        "k49": "49",
+        "k5": "5",
+        "k6": "6",
+        "k7": "7",
+        "k8": "8",
+        "k9": "9",
+        "url.path": "{\"nested\":{\"json\":\"payload\",\"n\":1}}"
+       },
+       "body": "{\"k0\":0,\"k1\":1,\"k2\":2,\"k3\":3,\"k4\":4,\"k5\":5,\"k6\":6,\"k7\":7,\"k8\":8,\"k9\":9,\"k10\":10,\"k11\":11,\"k12\":12,\"k13\":13,\"k14\":14,\"k15\":15,\"k16\":16,\"k17\":17,\"k18\":18,\"k19\":19,\"k20\":20,\"k21\":21,\"k22\":22,\"k23\":23,\"k24\":24,\"k25\":25,\"k26\":26,\"k27\":27,\"k28\":28,\"k29\":29,\"k30\":30,\"k31\":31,\"k32\":32,\"k33\":33,\"k34\":34,\"k35\":35,\"k36\":36,\"k37\":37,\"k38\":38,\"k39\":39,\"k40\":40,\"k41\":41,\"k42\":42,\"k43\":43,\"k44\":44,\"k45\":45,\"k46\":46,\"k47\":47,\"k48\":48,\"k49\":49,\"k50\":50,\"k51\":51,\"k52\":52,\"k53\":53,\"k54\":54,\"k55\":55,\"k56\":56,\"k57\":57,\"k58\":58,\"k59\":59,\"k60\":60,\"k61\":61,\"k62\":62,\"k63\":63,\"k64\":64,\"k65\":65,\"k66\":66,\"k67\":67,\"k68\":68,\"k69\":69}",
+       "bytes_uncompressed": 479,
+       "event_name": "request",
+       "instrumentation_scope": "io.opentelemetry.http",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": null,
+       "retention_days": null,
+       "service_name": "api",
+       "severity_number": 0,
+       "severity_text": "",
+       "span_id": {
+        "$bytes": "e604411f2a2d0ffe"
+       },
+       "timestamp": 1736944105368447,
+       "trace_flags": null,
+       "trace_id": {
+        "$bytes": "43fa220477d85ae4fa328ccabb687e4e"
+       },
+       "uuid": "00000000-0000-4000-8000-000000004003"
+      },
+      {
+       "attributes": {
+        "1": "3.5",
+        "http.method": "\"GET\"",
+        "k": "\"{{REDACTED}}\"",
+        "user.email": "true"
+       },
+       "body": "card 4111 1111 1111 1111 exp 12/29 cvv 123",
+       "bytes_uncompressed": 715,
+       "event_name": "request",
+       "instrumentation_scope": "scope@1.0",
+       "observed_timestamp": 1736944633250000,
+       "pattern": null,
+       "pattern_version": null,
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "severity_number": 5,
+       "severity_text": "DEBUG",
+       "span_id": {
+        "$bytes": "cd89ca2a80ada0bc"
+       },
+       "timestamp": 1736941321789376,
+       "trace_flags": 1,
+       "trace_id": {
+        "$bytes": "53d6f1e250ef22c9cc8de3e43b07b3b1"
+       },
+       "uuid": "00000000-0000-4000-8000-000000004004"
+      }
+     ]
+    }
+   }
+  ],
+  "metric_emits": [],
+  "usage_records": [
+   {
+    "batch": 0,
+    "team_id": 102,
+    "metric": "logs_bytes",
+    "quantity": 1698,
+    "unit": "bytes",
+    "record_group": 0
+   },
+   {
+    "batch": 0,
+    "team_id": 102,
+    "metric": "logs_records",
+    "quantity": 1,
+    "unit": "records",
+    "record_group": 0
+   },
+   {
+    "batch": 0,
+    "team_id": 104,
+    "metric": "logs_bytes",
+    "quantity": 10279,
+    "unit": "bytes",
+    "record_group": 1
+   },
+   {
+    "batch": 0,
+    "team_id": 104,
+    "metric": "logs_records",
+    "quantity": 3,
+    "unit": "records",
+    "record_group": 1
+   },
+   {
+    "batch": 1,
+    "team_id": 102,
+    "metric": "logs_bytes",
+    "quantity": 1734,
+    "unit": "bytes",
+    "record_group": 2
+   },
+   {
+    "batch": 1,
+    "team_id": 102,
+    "metric": "logs_records",
+    "quantity": 3,
+    "unit": "records",
+    "record_group": 2
+   },
+   {
+    "batch": 1,
+    "team_id": 104,
+    "metric": "logs_bytes",
+    "quantity": 9056,
+    "unit": "bytes",
+    "record_group": 3
+   },
+   {
+    "batch": 1,
+    "team_id": 104,
+    "metric": "logs_records",
+    "quantity": 4,
+    "unit": "records",
+    "record_group": 3
+   },
+   {
+    "batch": 2,
+    "team_id": 102,
+    "metric": "logs_bytes",
+    "quantity": 11628,
+    "unit": "bytes",
+    "record_group": 4
+   },
+   {
+    "batch": 2,
+    "team_id": 102,
+    "metric": "logs_records",
+    "quantity": 8,
+    "unit": "records",
+    "record_group": 4
+   },
+   {
+    "batch": 2,
+    "team_id": 104,
+    "metric": "logs_bytes",
+    "quantity": 12213,
+    "unit": "bytes",
+    "record_group": 5
+   },
+   {
+    "batch": 2,
+    "team_id": 104,
+    "metric": "logs_records",
+    "quantity": 5,
+    "unit": "records",
+    "record_group": 5
+   }
+  ],
+  "teams_ingested": [
+   [
+    104,
+    102
+   ],
+   [
+    104,
+    102
+   ],
+   [
+    104,
+    102
+   ]
+  ],
+  "quota_checks": [
+   [
+    "phc_parity_both",
+    "logs_mb_ingested"
+   ],
+   [
+    "phc_parity_json",
+    "logs_mb_ingested"
+   ]
+  ]
+ }
+}

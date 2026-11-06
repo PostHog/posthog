@@ -195,7 +195,7 @@ class TestTemplateUpload(APIBaseTest):
         repaired = self._upload(WELCOME)
         sent = self.psak.post(
             f"/api/projects/{self.team.id}/messaging/send/email/",
-            {"template": {"key": "welcome", "hash": WELCOME_HASH}, "to": "user@example.com"},
+            {"template_key": "welcome", "template_hash": WELCOME_HASH, "to": "user@example.com"},
             format="json",
         )
 
@@ -206,7 +206,7 @@ class TestTemplateUpload(APIBaseTest):
         assert sent.status_code == status.HTTP_202_ACCEPTED, sent.json()
         assert "warnings" not in sent.json()
 
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_a_changed_upload_is_what_the_next_send_delivers(self, _reload, post: MagicMock, _flag, _capture):
         first = self._upload(WELCOME)
         post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
@@ -290,7 +290,7 @@ class TestTemplateUpload(APIBaseTest):
         assert sent.status_code == status.HTTP_202_ACCEPTED, sent.json()
         return post.call_args.args[0].split("/hog_flows/")[1].split("/")[0]
 
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_code_sends_under_a_key_move_to_its_template_only_once_an_upload_claims_it(
         self, _reload, post: MagicMock, _flag, _capture
     ):
@@ -601,7 +601,8 @@ class TestTemplateUpload(APIBaseTest):
         response = self.psak.post(
             f"/api/projects/{self.team.id}/messaging/send/email/",
             {
-                "template": {"key": "welcome", "hash": sent_hash or published["content_hash"]},
+                "template_key": "welcome",
+                "template_hash": sent_hash or published["content_hash"],
                 "to": "jane@example.com",
                 "message_data": {"first_name": "Jane"},
             },

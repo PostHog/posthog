@@ -80,6 +80,7 @@ def execute_managed_trino_query(
     settings: HogQLGlobalSettings,
     timings: HogQLTimings,
     limit_context: LimitContext | None,
+    canary: bool = False,
 ) -> HogQLQueryResponse:
     validate_managed_trino_query(query, team, user)
     assert user is not None
@@ -131,7 +132,9 @@ def execute_managed_trino_query(
             cancellation_token=cancellation_token,
         ),
         connect_managed_warehouse_trino(
-            str(team.organization_id), principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}"
+            str(team.organization_id),
+            principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}",
+            canary=canary,
         ),
     )
     response = HogQLQueryResponse(

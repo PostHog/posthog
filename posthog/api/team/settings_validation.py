@@ -3,6 +3,8 @@
 import json
 from typing import TYPE_CHECKING, Any, cast
 
+from django.conf import settings
+
 import re2
 from pydantic import TypeAdapter
 from pydantic_core import ValidationError as PydanticValidationError
@@ -13,13 +15,16 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
+from posthog.models.project_secret_api_key import MIRRORED_LEGACY_TOKEN_SCOPES
 from posthog.models.team.logs_retention import LOGS_CUSTOM_RETENTION_FLAG
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import get_authenticator_scopes, posthog_feature_flag_enabled, scopes_caller_lacks
 from posthog.types import AnyPropertyFilter
 
 from . import team_config
 
 if TYPE_CHECKING:
+    from rest_framework.request import Request
+
     from posthog.user_permissions import UserPermissions
 
 test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
@@ -165,6 +170,26 @@ def heatmaps_screenshot_secret_for_reader(team: Team, user_permissions: "UserPer
     if level is None or level < OrganizationMembership.Level.ADMIN:
         return None
     return team.heatmaps_screenshot_secret
+
+
+def _caller_may_read_secret_api_tokens(request: "Request | None") -> bool:
+    caller_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if caller_scopes is None or "*" in caller_scopes:
+        return True
+    # While legacy team tokens are accepted, the raw token also authenticates routes that check no scope,
+    # such as external ticket updates and customer analytics accounts, so no scope list covers it.
+    if settings.ACCEPT_TEAM_SECRET_TOKENS:
+        return False
+    # Otherwise it authenticates only through its PSAK mirror row, whose scopes rotation also requires.
+    return not scopes_caller_lacks(request, MIRRORED_LEGACY_TOKEN_SCOPES)
+
+
+def hide_secret_api_tokens_from_unscoped_caller(representation: dict[str, Any], request: "Request | None") -> None:
+    if _caller_may_read_secret_api_tokens(request):
+        return
+    for field in ("secret_api_token", "secret_api_token_backup"):
+        if field in representation:
+            representation[field] = None
 
 
 def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerializer) -> Organization | None:

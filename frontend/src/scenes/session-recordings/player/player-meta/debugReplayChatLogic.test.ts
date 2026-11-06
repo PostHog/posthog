@@ -1,10 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { ActiveCreation, runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-
-import { ActiveCreation, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { DebugChatSummary, debugReplayChatLogic } from './debugReplayChatLogic'
 

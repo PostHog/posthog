@@ -56,13 +56,14 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.events_query_runner import SELECT_STAR_FROM_EVENTS_FIELDS
 from posthog.models import PropertyDefinition, Team
 from posthog.models.group.util import create_group
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.property import TableColumn
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_group_type_mapping, create_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import insert_static_cohort
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -268,13 +269,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         modifiers: HogQLQueryModifiers | None = None,
         mode: FlagEvaluationsMode = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
     ) -> HogQLQueryResponse:
+        # The force-events switch does not move FLAG_EVALUATIONS_ONLY. The events-side baseline therefore runs on mode 1.
         OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": mode if rewrite else FlagEvaluationsMode.READ_FLAG_EVALUATIONS},
         )
-        with patch(
-            "posthog.hogql.database.database.feature_enabled_or_false",
-            side_effect=lambda key, *args, **kwargs: rewrite and key == "hogql-flag-calls-from-flag-evaluations",
-        ):
+        with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", not rewrite):
             return execute_hogql_query(query, team=self.team, filters=filters, modifiers=modifiers, pretty=False)
 
     def _override(self, person_id: uuid.UUID, version: int, is_deleted: bool = False) -> None:
@@ -727,7 +727,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert f"toIntervalDay({SESSION_BUFFER_DAYS})" in clickhouse
 
-    def test_flag_call_query_on_events_reads_no_flag_evaluations_with_the_flag_off(self):
+    def test_flag_call_query_on_events_reads_no_flag_evaluations_when_reads_are_forced_to_events(self):
         assert self._query_events(FLAG_CALLS_ON_EVENTS, rewrite=False).results == [(0,)]
 
     @parameterized.expand(
@@ -993,7 +993,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
         assert (
             self._query_events(query, modifiers=modifiers, mode=mode).clickhouse
-            == self._query_events(query, rewrite=False, modifiers=modifiers, mode=mode).clickhouse
+            == self._query_events(query, rewrite=False, modifiers=modifiers).clickhouse
         )
         with self.assertRaisesRegex(QueryError, error):
             self._query_events(query, modifiers=modifiers)
@@ -1262,8 +1262,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             self._query_events("SELECT distinct_id FROM calls")
 
     def test_view_that_names_flag_calls_only_through_an_action_raises(self):
-        action = Action.objects.create(team=self.team, steps_json=[{"event": "$feature_flag_called"}])
-        self._create_view("calls", f"SELECT distinct_id FROM events WHERE matchesAction({action.pk})")
+        action = create_action(team=self.team, steps_json=[{"event": "$feature_flag_called"}])
+        self._create_view("calls", f"SELECT distinct_id FROM events WHERE matchesAction({action.id})")
 
         with self.assertRaisesRegex(QueryError, "it reads the saved view calls, which reads them from events"):
             self._query_events("SELECT distinct_id FROM calls")
@@ -1514,7 +1514,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             "AND properties.$feature_flag = 'TRUE' AND timestamp >= now() - INTERVAL 7 DAY"
         )
 
-        from_events = self._query_events(query, rewrite=False, mode=mode).results
+        from_events = self._query_events(query, rewrite=False).results
 
         swapped = self._query_events(query, mode=mode)
 
@@ -1549,7 +1549,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 event_uuid=str(row_uuid),
             )
             flush_persons_and_events()
-            from_events = self._query_events(query, rewrite=False, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+            from_events = self._query_events(query, rewrite=False)
             rewritten = self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
 
         assert from_events.results == [(expected_count,)]
@@ -1596,7 +1596,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
         mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
 
-        from_events = self._query_events(query, rewrite=False, modifiers=modifiers, mode=mode)
+        from_events = self._query_events(query, rewrite=False, modifiers=modifiers)
         rewritten = self._query_events(query, modifiers=modifiers, mode=mode)
 
         assert rewritten.results == from_events.results

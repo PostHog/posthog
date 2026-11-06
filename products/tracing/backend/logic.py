@@ -63,6 +63,8 @@ TIME_BUCKET_DATE_RANGE_WHERE = (
 # before the range, so the trace does not show as having no root.
 ROOT_SPAN_LOOKBACK = dt.timedelta(minutes=15)
 
+TRACE_DURATION_NANO_SQL = "dateDiff('microsecond', min(timestamp), max(end_time)) * 1000"
+
 # Hard cap on number of rows returned per period by the span aggregation runners. Keeps
 # payloads bounded when name cardinality blows up (e.g. untemplated URL paths). The flame
 # graph collapses long tails anyway so the lower-ranked rows aren't visible.
@@ -668,9 +670,9 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # per-trace value — `LIMIT 1 BY trace_id` can't paginate cleanly because a multi-span trace
         # straddling the boundary would be re-selected via its other spans. Time sorts order by each
         # trace's start time (`min(timestamp)`) and keyset on it; duration sorts order by trace
-        # duration (`max(duration_nano)`) and offset-paginate (the time index can't prune a duration
-        # order, so keyset would pay its cost for none of its benefit).
-        sort_key_sql = "max(duration_nano)" if by_duration else "min(timestamp)"
+        # duration (first span start to last span end) and offset-paginate (the time index can't prune
+        # a duration order, so keyset would pay its cost for none of its benefit).
+        sort_key_sql = TRACE_DURATION_NANO_SQL if by_duration else "min(timestamp)"
 
         # rootSpans is gated on `is True` (not truthiness), so None leaves the prefetch-driven
         # waterfall untouched. The list endpoint defaults it to True, and the span list sends False
@@ -757,7 +759,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # `trace_start` / `trace_duration` are the per-trace keys the view paginates and re-sorts on.
         # They MUST aggregate over the same rows the trace-selection subquery grouped, or the keys
         # diverge from the set the subquery picked — e.g. under root_only the subquery orders traces
-        # by `max(duration_nano)` over root spans, so a window over *all* spans would rank a trace by
+        # by the duration of their root spans, so a window over *all* spans would rank a trace by
         # a long child the subquery never considered, corrupting the order and offset page boundaries.
         # Scope the key windows to match the subquery (cursor/time bounds are deliberately excluded —
         # the key is a property of the whole trace, not of the current page).
@@ -817,7 +819,11 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
                 {attributes},
                 {resource_attributes},
-                max(if({where_for_start}, duration_nano, NULL)) OVER (PARTITION BY trace_id) as trace_duration,
+                dateDiff(
+                    'microsecond',
+                    min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id),
+                    max(if({where_for_start}, end_time, NULL)) OVER (PARTITION BY trace_id)
+                ) * 1000 as trace_duration,
                 {events}
             FROM posthog.trace_spans
             WHERE {filters} AND {trace_filter} LIMIT {limit}

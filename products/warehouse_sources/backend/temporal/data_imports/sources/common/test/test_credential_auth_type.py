@@ -5,7 +5,6 @@ from unittest.mock import PropertyMock, patch
 
 from django.core.management import CommandError, call_command
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.facade.credential_auth_types import CREDENTIAL_AUTH_TYPES
 from products.warehouse_sources.backend.facade.credential_kinds import CREDENTIAL_KINDS
 from products.warehouse_sources.backend.management.commands import (

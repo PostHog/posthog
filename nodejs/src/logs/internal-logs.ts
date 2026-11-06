@@ -28,6 +28,8 @@ export type InternalSourcePolicy = {
     billed: boolean
     /** Runs the team's sampling, drop, transformation, metric and retention rules. */
     teamRules: boolean
+    /** The `service.name` a producer stamps on this source's logs. */
+    serviceName: string
 }
 
 export type InternalLogs = InternalSourcePolicy & { source: string }
@@ -35,9 +37,8 @@ export type InternalLogs = InternalSourcePolicy & { source: string }
 // A signer names the source and this map decides how it is handled, so a leaked key cannot invent
 // a free source. Moving a source to billing changes its entry here, not the producer or the header.
 export const INTERNAL_SOURCE_POLICIES: Readonly<Record<string, InternalSourcePolicy>> = {
-    hog_flow: { billed: false, teamRules: false },
-    // Each log_entries source moves unbilled, one at a time. Add a source when its producer starts signing.
-    // hog_function: { billed: false, teamRules: false },
+    hog_flow: { billed: false, teamRules: false, serviceName: 'posthog-internal-workflows' },
+    hog_function: { billed: false, teamRules: false, serviceName: 'posthog-internal-hog-functions' },
 }
 
 type NotInternalReason =

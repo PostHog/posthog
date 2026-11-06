@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.replay_vision.backend.scanner_query import (
     MAX_QUERY_BYTES,
@@ -91,7 +91,7 @@ class TestChosenScope:
 
 class TestUnresolvedReferences(BaseTest):
     def test_names_the_references_a_scan_cannot_load(self):
-        live_action = Action.objects.create(team=self.team, name="Completed checkout")
+        live_action = create_action(team=self.team, name="Completed checkout")
         live_cohort = Cohort.objects.create(team=self.team, name="Paying customers")
         deleted_cohort = Cohort.objects.create(team=self.team, name="Old customers", deleted=True)
         query = {
