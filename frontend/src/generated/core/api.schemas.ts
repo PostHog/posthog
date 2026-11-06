@@ -5949,6 +5949,8 @@ export interface WorkloadProviderApi {
     subject_name_claim: WorkloadClaimApi
     /** The claims a policy can require an exact value for, in display order. */
     condition_claims: WorkloadClaimApi[]
+    /** Condition claims every policy for this provider must set. */
+    required_condition_claims: string[]
     /** Common choices of conditions to offer before the raw claims, in display order. */
     condition_presets: ConditionPresetApi[]
     /** Whether PostHog can look up the subject from its name with resolve_subject. */

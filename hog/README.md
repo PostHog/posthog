@@ -198,11 +198,11 @@ hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/
 ### CI without a stored key
 
 A CI job can trade the OIDC token its provider issues for a PostHog token, so no key is stored in the CI provider.
-hog supports GitHub Actions and GitLab.com.
+hog supports GitHub Actions, GitLab.com and Depot CI.
 An organization admin trusts the repository once, and each run of the job then gets a token that lives a few minutes.
 
-1. In the repository, logged in with `hog auth login`, run `hog ci setup --branch main --scope error_tracking:write`. Pass `--environment production` instead of, or as well as, `--branch` to trust only deploy jobs, and repeat `--scope` for each scope the job needs.
-2. hog finds the CI provider and the repository from the origin remote, and asks PostHog to trust it in your project. PostHog looks up the repository's ID, so a deleted and re-created repository with the same name doesn't match.
+1. In the repository, logged in with `hog auth login`, run `hog ci setup --branch main --scope error_tracking:write`. Pass `--environment production` instead of, or as well as, `--branch` to trust only deploy jobs, and repeat `--scope` for each scope the job needs. Depot CI also needs `--condition org_id=<your Depot organization ID>`.
+2. hog finds the CI provider and the repository from the origin remote, and asks PostHog to trust it in your project. When the repository has config for more than one provider, such as `.github/workflows` next to `.depot/workflows`, pass `--provider depot_ci` or `--provider github_actions`. PostHog looks up the repository's ID, so a deleted and re-created repository with the same name doesn't match.
 3. An organization admin approves the request in the browser. When you are one, hog opens the page and waits. Otherwise it names the admins and prints the link to send them. `hog ci setup --wait` checks on the request later.
 4. Add the snippet hog prints to the job. It gives the job an OIDC token and sets `HOG_HOST` and `HOG_PROJECT_ID`.
 

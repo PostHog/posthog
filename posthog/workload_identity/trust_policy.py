@@ -139,8 +139,18 @@ def validate_workload_trust_conditions(attrs: dict[str, Any], *, instance: Any |
         raise serializers.ValidationError({"issuer": UNSUPPORTED_ISSUER_MESSAGE})
     raw_conditions = attrs["conditions"] if "conditions" in attrs else getattr(instance, "conditions", {})
     attrs["conditions"] = normalize_workload_conditions(raw_conditions, provider)
-    if provider.condition_claims and not attrs["conditions"]:
-        labels = ", ".join(claim.label for claim in provider.condition_claims)
+    labels_by_claim = {claim.name: claim.label for claim in provider.condition_claims}
+    missing = [labels_by_claim[name] for name in provider.required_condition_claims if name not in attrs["conditions"]]
+    if missing:
+        raise serializers.ValidationError(
+            {
+                "conditions": f"{provider.name} policies must set {', '.join(missing)}, so no other account's workload matches."
+            }
+        )
+    # The required claims pin the account, not the runs, so they don't count as a condition here.
+    run_claims = [claim for claim in provider.condition_claims if claim.name not in provider.required_condition_claims]
+    if run_claims and not any(claim.name in attrs["conditions"] for claim in run_claims):
+        labels = ", ".join(claim.label for claim in run_claims)
         raise serializers.ValidationError(
             {
                 "conditions": f"Set at least one condition ({labels}) so the policy doesn't match every token for this workload."
@@ -341,6 +351,9 @@ class WorkloadProviderSerializer(serializers.Serializer):
     subject_name_claim = WorkloadClaimSerializer(help_text="The claim that carries the workload's readable name.")
     condition_claims = WorkloadClaimSerializer(
         many=True, help_text="The claims a policy can require an exact value for, in display order."
+    )
+    required_condition_claims = serializers.ListField(
+        child=serializers.CharField(), help_text="Condition claims every policy for this provider must set."
     )
     condition_presets = ConditionPresetSerializer(
         many=True, help_text="Common choices of conditions to offer before the raw claims, in display order."

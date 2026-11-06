@@ -2,7 +2,9 @@ import type { WorkloadProviderApi } from '~/generated/core/api.schemas'
 
 import {
     CUSTOM_CONDITION,
+    conditionsError,
     conditionsFromRows,
+    defaultConditionRows,
     rowsFromConditions,
     type WorkloadConditionRow,
 } from './workloadConditionPresets'
@@ -47,6 +49,7 @@ const PROVIDER = {
         },
     ],
     can_resolve_subject: true,
+    required_condition_claims: [],
     setup_snippet: 'HOG_HOST: {host}\nHOG_PROJECT_ID: "{project_id}"',
 } as WorkloadProviderApi
 
@@ -89,6 +92,28 @@ describe('workload condition presets', () => {
             { preset: CUSTOM_CONDITION, claim: 'ref', value: 'refs/tags/v1' },
             { preset: CUSTOM_CONDITION, claim: 'event_name', value: 'push' },
         ])
+    })
+
+    it('starts a new policy with the presets that cover the required claims', () => {
+        const provider = {
+            ...PROVIDER,
+            required_condition_claims: ['environment'],
+        } as WorkloadProviderApi
+
+        expect(defaultConditionRows(provider)).toEqual([
+            { preset: 'environment', value: 'production' },
+            { preset: 'branch_push', value: 'main' },
+        ])
+    })
+
+    it.each([
+        ['no conditions', {}, 'Set these conditions: Environment'],
+        ['only the required claim', { environment: 'production' }, 'Choose which runs can get a token'],
+        ['the required claim and a run condition', { environment: 'production', ref: 'refs/heads/main' }, undefined],
+    ])('checks a policy with %s', (_name, conditions: Record<string, string>, expected) => {
+        const provider = { ...PROVIDER, required_condition_claims: ['environment'] } as WorkloadProviderApi
+
+        expect(conditionsError(conditions, provider)).toEqual(expected)
     })
 
     it('refuses two rows that ask for different values of one claim', () => {

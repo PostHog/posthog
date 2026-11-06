@@ -110,6 +110,54 @@ const providers = {
             setup_snippet:
                 'your-job:\n  id_tokens:\n    HOG_ID_TOKEN:\n      aud: https://us.posthog.com\n  variables:\n    HOG_HOST: https://us.posthog.com\n    HOG_PROJECT_ID: "997"\n',
         },
+        {
+            key: 'depot_ci',
+            name: 'Depot CI',
+            issuer: 'https://identity.depot.dev',
+            docs_url: 'https://posthog.com/docs/api/workload-identity/depot',
+            subject_claim: {
+                name: 'repository_id',
+                label: 'Repository ID',
+                help_text: "The forge's number for the repository. PostHog looks it up from the repository name.",
+                placeholder: '123456789',
+            },
+            subject_name_claim: {
+                name: 'repository',
+                label: 'Repository',
+                help_text: 'The owner and name, as the forge shows them.',
+                placeholder: 'owner/repo',
+            },
+            condition_claims: [
+                { name: 'org_id', label: 'Depot organization ID', help_text: '', placeholder: 'abcd1234efgh' },
+                { name: 'forge', label: 'Forge', help_text: '', placeholder: 'github' },
+                { name: 'ref', label: 'Branch or tag', help_text: '', placeholder: 'refs/heads/main' },
+                { name: 'event_name', label: 'Event', help_text: '', placeholder: 'push' },
+            ],
+            required_condition_claims: ['org_id', 'forge'],
+            condition_presets: [
+                {
+                    key: 'organization',
+                    label: 'Your Depot organization',
+                    help_text: 'Every policy pins your Depot organization and GitHub as the forge.',
+                    conditions: { org_id: '{value}', forge: 'github' },
+                    takes_value: true,
+                    placeholder: 'abcd1234efgh',
+                    default_value: '',
+                },
+                {
+                    key: 'branch_push',
+                    label: 'Pushes to a branch',
+                    help_text: 'Runs for commits pushed to this branch.',
+                    conditions: { ref: 'refs/heads/{value}', event_name: 'push' },
+                    takes_value: true,
+                    placeholder: 'main',
+                    default_value: 'main',
+                },
+            ],
+            can_resolve_subject: true,
+            setup_snippet:
+                'permissions:\n  id-token: write\n  contents: read\nenv:\n  HOG_HOST: https://us.posthog.com\n  HOG_PROJECT_ID: "997"\n',
+        },
     ],
     grantable_scopes: [
         'annotation:read',

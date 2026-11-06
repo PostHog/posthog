@@ -82,6 +82,8 @@ class WorkloadProvider:
     # when the provider has no API PostHog can ask.
     resolve_subject: SubjectResolver | None = None
     condition_presets: tuple[ConditionPreset, ...] = ()
+    # Condition claims every policy must set, for a subject that is unique only together with them.
+    required_condition_claims: tuple[str, ...] = ()
     # The CI config a job needs, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
     setup_snippet: str = ""
 
@@ -102,6 +104,8 @@ class WorkloadProvider:
             unknown = sorted(set(fields) - recorded_names)
             if unknown:
                 raise ValueError(f"{self.key}: templates can only use recorded claims, not {unknown}.")
+        if not set(self.required_condition_claims) <= set(condition_names):
+            raise ValueError(f"{self.key}: required condition claims must be condition claims.")
         preset_keys = [preset.key for preset in self.condition_presets]
         if len(set(preset_keys)) != len(preset_keys):
             raise ValueError(f"{self.key}: condition presets must have unique keys.")
@@ -323,12 +327,102 @@ GITLAB = WorkloadProvider(
 """,
 )
 
+DEPOT_CI = WorkloadProvider(
+    key="depot_ci",
+    name="Depot CI",
+    issuer="https://identity.depot.dev",
+    jwks_url="https://identity.depot.dev/keys",
+    audience_check=AudienceCheck.SITE_URL,
+    subject_claim=WorkloadClaim(
+        name="repository_id",
+        label="Repository ID",
+        help_text="The forge's number for the repository, GitHub's for a GitHub repository. PostHog looks it up from the repository name.",
+        placeholder="123456789",
+    ),
+    subject_name_claim=WorkloadClaim(
+        name="repository",
+        label="Repository",
+        help_text="The owner and name, as the forge shows them.",
+        placeholder="owner/repo",
+    ),
+    condition_claims=(
+        WorkloadClaim(
+            name="org_id",
+            label="Depot organization ID",
+            help_text="Your Depot organization ID, exactly as Depot shows it in the organization settings.",
+            placeholder="abcd1234efgh",
+        ),
+        WorkloadClaim(
+            name="forge",
+            label="Forge",
+            help_text="Where the repository lives. Two forges can give the same ID to different repositories.",
+            placeholder="github",
+        ),
+        WorkloadClaim(
+            name="ref",
+            label="Branch or tag",
+            help_text="The full ref, like refs/heads/main.",
+            placeholder="refs/heads/main",
+        ),
+        WorkloadClaim(
+            name="event_name",
+            label="Event",
+            help_text="What started the run, like push or workflow_dispatch.",
+            placeholder="push",
+        ),
+        WorkloadClaim(
+            name="workflow_ref",
+            label="Workflow",
+            help_text="The workflow file and its ref.",
+            placeholder="owner/repo/ci.yaml@refs/heads/main",
+        ),
+    ),
+    # A repository ID is unique only within one forge, and only the organization pins the job to your Depot account.
+    required_condition_claims=("org_id", "forge"),
+    recorded_claims=(
+        WorkloadClaim(name="repository", label="Repository"),
+        WorkloadClaim(name="workflow", label="Workflow"),
+        WorkloadClaim(name="run_id", label="Run"),
+        WorkloadClaim(name="ref", label="Branch or tag"),
+        WorkloadClaim(name="event_name", label="Event"),
+    ),
+    actor_label_template="{repository} · {workflow} run {run_id}",
+    # Depot run IDs don't build a stable URL, and the job URL is only in the job's environment.
+    run_url_template=None,
+    docs_url="https://posthog.com/docs/api/workload-identity/depot",
+    resolve_subject=resolve_github_repository,
+    condition_presets=(
+        ConditionPreset(
+            key="organization",
+            label="Your Depot organization",
+            help_text="Every policy pins your Depot organization and GitHub as the forge.",
+            conditions=(("org_id", PRESET_VALUE), ("forge", "github")),
+            placeholder="abcd1234efgh",
+        ),
+        ConditionPreset(
+            key="branch_push",
+            label="Pushes to a branch",
+            help_text="Runs for commits pushed to this branch.",
+            conditions=(("ref", f"refs/heads/{PRESET_VALUE}"), ("event_name", "push")),
+            placeholder="main",
+            default_value="main",
+        ),
+    ),
+    setup_snippet=f"""permissions:
+  id-token: write # lets hog get an OIDC token for PostHog
+  contents: read
+env:
+  HOG_HOST: {SNIPPET_HOST}
+  HOG_PROJECT_ID: "{SNIPPET_PROJECT_ID}"
+""",
+)
+
 # Can't be supported with this design:
 # - Bitbucket Pipelines fixes the token's audience per workspace, so a token can't name this PostHog instance.
 # - Self-managed GitLab makes each instance its own issuer, and only the issuers listed here are trusted.
 # - GitHub Enterprise Cloud with a customized issuer sends https://token.actions.githubusercontent.com/<enterprise>,
 #   an issuer per enterprise.
-SUPPORTED_WORKLOAD_PROVIDERS: tuple[WorkloadProvider, ...] = (GITHUB_ACTIONS, GITLAB)
+SUPPORTED_WORKLOAD_PROVIDERS: tuple[WorkloadProvider, ...] = (GITHUB_ACTIONS, GITLAB, DEPOT_CI)
 
 
 def normalize_issuer(issuer: str) -> str:

@@ -35,9 +35,39 @@ function setupFor(provider: WorkloadProvider, target: { host: Host; projectId: P
     return { provider: provider.name, snippet: provider.snippet(target), docsUrl: provider.docsUrl }
 }
 
+function extraConditions(provider: WorkloadProvider, raw: readonly string[]): WorkloadConditions {
+    const given = Object.fromEntries(
+        raw.map((entry) => {
+            const separator = entry.indexOf('=')
+            if (separator < 1 || separator === entry.length - 1) {
+                throw new HogError(
+                    'invalid_condition',
+                    `--condition ${entry} isn't claim=value.`,
+                    'Pass it like --condition org_id=abcd1234.',
+                    EXIT_USAGE
+                )
+            }
+            return [entry.slice(0, separator), entry.slice(separator + 1)]
+        })
+    )
+    for (const required of provider.requiredConditions ?? []) {
+        const value = given[required.claim] ?? required.defaultValue
+        if (!value) {
+            throw new HogError(
+                'missing_condition',
+                `${provider.name} policies must set the ${required.label}.`,
+                `Pass --condition ${required.claim}=<${required.label}>.`,
+                EXIT_USAGE
+            )
+        }
+        given[required.claim] = value
+    }
+    return given
+}
+
 function conditionsFrom(
     provider: WorkloadProvider,
-    options: { branch?: string; environment?: string }
+    options: { branch?: string; environment?: string; condition?: string[] }
 ): WorkloadConditions {
     if (options.environment !== undefined && provider.environmentConditions === undefined) {
         throw new HogError(
@@ -55,10 +85,21 @@ function conditionsFrom(
             EXIT_USAGE
         )
     }
-    return {
+    const extra = extraConditions(provider, options.condition ?? [])
+    const runs: WorkloadConditions = {
         ...(options.branch === undefined ? {} : provider.branchConditions(options.branch)),
         ...(options.environment === undefined ? {} : provider.environmentConditions?.(options.environment)),
     }
+    const clash = Object.keys(runs).find((claim) => claim in extra && extra[claim] !== runs[claim])
+    if (clash !== undefined) {
+        throw new HogError(
+            'conflicting_condition',
+            `--condition ${clash}=${extra[clash]} asks for a different ${clash} than --branch or --environment set.`,
+            `Leave out --condition ${clash}.`,
+            EXIT_USAGE
+        )
+    }
+    return { ...extra, ...runs }
 }
 
 function printSnippet(out: Output, result: Setup): void {
@@ -91,6 +132,12 @@ export default defineCommand({
         environment: {
             type: 'string',
             description: 'Trust only jobs that deploy to this environment, like production',
+        },
+        condition: {
+            type: 'string',
+            multiple: true,
+            placeholder: 'claim=value',
+            description: 'Another claim the token must carry, like org_id=abcd1234 for Depot CI. Repeat for more',
         },
         scope: {
             type: 'string',
@@ -164,6 +211,14 @@ export default defineCommand({
         const api = await ctx.posthog()
         const { host, projectId } = (await ctx.session()).current
         const target = { host, projectId }
+        if (!options.subjectId && provider.canLookUpSubject?.(conditions) === false) {
+            throw new HogError(
+                'missing_subject_id',
+                `PostHog can't look up the repository ID for these ${provider.name} conditions.`,
+                'Pass --subject-id with the repository ID, and --repository with its name.',
+                EXIT_USAGE
+            )
+        }
         const subject = options.subjectId
             ? { subject: options.subjectId, subject_name: subjectName, found_via: '--subject-id' }
             : await resolveSubject(api, projectId, provider, subjectName)

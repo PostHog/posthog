@@ -90,6 +90,32 @@ export function rowForPreset(preset: WorkloadProviderApi['condition_presets'][nu
 }
 
 export function defaultConditionRows(provider: WorkloadProviderApi | null): WorkloadConditionRow[] {
-    const preset = provider?.condition_presets[0]
-    return preset ? [rowForPreset(preset)] : []
+    const presets = provider?.condition_presets ?? []
+    const required = new Set(provider?.required_condition_claims ?? [])
+    const covering = presets.filter((preset) => Object.keys(preset.conditions).some((claim) => required.has(claim)))
+    const first = presets.find((preset) => !covering.includes(preset))
+    return [...covering, ...(first ? [first] : [])].map(rowForPreset)
+}
+
+export function conditionsError(
+    conditions: Record<string, string>,
+    provider: WorkloadProviderApi | null,
+    conflict?: string
+): string | undefined {
+    if (conflict) {
+        return conflict
+    }
+    const required = provider?.required_condition_claims ?? []
+    const missing = required
+        .filter((claim) => !conditions[claim])
+        .map((claim) => provider?.condition_claims.find((candidate) => candidate.name === claim)?.label ?? claim)
+    if (missing.length) {
+        return `Set these conditions: ${missing.join(', ')}`
+    }
+    // The required claims pin the account, not the runs, so a policy needs another condition too.
+    const runClaims = (provider?.condition_claims ?? []).filter((claim) => !required.includes(claim.name))
+    if (runClaims.length && !runClaims.some((claim) => conditions[claim.name])) {
+        return 'Choose which runs can get a token'
+    }
+    return undefined
 }

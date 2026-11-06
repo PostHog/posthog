@@ -4,7 +4,21 @@ import { z } from 'zod'
 import * as providers from '@/ci/providers'
 import { FAKE_WORKLOAD_PROVIDER, readJson, runHog, TEST_CREDENTIALS, type FakeRuntimeOptions } from '@/testing'
 
-mock.module('@/ci/providers', () => ({ ...providers, WORKLOAD_PROVIDERS: [FAKE_WORKLOAD_PROVIDER] }))
+const FAKE_ORG_PROVIDER = {
+    ...FAKE_WORKLOAD_PROVIDER,
+    key: 'fake_org_ci',
+    configPaths: ['.fake-org-ci.yml'],
+    requiredConditions: [
+        { claim: 'org_id', label: 'organization ID' },
+        { claim: 'forge', label: 'forge', defaultValue: 'github' },
+    ],
+    canLookUpSubject: (conditions: Record<string, string>) => conditions.forge === 'github',
+}
+
+mock.module('@/ci/providers', () => ({
+    ...providers,
+    WORKLOAD_PROVIDERS: [FAKE_WORKLOAD_PROVIDER, FAKE_ORG_PROVIDER],
+}))
 afterAll(() => {
     mock.module('@/ci/providers', () => providers)
 })
@@ -153,6 +167,44 @@ describe('hog ci setup', () => {
         expect(run.exitCode).not.toBe(0)
         expect(run.error().code).toBe(code)
         expect(run.requests.some((request) => request.url === REQUESTS)).toBe(false)
+    })
+
+    test.each([
+        ['without the organization stops before asking PostHog', [], 'missing_condition', undefined],
+        [
+            'pins the organization and the default forge',
+            ['--condition', 'org_id=org123'],
+            undefined,
+            { event_name: 'push', forge: 'github', org_id: 'org123', ref: 'refs/heads/main' },
+        ],
+        [
+            'refuses an empty value',
+            ['--condition', 'org_id=org123', '--condition', 'forge='],
+            'invalid_condition',
+            undefined,
+        ],
+        [
+            'refuses a condition that --branch contradicts',
+            ['--condition', 'org_id=org123', '--condition', 'event_name=workflow_dispatch'],
+            'conflicting_condition',
+            undefined,
+        ],
+        [
+            'asks for the repository ID on a forge PostHog can not look up',
+            ['--condition', 'org_id=org123', '--condition', 'forge=other'],
+            'missing_subject_id',
+            undefined,
+        ],
+    ])('a provider with required conditions %s', async (_name, extra, code, conditions) => {
+        const run = await setup(['--provider', 'fake_org_ci', '--branch', 'main', '--scope', 'query:read', ...extra], {
+            respond: policyApi(),
+        })
+
+        expect(run.exitCode === 0 ? undefined : run.error().code).toBe(code)
+        expect(
+            (run.requests.find((request) => request.url === REQUESTS)?.body as { conditions?: unknown } | undefined)
+                ?.conditions
+        ).toEqual(conditions)
     })
 
     test('a repository PostHog can not look up points to --subject-id', async () => {

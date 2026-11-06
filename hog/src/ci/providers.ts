@@ -3,6 +3,7 @@ import type { Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 import type { ProviderIdToken } from '@/posthog/tokens'
 
+import { DEPOT_CI } from './depot-ci'
 import { GITHUB_ACTIONS } from './github-actions'
 import { GITLAB } from './gitlab'
 
@@ -25,10 +26,13 @@ export interface WorkloadProvider {
     branchConditions(branch: string): WorkloadConditions
     // Undefined for a provider whose token names no environment.
     environmentConditions?(environment: string): WorkloadConditions
+    readonly requiredConditions?: readonly { claim: string; label: string; defaultValue?: string }[]
+    // False when PostHog's subject lookup can't serve these conditions, so the person passes --subject-id.
+    canLookUpSubject?(conditions: WorkloadConditions): boolean
     snippet(target: { host: Host; projectId: ProjectId }): string
 }
 
-export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = [GITHUB_ACTIONS, GITLAB]
+export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = [GITHUB_ACTIONS, GITLAB, DEPOT_CI]
 
 export function detectWorkloadProvider(
     env: Env,

@@ -31,6 +31,7 @@ import { APIScopeAction } from '~/types'
 import {
     conditionsFromRows,
     defaultConditionRows,
+    conditionsError,
     rowsFromConditions,
     type WorkloadConditionRow,
 } from './workloadConditionPresets'
@@ -425,11 +426,7 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                 issuer: !issuer ? 'Choose a provider' : undefined,
                 subject_name: !subject_name ? `${values.claimLabels.subjectName} is required` : undefined,
                 subject: !subject ? `${values.claimLabels.subject} is required` : undefined,
-                conditions:
-                    values.conditionConflict ??
-                    (values.editingProvider?.condition_claims.length && Object.keys(conditions).length === 0
-                        ? ('Choose which runs can get a token' as any)
-                        : undefined),
+                conditions: conditionsError(conditions, values.editingProvider, values.conditionConflict) as any,
                 scopes: !scopes.length ? ('Choose at least one scope' as any) : undefined,
             }),
             submit: async (payload, breakpoint) => {

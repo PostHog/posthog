@@ -198,6 +198,24 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
         assert response.json()["attr"] == field
         assert not WorkloadTrustPolicy.objects.for_team(self.team.id).exists()
 
+    @parameterized.expand(
+        [
+            ("missing_required_claim", {"ref": "refs/heads/main"}, status.HTTP_400_BAD_REQUEST),
+            ("required_claim_set", {"ref": "refs/heads/main", "environment": "production"}, status.HTTP_201_CREATED),
+            ("only_the_required_claim", {"environment": "production"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_a_provider_can_require_condition_claims(
+        self, _name: str, conditions: dict[str, str], expected_status: int
+    ) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, required_condition_claims=("environment",))
+
+        with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
+            response = self.client.post(self.url, _payload(conditions=conditions), format="json")
+
+        assert response.status_code == expected_status, response.json()
+
     def test_impersonated_sessions_can_read_but_not_change_policies(self) -> None:
         self._set_level(OrganizationMembership.Level.OWNER)
         policy = self._create_policy()

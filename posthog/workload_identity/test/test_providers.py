@@ -19,6 +19,7 @@ class TestWorkloadProviderEntry(SimpleTestCase):
                 "duplicate_condition_claim",
                 {"condition_claims": (WorkloadClaim(name="ref", label="Ref"), WorkloadClaim(name="ref", label="Ref"))},
             ),
+            ("required_claim_policies_cannot_set", {"required_condition_claims": ("sha",)}),
             ("subject_as_condition_claim", {"condition_claims": (WorkloadClaim(name="repository_id", label="ID"),)}),
             (
                 "preset_on_a_claim_policies_cannot_set",
