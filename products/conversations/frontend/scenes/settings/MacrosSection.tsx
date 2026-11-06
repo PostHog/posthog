@@ -26,6 +26,11 @@ export function MacrosSection(): JSX.Element {
             render: (_, macro) => (macro.shortcut ? `/${macro.shortcut}` : ''),
         },
         {
+            title: 'Visible to',
+            dataIndex: 'visibility',
+            render: (_, macro) => (macro.visibility === 'personal' ? 'Only you' : 'Everyone'),
+        },
+        {
             title: 'Uses',
             dataIndex: 'usage_count',
             align: 'right',
@@ -54,7 +59,10 @@ export function MacrosSection(): JSX.Element {
                         onClick={() =>
                             LemonDialog.open({
                                 title: 'Delete this macro?',
-                                description: 'People on your team will no longer be able to insert it.',
+                                description:
+                                    macro.visibility === 'personal'
+                                        ? "You won't be able to insert it anymore."
+                                        : 'People on your team will no longer be able to insert it.',
                                 primaryButton: {
                                     children: 'Delete',
                                     status: 'danger',
@@ -73,7 +81,8 @@ export function MacrosSection(): JSX.Element {
         <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="mb-0 text-sm text-muted">
-                    Save replies you send often. Insert one from a ticket, or type / and its shortcut.
+                    Save replies you send often. Share them with your team or keep them to yourself. Insert one from a
+                    ticket, or type / and its shortcut.
                 </p>
                 <LemonButton
                     type="primary"

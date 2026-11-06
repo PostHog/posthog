@@ -23,6 +23,8 @@ export const SIMULATION_NEEDS_UNGROUPED =
 
 export const MAX_INSTANCES_LIMIT = 100
 
+export const GROUP_BY_NOT_AVAILABLE = "Grouping by other fields isn't available for this project yet."
+
 const GROUP_BY_KEYS: Record<LogsAlertGroupBy, string[]> = {
     none: [],
     service: ['service_name'],
@@ -75,18 +77,40 @@ export function isRegroup(alert: LogsAlertConfigurationApi | null, groupBy: Logs
     return alert !== null && groupByOf(alert.grouping) !== groupBy
 }
 
+/** The team's logs alerts as the alert list loaded them. A created-by filter on the list hides some of them. */
+export interface LoadedTeamAlerts {
+    alerts: LogsAlertConfigurationApi[]
+    complete: boolean
+}
+
 /**
- * Only an alert the alerts platform evaluates can group. A new alert goes to the platform once the
- * team has any logs alert there, which mirrors the backend's cutover check.
+ * Only an alert the alerts platform evaluates can group. A new alert goes to the platform when the
+ * platform owns another of the team's alerts, or when the team has no other alert, which mirrors the
+ * backend's cutover check. Until the team's alerts load, an empty list says nothing, so a new alert
+ * can't group yet. An alert that already groups keeps the field even with the flag off, so its
+ * grouping stays visible and can be removed.
  */
 export function canGroupAlert(
     alert: LogsAlertConfigurationApi | null,
-    teamAlerts: LogsAlertConfigurationApi[]
+    teamAlerts: LoadedTeamAlerts | null,
+    groupingFlagEnabled: boolean
 ): boolean {
-    if (!alert) {
-        return teamAlerts.some((candidate) => candidate.platform_owned)
+    if (alert?.grouping?.mode === GroupingModeEnumApi.ByResultLabels) {
+        return true
     }
-    return alert.platform_owned || alert.grouping?.mode === GroupingModeEnumApi.ByResultLabels
+    if (!groupingFlagEnabled) {
+        return false
+    }
+    if (alert) {
+        return alert.platform_owned
+    }
+    if (!teamAlerts) {
+        return false
+    }
+    return (
+        teamAlerts.alerts.some((candidate) => candidate.platform_owned) ||
+        (teamAlerts.complete && teamAlerts.alerts.length === 0)
+    )
 }
 
 /** What a save that changes the grouping does to the state the alert tracks now. */

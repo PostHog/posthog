@@ -12,6 +12,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelPermissionError,
     OutputTokenLimitError,
     ProviderConfigurationError,
+    RetryableRateLimitError,
 )
 from products.ai_observability.backend.llm.providers.anthropic import (
     AnthropicAdapter,
@@ -349,6 +350,31 @@ class TestAnthropicErrorMapping:
                     api_key="sk-ant-test",
                     analytics=AnalyticsContext(capture=False),
                 )
+
+    def test_rate_limit_429_is_retryable_after_the_providers_delay(self):
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.side_effect = anthropic.RateLimitError(
+                "Rate limited",
+                response=httpx.Response(status_code=429, request=request, headers={"retry-after": "20"}),
+                body={"type": "error", "error": {"type": "rate_limit_error", "message": "Rate limited"}},
+            )
+
+            with pytest.raises(RetryableRateLimitError) as error:
+                AnthropicAdapter().complete(
+                    CompletionRequest(
+                        model="claude-haiku-4-5",
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="anthropic",
+                        system="s",
+                    ),
+                    api_key="sk-ant-test",
+                    analytics=AnalyticsContext(capture=False),
+                )
+
+        assert error.value.retry_after == 20
 
 
 class TestAnthropicStreamErrorSurfacing:

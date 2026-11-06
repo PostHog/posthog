@@ -89,7 +89,7 @@ def permissions(
     context: contracts.Context | None = None,
 ) -> frozenset[Action]:
     """Return every action the subject may take on the resource."""
-    raise NotImplementedError
+    return legacy.permissions(resource, subject, context)
 
 
 def list_objects(

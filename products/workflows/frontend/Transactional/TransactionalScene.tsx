@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { useRef } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
@@ -19,27 +20,13 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { MessagingSetup } from '../MessagingSetup'
 import { MessagingTabActions } from '../MessagingTabActions'
-import {
-    MESSAGING_NAV_TAB_KEYS,
-    MESSAGING_TAB_CONTENT,
-    MessagingNavTabKey,
-    isMessagingSetupTab,
-} from '../messagingTabs'
+import { MESSAGING_TAB_CONTENT, isMessagingSetupTab } from '../messagingTabs'
+import { TransactionalEmailLog } from './log/TransactionalEmailLog'
+import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
+import { TransactionalRoute, TransactionalTab, transactionalRouteFor } from './transactionalRoute'
 import { TransactionalWebhooks } from './webhooks/TransactionalWebhooks'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
-
-type TransactionalTab = MessagingNavTabKey | 'transactional' | 'webhooks'
-
-// The tab routes are literal paths, so the tab is the last path segment rather than a route param.
-function tabFromPathSegment(lastSegment: string, showWebhooks: boolean): TransactionalTab {
-    if (showWebhooks && lastSegment === 'webhooks') {
-        return 'webhooks'
-    }
-    return MESSAGING_NAV_TAB_KEYS.includes(lastSegment as MessagingNavTabKey)
-        ? (lastSegment as MessagingNavTabKey)
-        : 'transactional'
-}
 
 export const scene: SceneExport = {
     component: TransactionalScene,
@@ -51,14 +38,18 @@ export function TransactionalScene(): JSX.Element {
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const showWebhooks = useFeatureFlag('WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS')
-    const lastSegment = location.pathname.split('/').pop() ?? ''
-    const currentTab = tabFromPathSegment(lastSegment, showWebhooks)
+    // Leaving for another scene changes the URL before that scene has loaded, so this one keeps showing its last view.
+    const route = transactionalRouteFor(location.pathname)
+    const lastRoute = useRef<TransactionalRoute>(route ?? 'transactional')
+    lastRoute.current = route ?? lastRoute.current
+    const currentTab = lastRoute.current === 'webhooks' && !showWebhooks ? 'transactional' : lastRoute.current
+    const isTransactionalTab = currentTab === 'transactional' || currentTab === 'log' || currentTab === 'metrics'
 
     if (!showTransactional) {
         return <NotFound object="page" />
     }
 
-    if (lastSegment === 'new') {
+    if (currentTab === 'new') {
         return <TransactionalEmailWizard />
     }
 
@@ -69,7 +60,7 @@ export function TransactionalScene(): JSX.Element {
                 description="Send emails from your code with one API call"
                 resourceType={{ type: 'transactional' }}
                 actions={
-                    currentTab === 'webhooks' ? undefined : currentTab === 'transactional' ? (
+                    currentTab === 'webhooks' ? undefined : isTransactionalTab ? (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Workflow}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -99,14 +90,30 @@ export function TransactionalScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
-            <LemonTabs<'transactional' | 'library' | 'webhooks' | 'messaging-setup'>
-                activeKey={isMessagingSetupTab(currentTab) ? 'messaging-setup' : currentTab}
+            <LemonTabs<TransactionalTab | 'library' | 'webhooks' | 'messaging-setup'>
+                activeKey={
+                    isTransactionalTab || currentTab === 'library' || currentTab === 'webhooks'
+                        ? currentTab
+                        : 'messaging-setup'
+                }
                 tabs={[
                     {
                         label: 'Transactional emails',
                         key: 'transactional',
                         link: urls.transactional(),
                         content: <TransactionalEmailsTable />,
+                    },
+                    {
+                        label: 'Log',
+                        key: 'log',
+                        link: urls.transactionalLog(),
+                        content: <TransactionalEmailLog />,
+                    },
+                    {
+                        label: 'Metrics',
+                        key: 'metrics',
+                        link: urls.transactionalMetrics(),
+                        content: <TransactionalEmailMetrics />,
                     },
                     {
                         label: 'Templates',
