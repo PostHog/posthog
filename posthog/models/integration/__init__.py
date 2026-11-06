@@ -60,6 +60,7 @@ from .email import (
     is_sandbox_email_sender,
     is_sandbox_sender_domain,
     sandbox_sender_configured,
+    sandbox_sender_settings_present,
 )
 from .external_issues import (
     SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
@@ -259,6 +260,7 @@ __all__ = [
     "is_sandbox_email_sender",
     "is_sandbox_sender_domain",
     "sandbox_sender_configured",
+    "sandbox_sender_settings_present",
     "LinearIntegration",
     "LinearIntegrationError",
     "LinearRateLimitedError",

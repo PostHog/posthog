@@ -26,7 +26,7 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_KIND,
     SANDBOX_EMAIL_PROVIDER,
     WAREHOUSE_SOURCE_TYPE_CONFIG_KEY,
-    sandbox_sender_configured,
+    sandbox_sender_settings_present,
 )
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -101,30 +101,43 @@ def _sender_integration_ids(from_value: dict) -> set[int]:
     }
 
 
+_SENDER_ID_TEXT = re.compile(r"\s*[0-9]+\s*")
+
+
 def _configured_sender_ids(from_value: dict) -> list[object]:
     rotation = from_value.get("integrationIds")
     # Mirrors selectEmailSenderIntegrationId in the worker: a non-empty rotation replaces integrationId.
     return rotation if isinstance(rotation, list) and rotation else [from_value.get("integrationId")]
 
 
-def _delivery_sender_ids(from_value: dict) -> set[int]:
+def _delivery_sender_id(integration_id: object) -> int | None:
     # The worker looks a sender up by its ID as text, so a numeric string reaches the same sender.
+    if isinstance(integration_id, bool):
+        return None
+    if isinstance(integration_id, int):
+        return integration_id
+    if isinstance(integration_id, float) and integration_id.is_integer():
+        return int(integration_id)
+    if isinstance(integration_id, str) and _SENDER_ID_TEXT.fullmatch(integration_id):
+        return int(integration_id)
+    return None
+
+
+def _delivery_sender_ids(from_value: dict) -> set[int]:
     return {
-        int(integration_id)
-        for integration_id in _configured_sender_ids(from_value)
-        if (
-            isinstance(integration_id, (int, float))
-            and not isinstance(integration_id, bool)
-            and (not isinstance(integration_id, float) or integration_id.is_integer())
-        )
-        or (isinstance(integration_id, str) and integration_id.strip().isdigit())
+        sender_id for sender_id in map(_delivery_sender_id, _configured_sender_ids(from_value)) if sender_id is not None
     }
 
 
+def _is_templated(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
 def _has_templated_sender_id(from_value: dict) -> bool:
-    # Templating resolves the whole email value at send time, so a string ID such as "{123}" can resolve to any sender.
-    return any(
-        isinstance(integration_id, str) and not integration_id.strip().isdigit()
+    # Templating resolves the whole email value at send time, so a string such as "{123}" can resolve to any
+    # sender, and a string rotation can resolve to a list that replaces integrationId.
+    return _is_templated(from_value.get("integrationIds")) or any(
+        _is_templated(integration_id) and _delivery_sender_id(integration_id) is None
         for integration_id in _configured_sender_ids(from_value)
     )
 
@@ -156,6 +169,11 @@ def _stored_email_values(context: dict[str, Any]) -> list[object]:
     return stored
 
 
+def _matches_stored_sender(email_value: dict, context: dict[str, Any]) -> bool:
+    stored = [*_stored_email_values(context), *(context.get("existing_action_email_values") or [])]
+    return any(isinstance(value, dict) and email_value["from"] == value.get("from") for value in stored)
+
+
 def _matches_stored_email(email_value: dict, context: dict[str, Any]) -> bool:
     return any(
         isinstance(stored, dict)
@@ -168,12 +186,16 @@ def _matches_stored_email(email_value: dict, context: dict[str, Any]) -> bool:
 def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) -> None:
     # Every check returns before any query while the sandbox settings are empty. The project flag
     # only gates adoption: a sandbox sender the project already has keeps its limits with the flag off.
-    if not sandbox_sender_configured():
+    if not sandbox_sender_settings_present() or not isinstance(email_value, dict):
         return
-    if not isinstance(email_value, dict) or not isinstance(email_value.get("from"), dict):
+    from_value = email_value.get("from")
+    if isinstance(from_value, dict):
+        integration_ids = _delivery_sender_ids(from_value)
+        templated_sender = _has_templated_sender_id(from_value)
+    elif _is_templated(from_value):
+        integration_ids, templated_sender = set(), True
+    else:
         return
-    integration_ids = _delivery_sender_ids(email_value["from"])
-    templated_sender = _has_templated_sender_id(email_value["from"])
     get_team = context.get("get_team")
     if not (integration_ids or templated_sender) or get_team is None:
         return
@@ -181,14 +203,14 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
     if len(integration_ids) > MAX_WORKFLOW_EMAIL_SENDERS:
         raise serializers.ValidationError({"input": f"At most {MAX_WORKFLOW_EMAIL_SENDERS} email senders are allowed."})
     sandbox_ids = _sandbox_email_sender_ids(context)
+    if templated_sender and sandbox_ids and not _matches_stored_sender(email_value, context):
+        raise serializers.ValidationError(
+            {
+                "input": "A templated sender is not supported while the project has the sandbox sender. "
+                "Set 'from.integrationId' to the ID of one sender and remove 'from.integrationIds'."
+            }
+        )
     if not integration_ids & sandbox_ids:
-        if templated_sender and sandbox_ids and not _matches_stored_email(email_value, context):
-            raise serializers.ValidationError(
-                {
-                    "input": "A templated sender is not supported while the project has the sandbox sender. "
-                    "Set 'from.integrationId' to the ID of one sender."
-                }
-            )
         return
     if context.get("workflow_origin_product") == "broadcasts":
         raise serializers.ValidationError(
