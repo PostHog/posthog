@@ -96,8 +96,6 @@ export function EvaluationLivePreview({
             </Tooltip>
         )
     }
-    const lines = evaluation.evaluation_type === 'hog' ? evaluation.evaluation_config.source.trim().split('\n') : []
-    const codeLines = lines.filter(Boolean).length
     // An unpicked model comes back as an empty string, not null, so `||` falls through to the placeholder.
     const model = selectedModelName || selectedModel || 'a model'
     const cadence = reportText({ ...configDraft, enabled: configDraft.enabled && isReportableEvaluation })
@@ -123,12 +121,7 @@ export function EvaluationLivePreview({
                         <>
                             Checks {part('traffic', targetText(evaluation), undefined, 'target')} with{' '}
                             {evaluation.evaluation_type === 'hog' ? (
-                                part(
-                                    'check',
-                                    codeLines > 0 ? `${pluralize(codeLines, 'line')} of Hog` : 'Hog code',
-                                    'criteria',
-                                    'code'
-                                )
+                                part('check', 'Hog code', 'criteria', 'code')
                             ) : (
                                 <>
                                     {part('name', methodText(evaluation, usesDecisionModel))} on{' '}
