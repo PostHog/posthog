@@ -5,10 +5,9 @@ from django.test import TestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.management.commands.setup_posthog_cimd_apps import POSTHOG_CIMD_DOCUMENTS
+from posthog.management.commands.setup_posthog_cimd_apps import HOG_CLIENT_ID, POSTHOG_CIMD_DOCUMENTS
 from posthog.models import OAuthApplication
 
-HOG_CLIENT_ID = "https://posthog.com/.well-known/oauth/hog/client-metadata.json"
 CLIENT_IDS = sorted(str(document["client_id"]) for document in POSTHOG_CIMD_DOCUMENTS)
 
 

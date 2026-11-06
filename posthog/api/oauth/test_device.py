@@ -513,7 +513,7 @@ class TestOAuthDeviceGrant(APIBaseTest):
             redirect_uris="",
             algorithm="RS256",
             scopes=["insight:read"],
-            optional_scopes=["dashboard:write"],
+            optional_scopes=["dashboard:write", "cohort:read"],
         )
         started = self._start(
             client_id="required-scopes-client", scope="dashboard:write cohort:read", required_scopes="cohort:read"
