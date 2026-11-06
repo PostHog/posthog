@@ -57,20 +57,24 @@ def remove_suppressions(team_id: int, identifiers: list[str], confirm_complaints
     Raises `ComplaintConfirmationRequired`, and removes nothing, when a spam complaint is among them unconfirmed.
     """
     with transaction.atomic():
-        rows = MessageSuppression.objects.for_team(team_id).filter(identifier__in=identifiers)
-        # The lock stops a complaint that lands during the check from being removed unconfirmed.
+        rows = MessageSuppression.objects.for_team(team_id)
+        # The lock stops a complaint that lands during the check from being removed unconfirmed. A row inserted after
+        # the lock is not checked, so only the locked rows are removed.
         locked = list(
-            rows.order_by("identifier").select_for_update().values_list("identifier", "source", "suppressed", "deleted")
+            rows.filter(identifier__in=identifiers)
+            .order_by("identifier")
+            .select_for_update()
+            .values_list("id", "identifier", "source", "suppressed", "deleted")
         )
         complaints = sorted(
             identifier
-            for identifier, source, suppressed, deleted in locked
+            for _, identifier, source, suppressed, deleted in locked
             if source == SuppressionSource.COMPLAINT and suppressed and not deleted
         )
         if complaints and not confirm_complaints:
             raise ComplaintConfirmationRequired(complaints)
-        _remove(rows)
-    return sorted(identifier for identifier, *_ in locked)
+        _remove(rows.filter(id__in=[row_id for row_id, *_ in locked]))
+    return sorted(identifier for _, identifier, *_ in locked)
 
 
 def _remove(rows: QuerySet[MessageSuppression]) -> None:

@@ -46,6 +46,28 @@ class TestSuppressionListPersonalAPIKeyAccess(APIBaseTest):
         if expected_status == 200:
             assert set(response.json()) == {"count", "next", "previous", "results"}
 
+    @parameterized.expand(
+        [
+            ("remove_suppression", {"identifier": "a@example.com"}, ["hog_flow:write", "person:read"], 404),
+            ("remove_suppression", {"identifier": "a@example.com"}, ["hog_flow:write"], 403),
+            ("bulk_remove_suppressions", {"identifiers": ["a@example.com"]}, ["hog_flow:write", "person:read"], 200),
+            ("bulk_remove_suppressions", {"identifiers": ["a@example.com"]}, ["hog_flow:write"], 403),
+        ]
+    )
+    def test_removal_requires_person_read(
+        self, action: str, body: dict, scopes: list[str], expected_status: int
+    ) -> None:
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_suppressions/{action}/",
+            body,
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {self._key(scopes)}",
+        )
+
+        assert response.status_code == expected_status
+
 
 class TestSuppressionListSearch(APIBaseTest):
     def test_search_filters_by_identifier_within_suppressed_rows(self) -> None:

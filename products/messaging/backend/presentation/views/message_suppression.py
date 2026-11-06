@@ -144,8 +144,8 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     scope_object = "hog_flow"
     # Custom actions must declare their write status so TeamAndOrgViewSetMixin's AccessControlPermission
-    # checks hog_flow:write on the mutating endpoints. `suppressions` is scoped by its own
-    # `required_scopes` instead, since it needs person:read on top of the workflow scope.
+    # checks hog_flow:write on the mutating endpoints. `suppressions` and the removals also need person:read in their
+    # `required_scopes`, because their responses tell which addresses are on the list and which reported spam.
     scope_object_write_actions = ["add_suppression", "remove_suppression", "bulk_remove_suppressions"]
     serializer_class = _FallbackSerializer
 
@@ -210,7 +210,7 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={204: None},
         summary="Remove an email address from the suppression list",
     )
-    @action(detail=False, methods=["post"])
+    @action(detail=False, methods=["post"], required_scopes=["hog_flow:write", "person:read"])
     def remove_suppression(self, request: Request, **kwargs: Any) -> Response:
         """Remove an address from the suppression list so it can receive messages again."""
         self._require_editor_access()
@@ -229,7 +229,7 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={200: BulkRemoveSuppressionsResponseSerializer},
         summary="Remove several email addresses from the suppression list",
     )
-    @action(detail=False, methods=["post"])
+    @action(detail=False, methods=["post"], required_scopes=["hog_flow:write", "person:read"])
     def bulk_remove_suppressions(self, request: Request, **kwargs: Any) -> Response:
         """Remove up to 100 addresses from the suppression list so they can receive messages again."""
         self._require_editor_access()
