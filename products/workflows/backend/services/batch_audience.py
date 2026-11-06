@@ -64,7 +64,7 @@ def get_batch_audience_person_ids(
 
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
-        filter_group_type_index = audience_group_type_index(team, cleaned_filter)
+        filter_group_type_index = audience_group_type_index(team, filters)
         select_query = _build_audience_person_query(
             team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key, group_type_index=filter_group_type_index
         )

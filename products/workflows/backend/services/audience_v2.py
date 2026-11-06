@@ -44,7 +44,7 @@ def get_person_audience_count_v2(team: Team, filters: dict) -> BlastRadiusResult
     """
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
-        group_type_index = audience_group_type_index(team, cleaned_filter)
+        group_type_index = audience_group_type_index(team, filters)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         if group_type_index is None:
@@ -76,7 +76,7 @@ def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> 
 
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
-        group_type_index = audience_group_type_index(team, cleaned_filter)
+        group_type_index = audience_group_type_index(team, filters)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         database = Database.create_for(team=team)

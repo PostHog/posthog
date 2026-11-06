@@ -7,6 +7,7 @@ type, so a condition on another group type is rejected instead of being dropped,
 dropped condition sends to a wider audience.
 """
 
+from collections.abc import Iterator
 from typing import Optional
 
 from rest_framework import exceptions
@@ -19,7 +20,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
 from posthog.models.property import Property, PropertyGroup, PropertyOperatorType
-from posthog.models.property.parse import parse_property_group_data
 from posthog.models.team.team import Team
 
 from products.workflows.backend.facade.contracts import PersonGroupMembership
@@ -31,9 +31,9 @@ GROUP_TYPE_NOT_SUPPORTED_MESSAGE = (
 MEMBERSHIP_NOT_READY_MESSAGE = "Account membership is still being calculated. Try again when it finishes."
 
 
-def audience_group_type_index(team: Team, prop_group: PropertyGroup) -> Optional[int]:
+def audience_group_type_index(team: Team, filters: dict) -> Optional[int]:
     """The group type that the audience's group property conditions read, or None when it has none."""
-    membership = _supported_membership(team, prop_group)
+    membership = _supported_membership(team, filters)
     if membership is None:
         return None
     # A backfill in progress holds only part of the membership, so a send would silently miss people.
@@ -44,22 +44,34 @@ def audience_group_type_index(team: Team, prop_group: PropertyGroup) -> Optional
 
 def reject_unsupported_group_conditions_in_audience(team: Team, filters: dict) -> None:
     # Readiness is checked when the audience is sized or sent, so a membership backfill doesn't block edits.
-    try:
-        prop_group = parse_property_group_data((filters or {}).get("properties"))
-    except (ValueError, exceptions.ValidationError):
-        # Malformed properties fail when the audience is sized, with the message that sizing gives.
-        return
-    _supported_membership(team, prop_group)
+    _supported_membership(team, filters)
 
 
-def _supported_membership(team: Team, prop_group: PropertyGroup) -> Optional[PersonGroupMembership]:
-    indices = {prop.group_type_index for prop in prop_group.flat if prop.type == "group"}
+def _supported_membership(team: Team, filters: dict) -> Optional[PersonGroupMembership]:
+    # This reads the raw filters because the parser drops a condition it can't parse, such as one with an
+    # invalid group_type_index, and the audience would then silently lose that condition.
+    indices = {
+        condition.get("group_type_index")
+        for condition in _raw_conditions((filters or {}).get("properties"))
+        if condition.get("type") == "group"
+    }
     if not indices:
         return None
     membership = get_person_group_membership(team)
     if membership is None or indices != {membership.group_type_index}:
         raise exceptions.ValidationError({"filters": GROUP_TYPE_NOT_SUPPORTED_MESSAGE})
     return membership
+
+
+def _raw_conditions(node: object) -> Iterator[dict]:
+    if isinstance(node, list):
+        for item in node:
+            yield from _raw_conditions(item)
+    elif isinstance(node, dict):
+        if isinstance(node.get("values"), list):
+            yield from _raw_conditions(node["values"])
+        else:
+            yield node
 
 
 def audience_query_context(

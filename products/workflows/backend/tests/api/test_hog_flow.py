@@ -4412,6 +4412,8 @@ class TestHogFlowAPI(APIBaseTest):
             # A membership backfill in progress blocks the send, not the edit.
             ("account_group_type_while_backfilling", PersonGroupMembership(group_type_index=0, ready=False), 0, 201),
             ("other_group_type", PersonGroupMembership(group_type_index=0, ready=True), 1, 400),
+            # The parser drops a condition with an invalid index, which would widen the audience.
+            ("invalid_group_type_index", PersonGroupMembership(group_type_index=0, ready=True), 99, 400),
             ("no_account_group_type", None, 0, 400),
         ]
     )

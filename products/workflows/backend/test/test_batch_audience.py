@@ -10,7 +10,6 @@ from rest_framework import exceptions
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.group.util import create_group
-from posthog.models.property.parse import parse_property_group_data
 from posthog.redis import get_client as get_redis_client
 
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
@@ -289,9 +288,7 @@ class TestAudienceGroupTypeIndex(SimpleTestCase):
         ]
     )
     def test_rejects_group_conditions_it_cannot_resolve(self, _name, membership, expected_message):
-        prop_group = parse_property_group_data(ENTERPRISE_FILTERS["properties"])
-
         with patch(MEMBERSHIP_PATH, return_value=membership), self.assertRaises(exceptions.ValidationError) as error:
-            audience_group_type_index(MagicMock(), prop_group)
+            audience_group_type_index(MagicMock(), ENTERPRISE_FILTERS)
 
         assert error.exception.detail == {"filters": expected_message}
