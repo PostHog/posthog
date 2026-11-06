@@ -51,7 +51,8 @@ import { QualityChangeMarker } from './QualityChangeMarker'
 import { SessionsCell } from './SessionsCell'
 import { TrendCell } from './TrendCell'
 
-const ROW_FOCUS_RING = 'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring'
+const TOOL_BUTTON_CLASS =
+    'cursor-pointer rounded-sm text-left font-mono focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
 
 interface ColumnSpec {
     key: ToolQualitySortColumn
@@ -177,22 +178,22 @@ function ToolRows(): JSX.Element {
                 <TableRow
                     key={row.tool}
                     data-state={row.tool === selectedTool ? 'selected' : undefined}
-                    className={`cursor-pointer ${ROW_FOCUS_RING}`}
+                    className="cursor-pointer"
                     onClick={() => toggleRow(row.tool)}
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={row.tool === selectedTool}
-                    onKeyDown={(e) => {
-                        // Keys pressed on the "Full report" link bubble here, and must not also toggle the row.
-                        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-                            e.preventDefault()
-                            toggleRow(row.tool)
-                        }
-                    }}
                     data-attr="mcp-tool-quality-row"
                 >
                     <TableCell expand>
-                        <span className="font-mono">{row.tool}</span>
+                        <button
+                            type="button"
+                            className={TOOL_BUTTON_CLASS}
+                            aria-pressed={row.tool === selectedTool}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                toggleRow(row.tool)
+                            }}
+                        >
+                            {row.tool}
+                        </button>
                     </TableCell>
                     <TableCell align="right" className="tabular-nums">
                         {formatNumber(row.total_calls)}

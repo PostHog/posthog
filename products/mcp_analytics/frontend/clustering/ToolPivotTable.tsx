@@ -111,25 +111,25 @@ export function ToolPivotTable(): JSX.Element {
                             <TableRow
                                 key={tool.tool}
                                 onClick={() => selectTool(tool.tool)}
-                                role="button"
-                                tabIndex={0}
-                                aria-current={selectedToolName === tool.tool ? 'true' : undefined}
-                                onKeyDown={(e) => {
-                                    // Tooltip triggers inside the row are focusable too, so only the row itself reacts.
-                                    if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-                                        e.preventDefault()
-                                        selectTool(tool.tool)
-                                    }
-                                }}
                                 data-state={selectedToolName === tool.tool ? 'selected' : undefined}
-                                className={`cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring ${
+                                className={`cursor-pointer ${
                                     selectedToolName === tool.tool
                                         ? 'bg-accent-highlight-secondary'
                                         : 'hover:bg-accent-highlight-secondary'
                                 }`}
                             >
                                 <TableCell expand>
-                                    <span className="font-mono">{tool.tool}</span>
+                                    <button
+                                        type="button"
+                                        className="cursor-pointer rounded-sm text-left font-mono focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                                        aria-current={selectedToolName === tool.tool ? 'true' : undefined}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            selectTool(tool.tool)
+                                        }}
+                                    >
+                                        {tool.tool}
+                                    </button>
                                 </TableCell>
                                 <TableCell align="right">
                                     <span className="tabular-nums">{humanFriendlyNumber(tool.call_count)}</span>
