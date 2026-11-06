@@ -119,6 +119,13 @@ class TestEventsPersonsTables:
                 events_table="events", persons_table="persons"
             )
 
+    def test_without_cp_row_refuses_base_tables_another_team_writes(self) -> None:
+        org, team = _team()
+        owner = Team.objects.create(organization=org)
+        with _patch_org_rows([_cp_row(owner, "owner_schema", events_table_name="events")]):
+            with pytest.raises(ValueError, match="another team"):
+                team_state.resolve_events_persons_tables(team.id)
+
     def test_raises_when_cp_unreachable_and_cache_cold(self) -> None:
         org, team = _team()
         with _patch_org_rows(None):

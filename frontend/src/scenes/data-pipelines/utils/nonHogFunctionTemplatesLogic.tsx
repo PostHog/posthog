@@ -10,11 +10,10 @@ import { userLogic } from 'scenes/userLogic'
 import { BATCH_EXPORT_SERVICE_NAMES, HogFunctionTemplateStatus, HogFunctionTemplateType } from '~/types'
 
 import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
-import { DATA_WAREHOUSE_SOURCE_ICON_MAP } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { ManualLinkSourceType, UserType } from '../../../types'
+import type { UserType } from '../../../types'
 import { BATCH_EXPORT_ICON_MAP } from '../batch-exports/BatchExportIcon'
 
 export interface NonHogFunctionTemplatesLogicProps {
@@ -59,10 +58,6 @@ export function getSourceDisplayStatus(unreleased: boolean, featureFlag: boolean
 export interface nonHogFunctionTemplatesLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     connectors: SourceConfigResponseApi[] // sourceWizardLogic
-    manualConnectors: {
-        name: string
-        type: ManualLinkSourceType
-    }[] // sourceWizardLogic
     user: UserType | null // userLogic
     hogFunctionTemplatesBatchExports: HogFunctionTemplateType[]
     hogFunctionTemplatesDataWarehouseSources: HogFunctionTemplateType[]
@@ -73,10 +68,6 @@ export interface nonHogFunctionTemplatesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hogFunctionTemplatesDataWarehouseSources: (
             connectors: SourceConfigResponseApi[],
-            manualConnectors: {
-                name: string
-                type: ManualLinkSourceType
-            }[],
             featureFlags: FeatureFlagsSet
         ) => HogFunctionTemplateType[]
         hogFunctionTemplatesBatchExports: (
@@ -100,7 +91,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
     connect(({ availableSources }: NonHogFunctionTemplatesLogicProps) => ({
         values: [
             sourceWizardLogic({ availableSources }),
-            ['connectors', 'manualConnectors'],
+            ['connectors'],
             featureFlagLogic,
             ['featureFlags'],
             userLogic,
@@ -110,16 +101,12 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
 
     selectors({
         hogFunctionTemplatesDataWarehouseSources: [
-            (s) => [s.connectors, s.manualConnectors, s.featureFlags],
+            (s) => [s.connectors, s.featureFlags],
             (
                 connectors: SourceConfigResponseApi[],
-                manualConnectors: {
-                    name: string
-                    type: import('~/types').ManualLinkSourceType
-                }[],
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): HogFunctionTemplateType[] => {
-                const managed = connectors.map((connector: SourceConfigResponseApi): HogFunctionTemplateType => {
+                return connectors.map((connector: SourceConfigResponseApi): HogFunctionTemplateType => {
                     const featureFlagDefined = !!connector.featureFlag
                     const featureFlagRaw = featureFlags[connector.featureFlag as FeatureFlagKey]
                     // Treat "flag declared but absent in featureFlags" as off — non-cloud
@@ -155,29 +142,6 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         releaseStatus,
                     }
                 })
-                const selfManaged = manualConnectors.map(
-                    (source): HogFunctionTemplateType => ({
-                        id: `self-managed-${source.type}`,
-                        type: 'source',
-                        name: source.name,
-                        icon_url: DATA_WAREHOUSE_SOURCE_ICON_MAP[source.type],
-                        status: 'stable',
-                        description: (
-                            <>
-                                Data will be queried directly from your data source that you manage.{' '}
-                                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
-                            </>
-                        ),
-                        code: '',
-                        code_language: 'hog',
-                        inputs_schema: [],
-                        filters: null,
-                        masking: null,
-                        free: true,
-                    })
-                )
-
-                return [...managed, ...selfManaged]
             },
         ],
 
