@@ -14,7 +14,7 @@ import {
     MCP_ANALYTICS_VERSION,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import type { RequestProperties } from '@/lib/request-properties'
+import { type RequestProperties, sanitizeToolFilterNames } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { SkillInvocation } from '@/tools/exec-learn'
@@ -106,6 +106,8 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
             : undefined
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
+        const requestedFeatures = sanitizeToolFilterNames(requestContext.features)
+        const requestedTools = sanitizeToolFilterNames(requestContext.tools)
 
         // Emits `$mcp_initialize`. The SDK maps `durationMs` → `$mcp_duration_ms`
         // and `sessionId` → `$session_id`; everything else rides on `properties`.
@@ -125,6 +127,9 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
                 has_project_id: !!requestContext.projectId,
                 read_only: !!requestContext.readOnly,
                 via_sse_redirect: !!requestContext.viaSseRedirect,
+                ...(requestedFeatures ? { requested_features: requestedFeatures } : {}),
+                ...(requestedTools ? { requested_tools: requestedTools } : {}),
+                ...(requestContext.excludeTools ? { requested_exclude_tools: requestContext.excludeTools } : {}),
             },
         })
     } catch {
@@ -342,6 +347,13 @@ const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
     'posthog-connection-forward',
 ])
 
+// A send's recipient address, subject and distinct ID are a customer's own customer data, and the list takes an
+// address as its search. Key-based redaction catches none of them. `$mcp_tool_call` still records the call.
+const EMAIL_RECIPIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
+    'workflows-transactional-emails-list',
+    'workflows-transactional-email-get',
+])
+
 const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'
 
 function sendsEmailContent(toolName: string, input: unknown): boolean {
@@ -352,6 +364,18 @@ function sendsEmailContent(toolName: string, input: unknown): boolean {
     // posthog-connection-call, or a command exec rejects, still carries the email body.
     const command = (input as { command?: unknown } | null | undefined)?.command
     return toolName === 'exec' && typeof command === 'string' && command.includes(EMAIL_SEND_TOOL_PREFIX)
+}
+
+function readsEmailRecipients(toolName: string, input: unknown): boolean {
+    if (EMAIL_RECIPIENT_TOOL_NAMES.has(toolName)) {
+        return true
+    }
+    const command = (input as { command?: unknown } | null | undefined)?.command
+    return (
+        toolName === 'exec' &&
+        typeof command === 'string' &&
+        [...EMAIL_RECIPIENT_TOOL_NAMES].some((name) => command.includes(name))
+    )
 }
 
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
@@ -374,6 +398,9 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
         return false
     }
     if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {
+        return false
+    }
+    if (readsEmailRecipients(toolName, input)) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,
