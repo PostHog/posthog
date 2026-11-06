@@ -35,6 +35,7 @@ export default defineCommand({
         },
     },
     scopes: ['event_definition:read'],
+    checksScopesFirst: true,
     notes: 'hog writes the module only when the event definitions changed or the file is missing, and records the language, path and schema hash in posthog.json. posthog-cli reads the same entries.',
     examples: [
         'hog schema pull --language typescript --file src/lib/',

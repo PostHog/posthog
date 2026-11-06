@@ -1,6 +1,7 @@
 import { refuseInCi, runApproval, type PendingResult } from '@/core/approval'
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
+import { stepUpRequired } from '@/posthog/api'
 import type { OAuthLogin } from '@/posthog/oauth'
 import { addToKeyHint, canStepUp } from '@/posthog/scope-challenge'
 import { scopesNotCovered } from '@/posthog/scopes'
@@ -80,4 +81,17 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
     const flow = loginFlow(ctx.runtime, key.host, [...held, ...added], { command: ADD_COMMAND, requiredScopes: added })
     const result = await runApproval(ctx, flow)
     return result.status === 'pending' ? { ...result, host: key.host } : finishStepUp(ctx, result.value)
+}
+
+// Only a login knows its scopes without asking PostHog, so a personal API key meets the 403 instead.
+export async function ensureScopes(ctx: Context, scopes: readonly string[]): Promise<void> {
+    const credentials = await ctx.credentials()
+    const held = credentials.key.status().scopes
+    if (!canStepUp(credentials) || held === null) {
+        return
+    }
+    const missing = scopesNotCovered(held, scopes)
+    if (missing.length > 0 && !(await ctx.stepUp(missing))) {
+        throw stepUpRequired(missing)
+    }
 }

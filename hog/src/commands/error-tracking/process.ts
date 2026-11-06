@@ -19,6 +19,7 @@ export default defineCommand({
     args: PATHS,
     options: { ...SELECTION_OPTIONS, ...UPLOAD_OPTIONS, ...RELEASE_OPTIONS, ...DRY_RUN_OPTION },
     scopes: ['error_tracking:write'],
+    checksScopesFirst: true,
     notes: [
         'Runs `hog error-tracking inject` on the JavaScript bundles, then `hog error-tracking upload` on everything it found. Use it in CI after the build.',
         'When --release-name, --release-version or --build is set, PostHog creates the release before any file changes.',

@@ -18,6 +18,7 @@ export default defineCommand({
     args: PATHS,
     options: { ...SELECTION_OPTIONS, ...UPLOAD_OPTIONS, ...RELEASE_OPTIONS, ...DRY_RUN_OPTION },
     scopes: ['error_tracking:write'],
+    checksScopesFirst: true,
     notes: [
         "hog finds the artifacts in each path and detects their type from the files. A file it can't place, or one that two types could claim, is an error that names --kind.",
         'Supported: JavaScript bundles with sourcemaps, maps the Hermes compiler composed, ProGuard or R8 mappings (mapping.txt), dSYM bundles, and ELF or Mach-O files with debug info.',

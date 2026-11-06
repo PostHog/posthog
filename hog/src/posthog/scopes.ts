@@ -39,5 +39,7 @@ export function scopesNotCovered(held: readonly string[], wanted: readonly strin
         const actions = action === 'read' ? ['read', 'write'] : [action]
         return objects.some((o) => actions.some((a) => granted.has(`${o}:${a}`)))
     }
-    return [...new Set(wanted)].filter((scope) => !grants(scope))
+    const missing = [...new Set(wanted)].filter((scope) => !grants(scope))
+    // Asking for `x:write` grants `x:read` too, so the read scope would only lengthen the request.
+    return missing.filter((scope) => !(scope.endsWith(':read') && missing.includes(scope.replace(/:read$/, ':write'))))
 }

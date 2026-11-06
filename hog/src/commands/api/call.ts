@@ -72,6 +72,9 @@ export default defineCommand({
             )
         }
 
+        // A tool can send several requests, so the scopes are checked before the first one.
+        const { ensureScopes } = await import('@/posthog/login/step-up')
+        await ensureScopes(ctx, tool.requiredScopes)
         const result = await withApiConnection(ctx, options, tool.readOnly || tool.idempotent, (connection) =>
             library.call(tool.name, validation.input, connection, options.confirm === true)
         )

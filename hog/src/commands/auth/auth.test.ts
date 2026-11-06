@@ -986,4 +986,15 @@ describe('hog auth login', () => {
         expect(result.exitCode).toBe(0)
         expect(result.stdout).toContain('Hedgebox')
     })
+
+    test.each([
+        [['error-tracking', 'upload', 'dist'], 'error_tracking:write'],
+        [['endpoints', 'push', 'endpoints/'], 'endpoint:write insight_variable:write'],
+        [['schema', 'pull'], 'event_definition:read'],
+    ])('hog %j checks the login has %s before it starts', async (argv, scope) => {
+        const result = await runHog(argv, { env: { CLAUDECODE: '1' }, ...OAUTH_LOGIN, respond: deviceFlow(0) })
+
+        expect(result.error()).toMatchObject({ code: 'step_up_required', command: `hog auth add ${scope}` })
+        expect(result.requests).toEqual([])
+    })
 })
