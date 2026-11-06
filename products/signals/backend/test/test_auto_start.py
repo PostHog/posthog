@@ -1,5 +1,6 @@
 import re
 import json
+from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration, Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
@@ -31,6 +33,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.auto_start import (
     NO_SUPERSEDE,
+    AutostartOutcome,
     ImplementationReportContent,
     ReportChangedDuringAutostart,
     ReportSteering,
@@ -1456,11 +1459,18 @@ async def test_a_non_link_skip_is_counted_under_its_own_reason_without_a_log_ent
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("enforced", [True, False])
-async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
-    # The implementation task is the step that leads to the billable PR: an enforced over-quota
-    # team must start none, while dark launch (limited, flag off) must leave auto-start untouched.
-    # Committed rows for the same reason as the autostart-switch test above.
+@pytest.mark.parametrize(
+    ("status", "run_count", "enforced", "should_block"),
+    [
+        (SignalReport.Status.READY, 0, True, False),
+        (SignalReport.Status.IN_PROGRESS, 1, True, False),
+        (SignalReport.Status.CANDIDATE, 0, True, True),
+        (SignalReport.Status.CANDIDATE, 0, False, False),
+    ],
+)
+async def test_autostart_requires_admission_or_available_quota(
+    status: str, run_count: int, enforced: bool, should_block: bool
+) -> None:
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
 
@@ -1473,7 +1483,7 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
             team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
         )
         report = SignalReport.objects.create(
-            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+            team=team, status=status, run_count=run_count, title="t", summary="s", signal_count=0, total_weight=0.0
         )
         return team, report
 
@@ -1486,16 +1496,17 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
             description=kwargs["description"],
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
-        run = TaskRun.objects.create(task=task, team_id=team.id)
-        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+        TaskRun.objects.create(task=task, team_id=team.id)
+        return task
 
     with (
-        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch.object(Task, "create_and_run", side_effect=_fake_create_and_run_task),
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
         patch(
-            "products.signals.backend.auto_start.self_driving_quota_gate",
+            "products.signals.backend.quota.self_driving_quota_gate",
             return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
         ),
+        pytest.raises(QuotaLimitExceeded) if should_block else nullcontext(),
     ):
         await maybe_autostart_implementation_task(
             team_id=team.id,
@@ -1512,7 +1523,7 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
         )
 
-    assert (mock_create.call_count == 0) is enforced
+    assert await Task.objects.filter(team_id=team.id).aexists() is not should_block
 
 
 @pytest.mark.asyncio
@@ -1594,8 +1605,11 @@ async def test_free_trial_gate_blocks_autostart(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("autostart_eligible", [True, False])
-async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
+@pytest.mark.parametrize(
+    ("autostart_eligible", "user_edit", "enforced"),
+    [(True, False, True), (False, False, True), (True, True, True), (True, True, False)],
+)
+async def test_reviewer_reevaluation_checks_quota_only_for_a_fresh_user_edit(autostart_eligible, user_edit, enforced):
     # The re-eval reads the flag off the persisted artefact and hands it to autostart rather than
     # deciding for itself, so a reviewer edit arriving later still gets the whole gate applied.
     def _setup() -> tuple[Team, SignalReport]:
@@ -1633,9 +1647,25 @@ async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
 
     team, report = await sync_to_async(_setup)()
 
-    with patch("products.signals.backend.auto_start.maybe_autostart_implementation_task") as mock_autostart:
-        await maybe_autostart_from_report_artefacts(team_id=team.id, report_id=str(report.id))
+    with (
+        patch(
+            "products.signals.backend.auto_start.maybe_autostart_implementation_task",
+            return_value=AutostartOutcome(status="started"),
+        ) as mock_autostart,
+        patch(
+            "products.signals.backend.auto_start.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
+        ),
+        patch("products.signals.backend.auto_start._latest_reviewers_content", return_value=([], 123)),
+    ):
+        outcome = await maybe_autostart_from_report_artefacts(
+            team_id=team.id, report_id=str(report.id), triggering_user_id=123 if user_edit else None
+        )
 
+    assert outcome.status == ("blocked" if user_edit and enforced else "started")
+    if user_edit and enforced:
+        mock_autostart.assert_not_called()
+        return
     assert mock_autostart.call_args.kwargs["repository_autostart_eligible"] is autostart_eligible
 
 

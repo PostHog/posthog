@@ -470,6 +470,15 @@ const inboxReportChecksReplace = (): ToolBase<
         if (params.config !== undefined) {
             body['config'] = params.config
         }
+        if (params.soak_minutes !== undefined) {
+            body['soak_minutes'] = params.soak_minutes
+        }
+        if (params.run_interval_minutes !== undefined) {
+            body['run_interval_minutes'] = params.run_interval_minutes
+        }
+        if (params.runs_remaining !== undefined) {
+            body['runs_remaining'] = params.runs_remaining
+        }
         const result = await context.api.request<Schemas.SignalReportCheck>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/checks/${encodeURIComponent(String(params.id))}/replace/`,
@@ -683,6 +692,9 @@ const inboxReportsCreate = (): ToolBase<
         if (params.links !== undefined) {
             body['links'] = params.links
         }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -813,6 +825,7 @@ const inboxReportsList = (): ToolBase<
                 channel_id: params.channel_id,
                 count_only: params.count_only,
                 created_after: params.created_after,
+                created_before: params.created_before,
                 exclude: params.exclude,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
@@ -822,6 +835,7 @@ const inboxReportsList = (): ToolBase<
                 offset: params.offset,
                 ordering: params.ordering,
                 priority: params.priority,
+                ranking_id: params.ranking_id,
                 ranking_min_lift: params.ranking_min_lift,
                 ranking_min_probability: params.ranking_min_probability,
                 scope: params.scope,
@@ -890,7 +904,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
         )
     },
 })
@@ -950,7 +964,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
         )
     },
 })
@@ -1416,6 +1430,27 @@ const inboxSteeringInstructionsUpdate = (): ToolBase<
     },
 })
 
+const InboxUsageGetSchema = () => {
+    const SignalsMonthlyUsageQueryParams = orvalSchemas.SignalsMonthlyUsageQueryParams()
+    return SignalsMonthlyUsageQueryParams
+}
+
+const inboxUsageGet = (): ToolBase<ReturnType<typeof InboxUsageGetSchema>, Schemas.MonthlyUsage> => ({
+    name: 'inbox-usage-get',
+    schema: InboxUsageGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxUsageGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.MonthlyUsage>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/usage/`,
+            query: {
+                month: params.month,
+            },
+        })
+        return result
+    },
+})
+
 const ScoutCheckRecordResultSchema = () => {
     const SignalsScoutRecordCheckResultBody = orvalSchemas.SignalsScoutRecordCheckResultBody()
     const SignalsScoutRecordCheckResultParams = orvalSchemas.SignalsScoutRecordCheckResultParams()
@@ -1812,6 +1847,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.links !== undefined) {
             body['links'] = params.links
         }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -1897,6 +1935,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
@@ -3303,6 +3344,9 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.links !== undefined) {
             body['links'] = params.links
         }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -3391,6 +3435,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
@@ -3788,6 +3835,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'inbox-steering-instructions-get': inboxSteeringInstructionsGet,
     'inbox-steering-instructions-update': inboxSteeringInstructionsUpdate,
+    'inbox-usage-get': inboxUsageGet,
     'scout-check-record-result': scoutCheckRecordResult,
     'scout-config-create': scoutConfigCreate,
     'scout-config-delete': scoutConfigDelete,

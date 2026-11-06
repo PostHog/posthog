@@ -313,6 +313,27 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             tags="Tags applied to the opportunity.",
         ),
     },
+    "opportunity_people": {
+        "description": "A link between a person and an opportunity, such as a CRM opportunity contact role.",
+        "docs_url": "https://developers.salesloft.com/docs/api/opportunity-people-index",
+        "columns": _columns(
+            person_id="Identifier of the Salesloft person.",
+            opportunity_id="Identifier of the Salesloft opportunity.",
+            opportunity_crm_id="Identifier of the opportunity in the CRM.",
+            person_crm_id="Identifier of the person in the CRM.",
+            crm_id="Identifier of the association object in the CRM, such as the opportunity contact role.",
+            is_primary="Whether the person is the primary contact for the opportunity in the CRM.",
+        ),
+    },
+    "opportunity_stages": {
+        "description": "A stage that an opportunity can be in.",
+        "docs_url": "https://developers.salesloft.com/docs/api/opportunity-stages-index",
+        "columns": _columns(
+            name="Name of the opportunity stage.",
+            order="Sort order of the stage.",
+            active="Whether the opportunity stage is active.",
+        ),
+    },
     "people": {
         "description": "An individual contact tracked in Salesloft.",
         "docs_url": "https://developers.salesloft.com/docs/api/people-index",
@@ -388,6 +409,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             created_by_user="The user who created the task.",
             completed_by="The user who completed the task.",
         ),
+    },
+    "tags": {
+        "description": "A tag that can be applied to people, accounts, cadences and other records.",
+        "docs_url": "https://developers.salesloft.com/docs/api/tags-index",
+        "columns": {
+            "id": "Unique identifier for the tag.",
+            "name": "Name of the tag.",
+        },
     },
     "team_templates": {
         "description": "An email template shared and managed at the team level.",

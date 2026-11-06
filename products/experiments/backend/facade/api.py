@@ -514,13 +514,7 @@ def _connected_cleanup_repository(team: Team, repository: str | None) -> str | N
     repository = repository.lower()
     # Reject repos outside the team's GitHub installation now rather than storing a
     # default the cleanup resolution would silently ignore.
-    github = tasks_repo_selection.resolve_team_github_integration(team.id, team=team, team_only=True)
-    cached = {
-        full_name.lower()
-        for repo in (github.list_all_cached_repositories(max_repos=1000) if github else [])
-        if (full_name := repo.get("full_name"))
-    }
-    if repository not in cached:
+    if repository not in (tasks_repo_selection.team_repository_names(team.id, team=team) or {}):
         raise ExperimentValidationError(
             "This repository is not connected to the project's GitHub integration.", field="flag_cleanup_repository"
         )

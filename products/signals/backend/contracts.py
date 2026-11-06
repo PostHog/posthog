@@ -60,6 +60,8 @@ class AlertScope(enum.StrEnum):
     INVESTIGATED_ONLY = "investigated_only"
     # Every insight alert that starts to fire, also alerts without the investigation agent.
     ALL_FIRING_ALERTS = "all_firing_alerts"
+    # No alert becomes a signal. Alert checks, notifications, and investigations still run.
+    OFF = "off"
 
 
 # ── Alert name patterns ─────────────────────────────────────────────────────────

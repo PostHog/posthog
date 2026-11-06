@@ -1,6 +1,6 @@
 import { PAGE_TOOLBAR_PORT, PageToolbarTokens } from '../messaging/pageToolbarBridge'
 
-// Firefox and Chrome both expose the promise-based `chrome.*` namespace to Manifest V3 extensions.
+// Chrome exposes the promise-based `chrome.*` namespace to Manifest V3 extensions.
 // Only the calls the side panel, the background script and the content script make are typed here.
 interface ExtensionTab {
     id?: number
@@ -86,23 +86,17 @@ interface ExtensionBrowserApi {
     permissions: {
         contains: (permissions: ExtensionPermissions) => Promise<boolean>
         request: (permissions: ExtensionPermissions) => Promise<boolean>
-        // Firefox adds `data_collection`, and Chrome leaves it out.
-        getAll: () => Promise<ExtensionPermissions & { data_collection?: string[] }>
-        onAdded: ExtensionEvent<() => void>
-        onRemoved: ExtensionEvent<() => void>
     }
     action: {
         onClicked: ExtensionEvent<() => void>
     }
-    sidePanel?: {
+    sidePanel: {
         setPanelBehavior: (behavior: { openPanelOnActionClick: boolean }) => Promise<void>
-    }
-    sidebarAction?: {
-        toggle: () => Promise<void>
     }
 }
 
-// Firefox puts its own APIs, such as `sidebarAction`, only on `browser`.
+// Stories and the store listing images install a fake extension API as `browser`, because every Chrome page already
+// has a `chrome` object of its own.
 const extensionBrowser = ((globalThis as unknown as { browser?: ExtensionBrowserApi }).browser ??
     (globalThis as unknown as { chrome: ExtensionBrowserApi }).chrome) as ExtensionBrowserApi
 
@@ -112,15 +106,7 @@ const UI_HOST_STORAGE_KEY = 'posthogUiHost'
 const CONTENT_SCRIPT_FILE = 'content.js'
 
 export function openPanelFromToolbarButton(): void {
-    if (extensionBrowser.sidePanel) {
-        void extensionBrowser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
-        return
-    }
-    const sidebarAction = extensionBrowser.sidebarAction
-    if (sidebarAction) {
-        // Firefox opens a sidebar only from a user action, so the toggle must run in the click listener without an await.
-        extensionBrowser.action.onClicked.addListener(() => void sidebarAction.toggle())
-    }
+    void extensionBrowser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
 }
 
 export async function getActiveTab(): Promise<ExtensionTab | null> {
@@ -172,7 +158,7 @@ export async function setStoredUiHost(uiHost: string): Promise<void> {
 }
 
 function originPattern(uiHost: string): ExtensionPermissions {
-    // Match patterns cover every port of a host, and Firefox rejects a pattern that names one.
+    // A pattern without a port matches the host on every port.
     const { protocol, hostname } = new URL(uiHost)
     return { origins: [`${protocol}//${hostname}/*`] }
 }
@@ -185,26 +171,6 @@ export async function hasHostPermission(uiHost: string): Promise<boolean> {
 /** Must run inside the click handler: browsers show the permission prompt only for a user gesture. */
 export async function requestHostPermission(url: string): Promise<boolean> {
     return await extensionBrowser.permissions.request(originPattern(url))
-}
-
-/**
- * Firefox asks the user at install whether the extension may send usage data, from the manifest's
- * `data_collection_permissions`. Chrome has no such choice, so usage data is allowed there.
- */
-export async function canSendUsageData(): Promise<boolean> {
-    const { data_collection } = await extensionBrowser.permissions.getAll()
-    // pinned: Firefox data collection category, the manifest declares the same key
-    return !data_collection || data_collection.includes('technicalAndInteraction')
-}
-
-/** Firefox fires these when the user changes the data collection choice in the add-on's settings. */
-export function onPermissionsChange(handler: () => void): () => void {
-    extensionBrowser.permissions.onAdded.addListener(handler)
-    extensionBrowser.permissions.onRemoved.addListener(handler)
-    return () => {
-        extensionBrowser.permissions.onAdded.removeListener(handler)
-        extensionBrowser.permissions.onRemoved.removeListener(handler)
-    }
 }
 
 // pinned: extension message, the panel and an already injected content script must agree on it

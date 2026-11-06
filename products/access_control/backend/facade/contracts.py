@@ -64,6 +64,15 @@ class PropertyAccessControlState:
     default_access_level: PropertyAccessLevel = PropertyAccessLevel.READ_WRITE
 
 
+@frozen
+class PropertyDefinitionLabel:
+    """How a property access control rule names its property definition."""
+
+    id: UUID
+    name: str
+    is_person: bool
+
+
 # --- Input DTOs ---
 
 

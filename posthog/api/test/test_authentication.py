@@ -17,7 +17,7 @@ from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.db import connection
 from django.http import HttpRequest, HttpResponse
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.module_loading import import_string
@@ -36,8 +36,13 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
+from two_factor.views.core import REMEMBER_COOKIE_PREFIX
 
-from posthog.api.authentication import password_reset_token_generator, social_login_notification
+from posthog.api.authentication import (
+    password_reset_token_generator,
+    social_grant_staff_to_google_workspace_members,
+    social_login_notification,
+)
 from posthog.api.email_verification import is_email_verification_disabled
 from posthog.api.oauth.cimd import CIMDFetchError
 from posthog.auth import (
@@ -1076,6 +1081,42 @@ class TestTwoFactorAPI(APIBaseTest):
 
         response = self.client.get("/api/users/@me/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
+
+    def test_password_reauth_keeps_the_session_usable_until_the_2fa_step(self):
+        self.organization.enforce_2fa = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        credentials = {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
+
+        now = datetime.now()
+        with time_machine.travel(now, tick=False):
+            assert self.client.post("/api/login", credentials).status_code == status.HTTP_401_UNAUTHORIZED
+            assert self.client.post("/api/login/token", {"token": totp_str(device.bin_key)}).status_code == 200
+
+        # A remembered device skips the 2FA step, so the re-auth below would never reach it.
+        for cookie_name in [name for name in self.client.cookies if name.startswith(REMEMBER_COOKIE_PREFIX)]:
+            del self.client.cookies[cookie_name]
+
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            response = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert response.json()["code"] == "sensitive_action_required_reauth"
+
+            response = self.client.post("/api/login", credentials)
+            assert response.json()["code"] == "2fa_required"
+
+            response = self.client.get("/api/organizations/@current")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            response = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert response.json()["code"] == "sensitive_action_required_reauth"
+
+            response = self.client.post("/api/login/token", {"token": totp_str(device.bin_key)})
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            response = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert response.status_code == status.HTTP_200_OK, response.json()
 
     @parameterized.expand([("authenticator_code", "000000"), ("backup_code", "zzzz7777")])
     def test_2fa_throttling(self, _name: str, wrong_token: str) -> None:
@@ -3357,6 +3398,29 @@ class TestOAuthLoginNotification(APIBaseTest):
 
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 0
+
+
+class TestSocialGrantStaffToGoogleWorkspaceMembers(TestCase):
+    @parameterized.expand(
+        [
+            ("prod_us", "US", "google-oauth2", "jane@posthog.com", "posthog.com", False, False),
+            ("workspace_member", "DEV", "google-oauth2", "jane@posthog.com", "posthog.com", False, True),
+            ("no_workspace", "DEV", "google-oauth2", "jane@posthog.com", None, False, False),
+            ("other_workspace", "DEV", "google-oauth2", "jane@posthog.com", "example.com", False, False),
+            ("non_posthog_email", "DEV", "google-oauth2", "jane@example.com", "posthog.com", False, False),
+            ("other_backend", "DEV", "github", "jane@posthog.com", "posthog.com", False, False),
+            ("existing_staff_kept", "DEV", "google-oauth2", "jane@posthog.com", None, True, True),
+        ]
+    )
+    def test_grant(self, _name, cloud_deployment, backend_name, email, hosted_domain, was_staff, expected_is_staff):
+        user = User.objects.create(email=email, distinct_id=str(uuid.uuid4()), is_staff=was_staff)
+        backend = type("Backend", (), {"name": backend_name})()
+
+        with self.settings(CLOUD_DEPLOYMENT=cloud_deployment, ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS=["posthog.com"]):
+            social_grant_staff_to_google_workspace_members(backend, {"hd": hosted_domain}, user)
+
+        user.refresh_from_db()
+        assert user.is_staff is expected_is_staff
 
 
 class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):

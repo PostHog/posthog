@@ -23,6 +23,7 @@ export function resolveGatewayProduct({
   // application, and no other product authorizes it — an unmapped origin falls through to
   // posthog_code and the gateway rejects the token.
   const originProductToGatewayProductMap: Record<string, GatewayProduct> = {
+    feature_flags: "posthog_ai",
     loop: "posthog_code",
     metrics_import: "posthog_ai",
     onboarding: "onboarding",

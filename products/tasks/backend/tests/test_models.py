@@ -667,8 +667,15 @@ class TestTask(TestCase):
         self.assertEqual(state["repositories"], ["posthog/posthog"])
         self.assertEqual(state.get("github_access_repositories"), expected_access)
 
+    @parameterized.expand(
+        [
+            ("read_access", "github_read_access", True),
+            ("read_scope", "github_token_scope", "read"),
+            ("push_scope", "github_token_scope", "push"),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_threads_github_read_access_into_state(self, mock_execute_workflow):
+    def test_create_and_run_threads_scoped_github_grant_into_state(self, _name, grant, value, mock_execute_workflow):
         from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
             TaskProcessingContext,
         )
@@ -682,7 +689,7 @@ class TestTask(TestCase):
                 description="repo-less run wanting gh evidence access",
                 origin_product=Task.OriginProduct.SIGNAL_REPORT,
                 user_id=user.id,
-                github_read_access=True,
+                **{grant: value},
             )
 
         state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
@@ -699,7 +706,7 @@ class TestTask(TestCase):
             distinct_id="d",
             state=state,
         )
-        self.assertTrue(ctx.github_read_access)
+        self.assertEqual(getattr(ctx, grant), value)
 
         with self.captureOnCommitCallbacks(execute=True):
             Task.create_and_run(
@@ -710,7 +717,7 @@ class TestTask(TestCase):
                 user_id=user.id,
             )
         state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
-        self.assertNotIn("github_read_access", state)
+        self.assertNotIn(grant, state)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_threads_initial_permission_mode_into_state(self, mock_execute_workflow):
@@ -1484,7 +1491,7 @@ class TestTaskActivityClock(TestCase):
     def test_thread_message_moves_the_clock_without_touching_updated_at(self):
         task = self._task()
 
-        with team_scope(self.team.id):
+        with team_scope(self.team.id), self.captureOnCommitCallbacks(execute=True):
             TaskThreadMessage.objects.create(
                 team=self.team, task=task, author=self.user, content="Any news?", author_kind="human"
             )
@@ -1509,7 +1516,10 @@ class TestTaskActivityClock(TestCase):
         Task.objects.filter(id=task.id).update(last_activity_at=STALE_ACTIVITY_AT)
 
         run.status = TaskRun.Status.IN_PROGRESS
-        run.save(update_fields=update_fields)
+        with self.captureOnCommitCallbacks(execute=True):
+            run.save(update_fields=update_fields)
+            task.refresh_from_db()
+            self.assertEqual(task.last_activity_at, STALE_ACTIVITY_AT)
 
         task.refresh_from_db()
         assert task.last_activity_at is not None

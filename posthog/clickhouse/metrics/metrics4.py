@@ -32,6 +32,7 @@ from django.conf import settings
 
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplacingMergeTree, ReplicationScheme
 
+from .kafka_metrics import KAFKA_METRICS_COLUMNS, KAFKA_METRICS_TABLE_NAME
 from .metrics2 import kafka_metrics_avro_mv_select, kafka_metrics_avro_table_sql, metrics_input_table_sql
 
 KAFKA_METRICS4_TABLE_NAME = "kafka_metrics_avro4"
@@ -47,6 +48,7 @@ WRITABLE_METRICS4_SAMPLES_TABLE_NAME = "writable_metrics4_samples"
 WRITABLE_METRICS4_SERIES_TABLE_NAME = "writable_metrics4_series"
 WRITABLE_METRICS4_NAMES_TABLE_NAME = "writable_metrics4_names"
 WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME = "writable_metrics4_attributes"
+WRITABLE_METRICS_KAFKA_METRICS_TABLE_NAME = f"writable_{KAFKA_METRICS_TABLE_NAME}"
 METRICS4_MAX_SAMPLES_PER_SERIES_HOUR = 10_000
 METRICS4_VIEW_NAME = "metrics4_view"
 # The first hour that metrics4_samples serves. The view skips earlier rows, which overlap the old metrics2 data.
@@ -67,8 +69,10 @@ METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
 # ClickHouse applies each codec to the continuous stream of array elements.
 # Each array keeps its insert order. The delta codecs compress adjacent values.
 # T64 and Gorilla can process values without a sort.
+# A merge appends point arrays in part order, so a merged timestamp array is not always in time order.
+# Delta encodes each out-of-order step as one large value. DoubleDelta encodes it as two.
 _ARRAY_CODECS: dict[str, str] = {
-    "timestamp": " CODEC(DoubleDelta, Default)",
+    "timestamp": " CODEC(Delta, Default)",
     "observed_timestamp": " CODEC(DoubleDelta, Default)",
     "value": " CODEC(Gorilla, Default)",
     "count": " CODEC(T64, Default)",
@@ -94,14 +98,14 @@ def KAFKA_METRICS_AVRO4_TABLE_SQL() -> str:
 
 
 def METRICS4_INPUT_TABLE_SQL() -> str:
-    return metrics_input_table_sql(METRICS4_INPUT_TABLE_NAME)
+    return metrics_input_table_sql(METRICS4_INPUT_TABLE_NAME, source_partition=True)
 
 
 def KAFKA_METRICS_AVRO4_MV() -> str:
     db = _db()
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_METRICS4_TABLE_NAME}_mv TO {db}.{METRICS4_INPUT_TABLE_NAME}
-AS {kafka_metrics_avro_mv_select(KAFKA_METRICS4_TABLE_NAME)}
+AS {kafka_metrics_avro_mv_select(KAFKA_METRICS4_TABLE_NAME, source_partition=True)}
 """
 
 
@@ -191,6 +195,12 @@ def WRITABLE_METRICS4_ATTRIBUTES_TABLE_SQL() -> str:
     `attribute_value` String,
     `attribute_type` LowCardinality(String),
     `attribute_count` SimpleAggregateFunction(sum, UInt64)""",
+    )
+
+
+def WRITABLE_METRICS_KAFKA_METRICS_TABLE_SQL() -> str:
+    return _writable_table_sql(
+        WRITABLE_METRICS_KAFKA_METRICS_TABLE_NAME, KAFKA_METRICS_TABLE_NAME, KAFKA_METRICS_COLUMNS
     )
 
 
@@ -385,6 +395,45 @@ GROUP BY
     time_bucket,
     series_fingerprint,
     original_expiry_date
+"""
+
+
+def METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV_SELECT() -> str:
+    # Each row counts toward its clickhouse_metrics partition and the ingestion-metrics partition
+    # the Node consumer read it from. Both topics partition at random, so lag on either hop would
+    # hide behind the other. A row without the source header has an empty source topic, and the
+    # WHERE skips it, so it cannot add a partition that never moves. The source offset is unknown.
+    return f"""SELECT
+    kafka_partition AS _partition,
+    kafka_topic AS _topic,
+    maxSimpleState(kafka_offset) AS max_offset,
+    maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+    maxSimpleState(now()) AS max_created_at
+FROM
+(
+    SELECT
+        kafka_source.1 AS kafka_topic,
+        kafka_source.2 AS kafka_partition,
+        kafka_source.3 AS kafka_offset,
+        observed_timestamp
+    FROM {_db()}.{METRICS4_INPUT_TABLE_NAME}
+    ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
+    WHERE kafka_topic != ''
+)
+GROUP BY kafka_partition, kafka_topic"""
+
+
+def METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV() -> str:
+    """The newest capture time and offset each Kafka partition has delivered, one row per insert block.
+
+    The floor across partitions is how far every partition has reached, which metrics alerts read.
+    `max_timestamp` and `max_lag` stay unset because no reader uses them, and a sender that dates
+    points ahead would pin `max_timestamp`.
+    """
+    db = _db()
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{KAFKA_METRICS_TABLE_NAME} TO {db}.{WRITABLE_METRICS_KAFKA_METRICS_TABLE_NAME}
+AS {METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV_SELECT()}
 """
 
 

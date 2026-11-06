@@ -465,6 +465,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # Docs pull requests written by the knowledge writer. Reserved: only its intake creates these.
         KNOWLEDGE_WRITER = "knowledge_writer", "Knowledge Writer"
         CONTEXT_LAYER = "context_layer", "Context Layer"
+        # Code analysis of a flag's branches, and the pull request that removes a stale flag. Reserved: only the
+        # feature flag code analysis endpoints create these.
+        FEATURE_FLAGS = "feature_flags", "Feature Flags"
 
     # Origins set only by server-side flows. The task write serializer rejects them from API callers.
     SERVER_ONLY_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
@@ -502,6 +505,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # Owns the docs repository branch it pushes to. Only the knowledge writer intake sets it.
             OriginProduct.KNOWLEDGE_WRITER,
             OriginProduct.CONTEXT_LAYER,
+            # Only the feature flag code analysis endpoints set it, after their own repository check.
+            OriginProduct.FEATURE_FLAGS,
         }
     )
 
@@ -1856,6 +1861,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
         github_read_access: bool = False,
+        github_token_scope: Literal["read", "push"] | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
@@ -1990,6 +1996,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # whether or not the run clones, so a repo-pinned caller that asks for read access
             # gets a checkout it can read and never write capability it did not ask for.
             run_extra_state["github_read_access"] = True
+        if github_token_scope is not None:
+            run_extra_state["github_token_scope"] = github_token_scope
         # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
         # reconciler can re-dispatch faithfully if the workflow start is ever lost.
         run_extra_state["pending_dispatch"] = {
@@ -2382,7 +2390,8 @@ def bump_task_activity(*, team_id: int, task_id: uuid.UUID | str, at: datetime) 
 @receiver(post_save, sender=TaskThreadMessage)
 def bump_task_activity_on_thread_message(sender, instance: "TaskThreadMessage", created: bool, **kwargs) -> None:
     if created:
-        bump_task_activity(team_id=instance.team_id, task_id=instance.task_id, at=instance.created_at)
+        team_id, task_id, at = instance.team_id, instance.task_id, instance.created_at
+        transaction.on_commit(lambda: bump_task_activity(team_id=team_id, task_id=task_id, at=at))
 
 
 @receiver(post_save, sender=Task)
@@ -3731,6 +3740,25 @@ class TaskRun(models.Model):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
 
 
+class TaskRunGatewayRequest(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task_run_id = models.UUIDField()
+    request_id = models.CharField(max_length=255)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_run_gateway_request"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task_run_id", "request_id"],
+                name="task_run_gateway_request_unique",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["task_run_id", "created_at"], name="task_run_gw_request_idx"),
+        ]
+
+
 class TaskWorkflowDispatch(TeamScopedRootMixin):
     class Kind(models.TextChoices):
         CREATE = "create", "create"
@@ -3904,6 +3932,7 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
 
     class ComputeSettleParkReason(models.TextChoices):
         HTTP_400 = "http_400", "HTTP 400"
+        HTTP_402 = "http_402", "HTTP 402"
         HTTP_409 = "http_409", "HTTP 409"
         ATTEMPTS_EXHAUSTED = "attempts_exhausted", "Attempts exhausted"
         UNEXPECTED_STATUS = "unexpected_status", "Unexpected status"
@@ -4507,7 +4536,8 @@ def bump_task_activity_on_run(sender, instance: TaskRun, created: bool, update_f
     # to bump would silently leave a live session reading as idle.
     if not created and update_fields is not None and not (RUN_ACTIVITY_FIELDS & set(update_fields)):
         return
-    bump_task_activity(team_id=instance.team_id, task_id=instance.task_id, at=django_timezone.now())
+    team_id, task_id, at = instance.team_id, instance.task_id, django_timezone.now()
+    transaction.on_commit(lambda: bump_task_activity(team_id=team_id, task_id=task_id, at=at))
 
 
 class TeamTasksConfig(models.Model):

@@ -291,6 +291,11 @@ export interface AutoresearchPipelineApi {
      */
     readonly next_research_at: string | null
     /**
+     * Why the best model of the newest completed training run did not go live, for example a failed fit or a failed scorability check. Set only while the pipeline is bootstrapping with no champion.
+     * @nullable
+     */
+    readonly not_promoted_reason: string | null
+    /**
      * Target AUC threshold. Training stops early if this score is reached.
      * @nullable
      */
@@ -1909,11 +1914,25 @@ export interface OnlinePerformanceApi {
 
 export interface StartTrainingRequestApi {
     /**
-     * Iterations for this training run. Defaults to the pipeline's iterations_per_run.
+     * Iterations for this training run. Defaults to the pipeline's iterations_per_run. The project's iteration limit per run can lower it.
      * @minimum 1
-     * @maximum 500
+     * @maximum 50
      */
     iteration_budget?: number
+}
+
+export interface TrainingRunCapReachedApi {
+    /** Why the run did not start. */
+    detail: string
+    /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+    used: number
+    /** Sandbox training runs the project may start in any 24 hours. */
+    limit: number
+    /**
+     * When the next training run can start. Null when training runs are turned off for the project.
+     * @nullable
+     */
+    next_slot_at: string | null
 }
 
 export interface AgentReasoningEffortOptionApi {
@@ -1951,6 +1970,24 @@ export interface AgentModelOptionsApi {
     default_reasoning_effort: string | null
     /** Models a pipeline may set as agent_model. */
     models: AgentModelOptionApi[]
+}
+
+export interface ProjectLimitsApi {
+    /** Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off. */
+    max_training_runs_per_day: number
+    /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+    training_runs_used: number
+    /**
+     * When the next training run can start, while the project is at its daily limit. Null while a run can start now, and when training is turned off.
+     * @nullable
+     */
+    next_slot_at: string | null
+    /** Most experiments any one training run gets. A pipeline's iterations_per_run above this is lowered to it. */
+    max_iterations_per_run: number
+    /** Most pipelines the project may have live (bootstrapping, running or converged, or a draft with an open training run, which goes live when the run promotes). Starting a draft's first training run or resuming a paused pipeline is refused at this limit. */
+    max_live_pipelines: number
+    /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
+    live_pipelines: number
 }
 
 /**

@@ -636,6 +636,69 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids == [first["report_id"]]
 
+    @parameterized.expand(
+        [
+            ("ready", "immediately_actionable", True),
+            ("pending input", "requires_human_input", False),
+        ]
+    )
+    def test_source_issues_are_recorded_once_and_start_the_writeback_for_a_ready_report(
+        self, _name: str, actionability: str, writes_back: bool
+    ) -> None:
+        run = _make_run(self.team)
+        issue_42 = "https://github.com/Acme/Widgets/issues/42"
+        issue_43 = "https://github.com/acme/widgets/issues/43"
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch("products.signals.backend.github_writeback_tasks.post_source_issue_links") as writeback,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                created = self.client.post(
+                    self._emit_url(str(run.id)),
+                    data=self._payload(actionability=actionability, source_issues=[{"url": issue_42}]),
+                    format="json",
+                )
+            assert created.status_code == status.HTTP_200_OK, created.json()
+            report_id = created.json()["report_id"]
+            assert writeback.delay.call_count == (1 if writes_back else 0)
+
+            # Naming the held issue again writes nothing and comments on nothing; only #43 is new.
+            with self.captureOnCommitCallbacks(execute=True):
+                edited = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={"report_id": report_id, "source_issues": [{"url": issue_42}, {"url": issue_43}]},
+                    format="json",
+                )
+            assert edited.status_code == status.HTTP_200_OK, edited.json()
+            assert edited.json()["source_issues_appended"] == 1
+            assert writeback.delay.call_count == (2 if writes_back else 0)
+
+        stored = SignalReportArtefact.objects.filter(
+            report_id=report_id, type=SignalReportArtefact.ArtefactType.SOURCE_ISSUE
+        ).order_by("created_at")
+        assert [json.loads(row.content)["url"] for row in stored] == [
+            "https://github.com/acme/widgets/issues/42",
+            "https://github.com/acme/widgets/issues/43",
+        ]
+
+    @parameterized.expand(
+        [
+            ("pull request", "https://github.com/acme/widgets/pull/42"),
+            ("another tracker", "https://gitlab.com/acme/widgets/-/issues/42"),
+            ("no number", "https://github.com/acme/widgets/issues/new"),
+        ]
+    )
+    def test_emit_report_rejects_a_source_issue_that_is_not_a_github_issue(self, _name: str, url: str) -> None:
+        run = _make_run(self.team)
+        with _safe_judge() as judge, patch(EMBED_PATH):
+            response = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(source_issues=[{"url": url}]), format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        judge.assert_not_called()
+
     def test_edit_report_rejects_an_unknown_link_kind(self) -> None:
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH):

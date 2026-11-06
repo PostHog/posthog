@@ -64,6 +64,7 @@ import {
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
     decodeAttachments,
+    fieldNotAcceptedError,
     isRecipientFormatIssue,
     queuedSend,
     transactionalEmailRecipients,
@@ -362,6 +363,7 @@ export class CdpApi {
             this.rerunJobManager = new RerunJobManager({
                 dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
                 maxCount: this.config.HOG_INVOCATION_RERUN_MAX_COUNT,
+                runStartPagingTeams: this.config.CDP_RERUN_RUN_START_PAGING_TEAMS,
             })
             await this.rerunJobManager.connect()
         }
@@ -1339,6 +1341,14 @@ export class CdpApi {
                     }
                 }
                 try {
+                    // After the idempotency check, so a retry of a send accepted with files still gets its answer.
+                    if (send?.attachments !== undefined && !this.config.CDP_EMAIL_ATTACHMENTS_ENABLED) {
+                        if (idempotencyKey) {
+                            stages.start('idempotency')
+                            await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                        }
+                        return reply('invalid_request', 400, { error: fieldNotAcceptedError('attachments') })
+                    }
                     stages.start('checks')
                     const refusal = await this.refuseTransactionalEmail(
                         team.id,

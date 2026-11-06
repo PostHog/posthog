@@ -12,6 +12,7 @@ use std::time::Duration;
 use envconfig::Envconfig;
 use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::HandoffHandler;
+use personhog_coordination::types::{ChangelogTarget, ClusterEndpoint};
 use personhog_leader::fencing::{
     heal_fence, FenceGuard, FencedChangelogProducers, FencedProduceError, FencedProducerConfig,
     HealOutcome,
@@ -37,11 +38,15 @@ fn test_person(version: i64) -> Person {
 /// Count the records a `read_committed` consumer can see on partition 0
 /// — the same isolation the warming path uses.
 async fn read_committed_count(topic: &str) -> usize {
+    read_committed_count_on(KAFKA_BOOTSTRAP, topic).await
+}
+
+async fn read_committed_count_on(bootstrap: &str, topic: &str) -> usize {
     use rdkafka::consumer::{Consumer, StreamConsumer};
     use rdkafka::{ClientConfig, Message, Offset, TopicPartitionList};
 
     let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", KAFKA_BOOTSTRAP)
+        .set("bootstrap.servers", bootstrap)
         .set(
             "group.id",
             format!("fence-abort-probe-{}", uuid::Uuid::new_v4()),
@@ -146,16 +151,31 @@ async fn acquiring_on_another_topic_produces_there_and_discards_a_stale_preconne
 }
 
 /// Sealing claims every lane's id on the old topic, so a holder still producing
-/// there is fenced and nothing more lands, on the cold and the prepared path.
+/// there is fenced and nothing more lands, on the cold and the prepared path,
+/// and on the old topic's own cluster when it is not the default one.
 #[tokio::test]
 async fn a_seal_fences_the_holder_on_the_old_topic() {
-    for prepared in [false, true] {
+    let secondary = common::secondary_kafka_bootstrap();
+    let mut cases = vec![(false, None), (true, None)];
+    if let Some(hosts) = &secondary {
+        let old_cluster = ClusterEndpoint {
+            name: "old-cluster".to_string(),
+            hosts: hosts.clone(),
+            tls: false,
+        };
+        cases.extend([
+            (false, Some(old_cluster.clone())),
+            (true, Some(old_cluster)),
+        ]);
+    }
+    for (prepared, cluster) in cases {
         let topic = format!("fence_seal_{}", uuid::Uuid::new_v4().simple());
+        let old = ChangelogTarget {
+            cluster: cluster.clone(),
+            ..target(&topic)
+        };
         let holder = fenced_producers(2);
-        holder
-            .acquire(0, &target(&topic))
-            .await
-            .expect("holder acquires");
+        holder.acquire(0, &old).await.expect("holder acquires");
         holder
             .produce(0, &test_person(1))
             .await
@@ -163,22 +183,27 @@ async fn a_seal_fences_the_holder_on_the_old_topic() {
 
         let sealer = fenced_producers(2);
         if prepared {
-            sealer.preconnect(0, &target(&topic)).await;
+            sealer.preconnect(0, &old).await;
         }
         let path = sealer
-            .seal(0, &target(&topic))
+            .seal(0, &old)
             .await
             .expect("the seal claims every lane");
         assert_eq!(path, if prepared { "prepared" } else { "cold" });
 
         match holder.produce(0, &test_person(2)).await {
             Err(FencedProduceError::Fenced) | Err(FencedProduceError::NotAcquired) => {}
-            other => panic!("prepared={prepared}: the holder must be fenced, got {other:?}"),
+            other => panic!(
+                "prepared={prepared} cluster={cluster:?}: the holder must be fenced, got {other:?}"
+            ),
         }
+        let bootstrap = cluster
+            .as_ref()
+            .map_or(KAFKA_BOOTSTRAP, |c| c.hosts.as_str());
         assert_eq!(
-            read_committed_count(&topic).await,
+            read_committed_count_on(bootstrap, &topic).await,
             1,
-            "prepared={prepared}: nothing lands after the seal"
+            "prepared={prepared} cluster={cluster:?}: nothing lands after the seal"
         );
     }
 }

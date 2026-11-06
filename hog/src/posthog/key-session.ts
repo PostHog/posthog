@@ -1,6 +1,7 @@
 import type { Runtime } from '@/core/runtime'
 
 import type { AccessKey, AccessKeyStorage } from './access-key'
+import type { BearerToken } from './tokens'
 
 // A command can outlive an OAuth access token, so each request renews it first when it is about to
 // expire, and renews it and sends once more when PostHog answers 401. PostHog checks the token
@@ -21,7 +22,7 @@ export class KeySession {
         return this.key
     }
 
-    async token(): Promise<string> {
+    async token(): Promise<BearerToken> {
         if (this.storage) {
             this.key = await this.key.fresh(this.runtime, this.storage)
         }

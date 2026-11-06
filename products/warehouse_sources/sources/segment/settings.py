@@ -23,7 +23,7 @@ class SegmentEndpointConfig:
     # rather than a paginated list. Such endpoints yield exactly one row.
     single_object_key: Optional[str] = None
     # A stable, immutable datetime field to partition on. Segment's config/admin objects carry no
-    # timestamps, so only audit events (`timestamp`) and Reverse ETL syncs (`startedAt`) set this.
+    # timestamps, so only audit events, sync history and the time-series usage tables set this.
     partition_key: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     should_sync_default: bool = True
@@ -35,7 +35,17 @@ class SegmentEndpointConfig:
     redacted_fields: frozenset[str] = field(default_factory=frozenset)
     # Child resources read once per parent row. `path` then holds the parent placeholders, and
     # `segment.py` lists the parents and resumes per parent.
-    fanout: Optional[Literal["tracking_plan_rules", "delivery_metrics", "reverse_etl_syncs"]] = None
+    fanout: Optional[
+        Literal[
+            "tracking_plan_rules",
+            "delivery_metrics",
+            "reverse_etl_syncs",
+            "event_volume",
+            "mtu_usage",
+            "warehouse_syncs",
+            "delivery_overview",
+        ]
+    ] = None
 
 
 # The Segment Public API is a workspace configuration/admin/usage API (not the event/Profile data
@@ -90,12 +100,60 @@ SEGMENT_ENDPOINTS: dict[str, SegmentEndpointConfig] = {
         partition_key="startedAt",
         fanout="reverse_etl_syncs",
     ),
+    # One row per source and day over the last METRICS_SERIES_WINDOW_DAYS full days.
+    "event_volume": SegmentEndpointConfig(
+        name="event_volume",
+        path="/events/volume",
+        primary_keys=["sourceId", "time"],
+        partition_key="time",
+        fanout="event_volume",
+    ),
+    # Daily cumulative MTU snapshots for the current and the previous usage month.
+    "workspace_mtu_usage": SegmentEndpointConfig(
+        name="workspace_mtu_usage",
+        path="/usage/mtu/daily",
+        primary_keys=["periodStart", "timestamp"],
+        partition_key="timestamp",
+        fanout="mtu_usage",
+    ),
+    "source_mtu_usage": SegmentEndpointConfig(
+        name="source_mtu_usage",
+        path="/usage/mtu/sources/daily",
+        primary_keys=["sourceId", "periodStart", "timestamp"],
+        partition_key="timestamp",
+        fanout="mtu_usage",
+    ),
+    # Sync reports have no id. One warehouse loads each of its sources once per start time.
+    "warehouse_syncs": SegmentEndpointConfig(
+        name="warehouse_syncs",
+        path="/warehouses/{warehouse_id}/syncs",
+        primary_keys=["warehouseId", "sourceId", "start"],
+        partition_key="start",
+        fanout="warehouse_syncs",
+    ),
+    # One row per pipeline stage, source, destination and day. Source-side stages have an empty destinationId.
+    "delivery_overview": SegmentEndpointConfig(
+        name="delivery_overview",
+        path="/delivery-overview/{stage}",
+        primary_keys=["stage", "sourceId", "destinationId", "time"],
+        partition_key="time",
+        fanout="delivery_overview",
+    ),
 }
 
 # Segment accepts a DAY-granularity range of at most 14 days that starts at most 14 days ago. 12 whole
 # days stay inside both limits, also for a resumed run that keeps the window of its first attempt.
 DELIVERY_METRICS_WINDOW_DAYS = 12
 DELIVERY_METRICS_MAX_LOOKBACK_DAYS = 14
+
+# Delivery Overview accepts a DAY-granularity range of at most 30 days that starts at most 30 days ago.
+# Events volume documents no limit, so it uses the same window.
+METRICS_SERIES_WINDOW_DAYS = 28
+METRICS_SERIES_MAX_LOOKBACK_DAYS = 30
+
+# Stages of the Delivery Overview funnel, by the side of the pipeline that reports them.
+DELIVERY_OVERVIEW_SOURCE_STAGES = ("successfully-received", "failed-on-ingest", "filtered-at-source")
+DELIVERY_OVERVIEW_DESTINATION_STAGES = ("filtered-at-destination", "failed-delivery", "successful-delivery")
 
 ENDPOINTS = tuple(SEGMENT_ENDPOINTS.keys())
 

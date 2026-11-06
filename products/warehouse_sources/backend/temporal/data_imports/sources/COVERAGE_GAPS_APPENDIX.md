@@ -10483,7 +10483,7 @@ Note: Per-version download counts are already included in the synced `versions` 
 
 ## Ruddr — **thin**
 
-Today (13): `allocations`, `clients`, `invoice_items`, `invoices`, `members`, `pipeline_activities`, `project_prepayments`, `project_roles`, `project_tasks`, `projects`, `task_categories`, `time_entries`, `timesheet_attestations`
+Today (17): `allocations`, `clients`, `invoice_items`, `invoices`, `members`, `opportunities`, `opportunity_stages`, `pipeline_activities`, `project_health_reports`, `project_members`, `project_prepayments`, `project_roles`, `project_tasks`, `projects`, `task_categories`, `time_entries`, `timesheet_attestations`
 
 Diffed against: <https://docs.ruddr.io/llms.txt>
 
@@ -10494,17 +10494,17 @@ Diffed against: <https://docs.ruddr.io/llms.txt>
 - [x] `invoices` — billing and revenue, entirely absent from the current 5 tables (high)
 - [x] `invoice-items` — line-item revenue tied back to projects and time entries (high)
 - [x] `allocations` — planned resource allocation to compare against logged time entries (high)
-- [ ] `project-members` — membership table joining members to the projects we already sync (high)
-- [ ] `opportunities` — the sales pipeline, a whole analytical domain currently unavailable (high)
-- [ ] `opportunity-stages` — lookup table resolving the stage IDs carried on opportunities (high)
+- [x] `project-members` — membership table joining members to the projects we already sync (high)
+- [x] `opportunities` — the sales pipeline, a whole analytical domain currently unavailable (high)
+- [x] `opportunity-stages` — lookup table resolving the stage IDs carried on opportunities (high)
 - [x] `project-roles` — lookup resolving the role IDs on project members and time entries (high)
 - [ ] `project-expenses` — cost side of project profitability (medium)
 - [ ] `payments` — cash collection against invoices (medium)
 - [ ] `timesheets` — submission and approval state wrapping the time entries we sync (medium)
-- [ ] `project-health-reports` — periodic project status history, a natural trend series (medium)
+- [x] `project-health-reports` — periodic project status history, a natural trend series (medium)
 - [ ] `practices` — lookup resolving the practice/org-unit IDs on members and projects (medium)
 
-Note: Ruddr documents roughly 78 list endpoints; the connector exposes 13. Beyond those listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
+Note: Ruddr documents roughly 78 list endpoints; the connector exposes 17. Beyond those listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
 
 ## RunPod — adequate
 
@@ -10526,10 +10526,10 @@ Diffed against: <https://developer.safetyculture.com/reference/thepubservice_fee
 - [x] `feed/site_members` — membership table joining users to the sites we already sync (high)
 - [x] `feed/action_assignees` — resolves who each synced action is assigned to; actions are unattributable without it (high)
 - [x] `feed/issue_assignees` — same attribution join for the issues we already sync (high)
-- [ ] `feed/schedule_occurrences` — actual scheduled occurrences, the only way to measure scheduled vs completed inspections (high)
-- [ ] `feed/action_timeline_items` — state-transition history for actions, the basis of cycle-time analysis (high)
-- [ ] `feed/training_course_progress` — training completion per user, a headline compliance metric (high)
-- [ ] `feed/issue_timeline_items` — state-transition history for issues (medium)
+- [x] `feed/schedule_occurrences` — actual scheduled occurrences, the only way to measure scheduled vs completed inspections (high)
+- [x] `feed/action_timeline_items` — state-transition history for actions, the basis of cycle-time analysis (high)
+- [x] `feed/training_course_progress` — training completion per user, a headline compliance metric (high)
+- [x] `feed/issue_timeline_items` — state-transition history for issues (medium)
 - [ ] `feed/activity_log_events` — org-wide audit event stream for usage and adoption analysis (medium)
 - [ ] `feed/investigations (plus investigation fields and relationships)` — incident investigation records linked to the issues and actions we sync (medium)
 - [ ] `feed/assets_maintenance, feed/maintenance_plans, feed/maintenance_programs` — maintenance schedule and status for the assets we already sync (medium)
@@ -10584,13 +10584,13 @@ Today (28): `account_stages`, `account_tiers`, `accounts`, `actions`, `cadence_m
 Diffed against: <https://developers.salesloft.com/docs/api/opportunities-index/>
 
 - [x] `opportunities` — core revenue object synced from the CRM; currently no way to tie cadence activity to pipeline (high)
-- [ ] `opportunity_stages` — lookup resolving the stage id on every opportunity (high)
+- [x] `opportunity_stages` — lookup resolving the stage id on every opportunity (high)
 - [x] `tasks` — the rep work queue — completion rates are a primary Salesloft metric (high)
 - [x] `activity_histories` — unified transition/activity timeline across people and accounts (high)
 - [x] `cadence_stats` — the vendor's headline cadence performance metric (opens, replies, conversions) (high)
-- [ ] `tags` — lookup resolving tag ids attached to people, accounts and cadences (medium)
-- [ ] `account_types` — lookup resolving the account_type id already carried on accounts (medium)
-- [ ] `opportunity_people` — join table linking people to opportunities (medium)
+- [x] `tags` — lookup resolving tag ids attached to people, accounts and cadences (medium)
+- [ ] `account_types` — lookup resolving the account_type id already carried on accounts (medium); skipped: `GET /v2/account_types` returns only the distinct account type names for filter pickers, with no id, no pagination and results limited to the caller's readable accounts. Accounts carry the type as a plain string (`company_type`), so there is no id to resolve and the values are derivable from the `accounts` table
+- [x] `opportunity_people` — join table linking people to opportunities (medium)
 - [ ] `calendar_events` — booked meetings and their outcomes beyond the meetings table (medium)
 - [ ] `conversations / conversations_calls` — conversation intelligence records for call analysis (medium)
 - [ ] `transcriptions` — call transcripts, the input for talk-track analysis (medium)
@@ -10718,22 +10718,24 @@ Note: The docs page is a Scalar viewer with the full OpenAPI YAML inlined — pa
 
 ## Segment — **thin**
 
-Today (17): `audit_events`, `destination_delivery_metrics`, `destinations`, `destinations_catalog`, `iam_groups`, `iam_users`, `labels`, `reverse_etl_models`, `reverse_etl_syncs`, `sources`, `sources_catalog`, `tracking_plan_rules`, `tracking_plans`, `transformations`, `warehouses`, `warehouses_catalog`, `workspace`
+Today (22): `audit_events`, `delivery_overview`, `destination_delivery_metrics`, `destinations`, `destinations_catalog`, `event_volume`, `iam_groups`, `iam_users`, `labels`, `reverse_etl_models`, `reverse_etl_syncs`, `source_mtu_usage`, `sources`, `sources_catalog`, `tracking_plan_rules`, `tracking_plans`, `transformations`, `warehouse_syncs`, `warehouses`, `warehouses_catalog`, `workspace`, `workspace_mtu_usage`
 
 Diffed against: <https://docs.segmentapis.com/ (Segment Public API OpenAPI 3.0.3, v73.0.7, extracted from the Redocly state bundle https://docs.segmentapis.com/redocly-state-bf9e006a07a5265a778ac3938ef8f8f891686c5b.js)>
 
-- [ ] `/events/volume (Get Events Volume from Workspace)` — Segment's headline usage metric — event volume by source/day, the number every Segment customer wants in a warehouse (high)
-- [ ] `/usage/mtu/daily and /usage/mtu/sources/daily` — Daily MTU usage per workspace and per source — the billing metric (high)
-- [ ] `/warehouses/{warehouseId}/syncs and /warehouses/{warehouseId}/connected-sources/{sourceId}/syncs` — Warehouse sync run history/status — the state-transition history for the warehouses table already synced (high)
+- [x] `/events/volume (Get Events Volume from Workspace)` — Segment's headline usage metric — event volume by source/day, the number every Segment customer wants in a warehouse (high)
+- [x] `/usage/mtu/daily and /usage/mtu/sources/daily` — Daily MTU usage per workspace and per source — the billing metric (high)
+- [x] `/warehouses/{warehouseId}/syncs and /warehouses/{warehouseId}/connected-sources/{sourceId}/syncs` — Warehouse sync run history/status — the state-transition history for the warehouses table already synced (high)
 - [x] `/reverse-etl-models/{modelId}/subscriptionId/{subscriptionId}/syncs` — Reverse ETL sync statuses (rows loaded, failures) for the reverse_etl_models already synced (high)
 - [x] `/destinations/{destinationId}/delivery-metrics` — Per-destination delivery success/failure counts — core deliverability analysis for the destinations table (high)
 - [x] `/catalog/destinations, /catalog/sources, /catalog/warehouses` — Lookup tables resolving the metadata IDs carried on every synced source, destination, and warehouse row (high)
 - [x] `/tracking-plans/{trackingPlanId}/rules` — The actual event/property rules inside a tracking plan — tracking_plans alone is just a header row (high)
-- [ ] `/delivery-overview/successful-delivery, /failed-delivery, /failed-on-ingest, /filtered-at-source, /filtered-at-destination` — Time-series pipeline health metrics broken down by stage; the standard Delivery Overview report (medium)
+- [x] `/delivery-overview/successful-delivery, /failed-delivery, /failed-on-ingest, /filtered-at-source, /filtered-at-destination` — Time-series pipeline health metrics broken down by stage; the standard Delivery Overview report (medium)
 - [ ] `/destinations/{destinationId}/subscriptions` — Action mappings per destination — explains which events reach which destination (medium)
 - [ ] `/spaces and /spaces/{spaceId}/audiences` — Engage spaces and audience definitions plus /audiences/{id}/activations; entirely absent today (medium)
 - [ ] `/usage/api-calls/daily and /usage/api-calls/sources/daily` — Daily API call volume per workspace and source for cost attribution (medium)
 - [ ] `/roles (and /invites)` — Lookup resolving the role IDs referenced by iam_users and iam_groups permissions (low)
+
+Note: `warehouse_syncs` reads `/warehouses/{warehouseId}/syncs`, which already returns the syncs of every connected source. The per-source `/connected-sources/{sourceId}/syncs` route returns a subset of the same reports under the same 2 requests per minute limit, so it gets no table of its own. `delivery_overview` holds every stage in one table with a `stage` column, and also reads `/delivery-overview/successfully-received`, the first stage of the funnel. Delivery Overview does not cover Reverse ETL, so the sources of Reverse ETL models and their destinations are left out.
 
 Note: Static endpoint list, no dynamic discovery. The synced 11 tables cover ~15 of the ~95 GET operations in the spec; all of Engage (spaces, audiences, computed traits, profile warehouses), all usage/volume metrics, and all sync-history sub-resources are missing.
 
@@ -10783,25 +10785,25 @@ Today (5): `deployments`, `projects`, `sast_findings`, `sca_findings`, `secrets`
 
 Diffed against: <https://semgrep.dev/api/v1/public_v1.openapi.yaml>
 
-- [ ] `POST /api/v1/deployments/{deploymentId}/dependencies (List dependencies)` — The full SCA dependency inventory that sca_findings point at — lets you join findings to the packages actually in use (high)
-- [ ] `POST /api/v1/deployments/{deploymentId}/scans/search (List scans)` — Scan run history per project — needed to trend findings over time and detect projects that stopped scanning (high)
-- [ ] `POST /api/v1/deployments/{deploymentId}/dependencies/repositories (List repositories with dependencies)` — Repository-level rollup that resolves which repos carry a given dependency (medium)
-- [ ] `POST /api/v1/deployments/{deploymentId}/dependencies/repositories/{repositoryId}/lockfiles` — Lockfile inventory per repo; useful for supply-chain coverage auditing (low)
+- [x] `POST /api/v1/deployments/{deploymentId}/dependencies (List dependencies)` — The full SCA dependency inventory that sca_findings point at — lets you join findings to the packages actually in use (high) → `dependencies` (full refresh, fan-out over `deployments`)
+- [x] `POST /api/v1/deployments/{deploymentId}/scans/search (List scans)` — Scan run history per project — needed to trend findings over time and detect projects that stopped scanning (high) → `scans` (full refresh, fan-out over `deployments`; Semgrep returns the last 30 days)
+- [x] `POST /api/v1/deployments/{deploymentId}/dependencies/repositories (List repositories with dependencies)` — Repository-level rollup that resolves which repos carry a given dependency (medium) → `dependency_repositories` (full refresh, fan-out over `deployments`)
+- [x] `POST /api/v1/deployments/{deploymentId}/dependencies/repositories/{repositoryId}/lockfiles` — Lockfile inventory per repo; useful for supply-chain coverage auditing (low) → `dependency_lockfiles` (full refresh, fan-out over `dependency_repositories`)
 
 Note: The dependency and scan list endpoints are POST-with-body (paginated search), not GET, so they need a POST-capable resource config. Policies and SBOM export are config/ephemeral and deliberately excluded.
 
 ## Semrush — **thin**
 
-Today (3): `site_audit`, `site_audit_issue_descriptions`, `site_audit_snapshots`
+Today (7): `domain_organic_competitors`, `domain_organic_keywords`, `site_audit`, `site_audit_history`, `site_audit_issue_descriptions`, `site_audit_issue_details`, `site_audit_snapshots`
 
 Diffed against: <https://developer.semrush.com/api/v3/projects/site-audit/>
 
-- [ ] `Snapshots history (GET /reports/v1/projects/{ID}/siteaudit/history)` — track historical site health scores and issue counts, beyond the snapshot identifiers currently imported (high)
-- [ ] `Snapshot issue details (GET /reports/v1/projects/{ID}/siteaudit/snapshot/{snapshotId}/issue/{issueId})` — identify affected URLs and measure the business impact of specific technical SEO issues (high)
-- [ ] `Domain Organic Search Keywords (GET /?type=domain_organic)` — analyze organic rankings, search volume, landing URLs, and estimated traffic for a domain (high)
+- [x] `Snapshots history (GET /reports/v1/projects/{ID}/siteaudit/history)` — track historical site health scores and issue counts, beyond the snapshot identifiers currently imported (high)
+- [x] `Snapshot issue details (GET /reports/v1/projects/{ID}/siteaudit/snapshot/{snapshotId}/issue/{issueId})` — identify affected URLs and measure the business impact of specific technical SEO issues (high)
+- [x] `Domain Organic Search Keywords (GET /?type=domain_organic)` — analyze organic rankings, search volume, landing URLs, and estimated traffic for a domain (high)
 - [ ] `Page list (GET /reports/v1/projects/{ID}/siteaudit/page/list)` — compare crawled pages and connect page identifiers to URLs (medium)
 - [ ] `Domain Paid Search Keywords (GET /?type=domain_adwords)` — compare paid keywords, positions, costs, and estimated traffic with organic performance (medium)
-- [ ] `Competitors in Organic Search (GET /?type=domain_organic_organic)` — measure keyword overlap and competitive search visibility (medium)
+- [x] `Competitors in Organic Search (GET /?type=domain_organic_organic)` — measure keyword overlap and competitive search visibility (medium)
 - [ ] `Domain Organic Pages (GET /?type=domain_organic_unique)` — compare landing pages by ranking keywords and estimated organic traffic (medium)
 
 Note: Parsed the Site Audit reference's operations and request examples. Also checked https://developer.semrush.com/api/v3/analytics/domain-reports/ for domain report operations. Current tables cover one project's audit metadata; domain reports need domain and database inputs. Issue details require snapshot and issue IDs; excluded audit launch and configuration operations.
@@ -10821,20 +10823,20 @@ Diffed against: <https://github.com/twilio/sendgrid-oai/tree/main/spec/json (off
 - [x] `GET /v3/categories/stats (and /v3/categories/stats/sums)` — Email stats broken down by category, the main way transactional senders segment performance (medium)
 - [x] `GET /v3/categories` — Category lookup resolving the category tags used on stats and messages (medium)
 - [x] `GET /v3/marketing/stats/automations (+ /{id}/links)` — Automation (journey) performance stats (medium)
-- [ ] `GET /v3/marketing/segments/2.0` — Marketing segment definitions; marketing_lists is synced but segments are not (medium)
-- [ ] `GET /v3/geo/stats, /v3/mailbox_providers/stats, /v3/devices/stats, /v3/clients/stats, /v3/browsers/stats` — Breakdown dimensions on the same stats fact (country, mailbox provider, device, client, browser) (medium)
-- [ ] `GET /v3/subusers and /v3/subusers/stats (+ /stats/monthly, /stats/sums, /reputations)` — Per-subuser volume and reputation — required for any agency or multi-tenant SendGrid account (medium)
+- [x] `GET /v3/marketing/segments/2.0` — Marketing segment definitions; marketing_lists is synced but segments are not (medium)
+- [x] `GET /v3/geo/stats, /v3/mailbox_providers/stats, /v3/devices/stats, /v3/clients/stats, /v3/browsers/stats` — Breakdown dimensions on the same stats fact (country, mailbox provider, device, client, browser) (medium)
+- [x] `GET /v3/subusers and /v3/subusers/stats (+ /stats/monthly, /stats/sums, /reputations)` — Per-subuser volume and reputation — required for any agency or multi-tenant SendGrid account (medium)
 
 Note: Current coverage is essentially only the suppression family plus templates and lists — 8 tables against a spec set of 46 OpenAPI files. Not a single statistics or activity endpoint is synced, which is the bulk of analytical value. /v3/marketing/contacts returns a sample only; the full contact set requires the async exports job (POST /v3/marketing/contacts/exports then poll and download).
 
 ## Sendowl — gaps
 
-Today (4): `discount_codes`, `orders`, `products`, `subscriptions`
+Today (6): `bundles`, `discount_codes`, `licenses`, `orders`, `products`, `subscriptions`
 
 Diffed against: <https://dashboard.sendowl.com/developers/api/bundles (resource nav enumerated from https://dashboard.sendowl.com/developers/api/orders; per-resource endpoint lists read from /developers/api/{bundles,discounts,drip_items,licenses,products,subscriptions})>
 
-- [ ] `GET /api/v1/packages (Bundles)` — Product bundles — a first-class sellable object alongside products, and the lookup that resolves bundle purchases appearing on orders (high)
-- [ ] `GET /api/v1/products/{product_id}/licenses and GET /api/v1/orders/{order_id}/licenses` — Issued license keys per product and per order — the fulfillment record for license-based products (medium)
+- [x] `GET /api/v1/packages (Bundles)` — Product bundles — a first-class sellable object alongside products, and the lookup that resolves bundle purchases appearing on orders (high) → `bundles` (full refresh)
+- [x] `GET /api/v1/products/{product_id}/licenses and GET /api/v1/orders/{order_id}/licenses` — Issued license keys per product and per order — the fulfillment record for license-based products (medium) → `licenses` (full refresh, fan-out over software `products`; the per-order list is a subset of the per-product list, so it is not synced separately)
 
 Note: SendOwl's public API is small: products, packages (bundles), orders, subscriptions, discounts, drip_items, licenses. Four of the seven are already synced. drip_items exposes no index/list endpoint (only nested POST, PUT, DELETE), so it is not syncable. Licenses are only listable nested under a product or order ID, so they need a parent-driven fan-out rather than a flat list resource.
 
@@ -10848,14 +10850,14 @@ Note: SentinelOne publishes no public API reference. The console API doc (https:
 
 ## Sequenzy — **thin**
 
-Today (7): `campaigns`, `email_metrics`, `lists`, `segments`, `sequences`, `subscribers`, `tags`
+Today (11): `campaign_events`, `campaigns`, `email_metrics`, `email_sends`, `lists`, `segments`, `sequence_enrollments`, `sequence_events`, `sequences`, `subscribers`, `tags`
 
 Diffed against: <https://docs.sequenzy.com/openapi.yaml>
 
-- [ ] `Campaign events (GET /api/v1/metrics/campaigns/{campaignId}/events)` — analyze recipient-level deliveries, opens, clicks, bounces, and unsubscribes instead of email totals alone (high)
-- [ ] `Sequence events (GET /api/v1/metrics/sequences/{sequenceId}/events)` — connect recipient engagement to individual automation steps and product behavior (high)
-- [ ] `Sequence enrollments (GET /api/v1/sequences/{sequenceId}/enrollments)` — measure automation participation, current steps, waiting contacts, and completion states (high)
-- [ ] `Sent emails (GET /api/v1/email-sends)` — join individual delivery outcomes and recipient records to campaigns, sequences, and transactional sends (high)
+- [x] `Campaign events (GET /api/v1/metrics/campaigns/{campaignId}/events)` — analyze recipient-level deliveries, opens, clicks, bounces, and unsubscribes instead of email totals alone (high) → `campaign_events` (incremental merge on `eventTime`, fan-out over `campaigns`)
+- [x] `Sequence events (GET /api/v1/metrics/sequences/{sequenceId}/events)` — connect recipient engagement to individual automation steps and product behavior (high) → `sequence_events` (incremental merge on `eventTime`, fan-out over `sequences`)
+- [x] `Sequence enrollments (GET /api/v1/sequences/{sequenceId}/enrollments)` — measure automation participation, current steps, waiting contacts, and completion states (high) → `sequence_enrollments` (full refresh, fan-out over `sequences`)
+- [x] `Sent emails (GET /api/v1/email-sends)` — join individual delivery outcomes and recipient records to campaigns, sequences, and transactional sends (high) → `email_sends` (merge on `createdAt`, re-reads the 14-day retained window)
 - [ ] `Recipient engagement (GET /api/v1/metrics/recipients)` — compare opens, clicked URLs, and unsubscribe behavior across recipients and campaigns (medium)
 - [ ] `Accounts and account members (GET /api/v1/accounts; GET /api/v1/accounts/{externalId}/members)` — group subscriber engagement by business account and member role (medium)
 - [ ] `Account events (GET /api/v1/accounts/{externalId}/events)` — connect account activity to subscriber engagement and automation results (medium)
@@ -10890,13 +10892,13 @@ Today (10): `Attachment`, `Category`, `Company`, `CompanyContact`, `Job`, `JobAc
 
 Diffed against: <https://developer.servicem8.com/llms.txt>
 
-- [ ] `Materials (GET /api_1.0/material.json)` — resolve JobMaterial.material_uuid and Staff.labour_material_uuid to inventory records, labour rates, costs, and stock levels (high)
-- [ ] `Tax Rates (GET /api_1.0/taxrate.json)` — resolve tax_rate_uuid on job materials and clients to named tax rates (high)
+- [x] `Materials (GET /api_1.0/material.json)` — resolve JobMaterial.material_uuid and Staff.labour_material_uuid to inventory records, labour rates, costs, and stock levels (high)
+- [x] `Tax Rates (GET /api_1.0/taxrate.json)` — resolve tax_rate_uuid on job materials and clients to named tax rates (high)
 - [ ] `Job Queues (GET /api_1.0/queue.json)` — resolve Job.queue_uuid to queue names for backlog and dispatch analysis (high)
 - [ ] `Badges (GET /api_1.0/badge.json)` — resolve badge UUIDs on jobs and clients to meaningful business classifications (high)
 - [ ] `Job Material Bundles (GET /api_1.0/jobmaterialbundle.json)` — resolve JobMaterial.job_material_bundle_uuid and analyze the bundled work sold on each job (high)
-- [ ] `Staff Time Events (GET /api_1.0/stafftimeevent.json)` — measure working hours and breaks beyond time recorded against individual jobs (high)
-- [ ] `Feedback (GET /api_1.0/feedback.json)` — measure customer satisfaction and connect feedback to completed jobs (high)
+- [x] `Staff Time Events (GET /api_1.0/stafftimeevent.json)` — measure working hours and breaks beyond time recorded against individual jobs (high)
+- [x] `Feedback (GET /api_1.0/feedback.json)` — measure customer satisfaction and connect feedback to completed jobs (high)
 - [ ] `Job Allocations (GET /api_1.0/joballocation.json)` — compare scheduled work, staff assignments, and actual job activity (medium)
 - [ ] `Forms and Form Responses (GET /api_1.0/form.json; GET /api_1.0/formresponse.json)` — analyze inspection results and completed forms by job, staff member, and asset (medium)
 - [ ] `Job Contacts (GET /api_1.0/jobcontact.json)` — connect job and billing contacts to jobs instead of relying on company contacts alone (medium)
