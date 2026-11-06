@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Optional
 
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -599,16 +600,28 @@ class TestOwnSendsAtTheWindowStart(ClickhouseTestMixin, BaseTest):
                 [("email_sent", -10, "step-1"), ("email_sent", 10, "step-2"), ("email_sandbox_sent", 10, "step-2")],
                 0,
             ),
+            ("own_send_after_the_end", [("email_sent", 110, "step-1"), ("email_sent", 130, "step-2")], 1, 120),
+            (
+                "pair_split_sandbox_after_the_end",
+                [("email_sent", 110, "step-1"), ("email_sandbox_sent", 130, "step-1")],
+                0,
+                120,
+            ),
         ]
     )
     def test_sending_history_at_the_cutoff(
-        self, _name: str, records: list[tuple[str, int, str]], expected_sent: int
+        self,
+        _name: str,
+        records: list[tuple[str, int, str]],
+        expected_sent: int,
+        before_minutes: Optional[int] = None,
     ) -> None:
         after = self.NOW - timedelta(days=1)
+        before = after + timedelta(minutes=before_minutes) if before_minutes is not None else None
         with time_machine.travel(self.NOW, tick=False):
             for metric_name, minutes, instance in records:
                 self._record(metric_name, after + timedelta(minutes=minutes), instance=instance)
-            histories = build_sending_histories(after=after, team_ids=[self.team.id])
+            histories = build_sending_histories(after=after, before=before, team_ids=[self.team.id])
 
         assert {team_id: history.sent for team_id, history in histories.items()} == (
             {self.team.id: expected_sent} if expected_sent else {}

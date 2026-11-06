@@ -23,6 +23,13 @@ const sandbox = {
     config: { provider: 'sandbox', verified: true },
 }
 
+const ownSender = {
+    id: 5,
+    kind: 'email',
+    display_name: 'Team <team@example.com>',
+    config: { verified: true },
+}
+
 describe('SendTestEmailModal', () => {
     let logic: ReturnType<typeof messageTemplateTestSendLogic.build>
     let template: ReturnType<typeof messageTemplateLogic.build>
@@ -114,13 +121,15 @@ describe('SendTestEmailModal', () => {
     })
 
     it.each([
-        ['no address yet', '', false],
-        ['their own verified address', MOCK_DEFAULT_USER.email, false],
-        ['a teammate an earlier load listed', 'teammate@example.com', true],
+        ['no address yet', '', false, false],
+        ['their own verified address', MOCK_DEFAULT_USER.email, false, false],
+        ['a teammate an earlier load listed', 'teammate@example.com', true, false],
+        ["a typed address sent from the project's own sender", 'someone@example.com', false, true],
     ])(
         'does not warn about an unchecked recipient for %s when the member list fails to load',
-        async (_, recipient, loadedBefore) => {
+        async (_, recipient, loadedBefore, ownSenderSelected) => {
             let membersLoads = 0
+            let membersFailures = 0
             const teammate = {
                 ...MOCK_DEFAULT_ORGANIZATION_MEMBER,
                 user: {
@@ -131,11 +140,16 @@ describe('SendTestEmailModal', () => {
             }
             useMocks({
                 get: {
-                    '/api/projects/:team_id/integrations/': { results: [sandbox] },
-                    '/api/organizations/:organization_id/members/': () =>
-                        loadedBefore && membersLoads++ === 0
-                            ? [200, { results: [teammate] }]
-                            : [500, { detail: 'Unavailable' }],
+                    '/api/projects/:team_id/integrations/': {
+                        results: ownSenderSelected ? [sandbox, ownSender] : [sandbox],
+                    },
+                    '/api/organizations/:organization_id/members/': () => {
+                        if (loadedBefore && membersLoads++ === 0) {
+                            return [200, { results: [teammate] }]
+                        }
+                        membersFailures++
+                        return [500, { detail: 'Unavailable' }]
+                    },
                 },
             })
             userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: true })
@@ -146,10 +160,16 @@ describe('SendTestEmailModal', () => {
                 logic.actions.setModalOpen(true)
                 await expectLogic(logic).toFinishAllListeners()
             }
+            if (ownSenderSelected) {
+                logic.actions.setSenderIntegrationId(ownSender.id)
+            }
             logic.actions.setRecipientEmail(recipient)
 
-            await expectLogic(logic).toMatchValues({ membersLoadFailed: true, isSandboxSenderSelected: true })
-            await waitFor(() => expect(screen.getByTestId('send-test-email-recipient')).toBeInTheDocument())
+            await waitFor(() => expect(membersFailures).toBeGreaterThan(0))
+            await expectLogic(logic).toFinishAllListeners()
+            expect(
+                screen.getByText(ownSenderSelected ? ownSender.display_name : sandbox.display_name)
+            ).toBeInTheDocument()
             expect(screen.queryByText(/Couldn't load your organization's members/)).toBeNull()
         }
     )
@@ -207,7 +227,10 @@ describe('SendTestEmailModal', () => {
         expect(sentTo).toBe(expectedRecipient)
     })
 
-    it.each([true, false])('distinguishes member loading from an empty list (%s)', async (loading) => {
+    it.each([
+        ['loading', true],
+        ['loaded', false],
+    ])('distinguishes member loading from an empty list while %s', async (_, loading) => {
         userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: false })
         let releaseMembers: () => void = () => {}
         const gate = new Promise<void>((resolve) => {
@@ -230,7 +253,7 @@ describe('SendTestEmailModal', () => {
             await expectLogic(logic).toFinishAllListeners()
         }
         fireEvent.focus(screen.getByPlaceholderText('you@example.com'))
-        expect(document.querySelector('.LemonSkeleton') !== null).toBe(loading)
+        expect(screen.queryAllByText('Loading…').length > 0).toBe(loading)
         expect(screen.queryByText('Type an email address and press Enter') !== null).toBe(!loading)
         releaseMembers()
         await expectLogic(logic).toFinishAllListeners()
