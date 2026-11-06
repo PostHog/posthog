@@ -27,21 +27,23 @@ from ..logic.pull_requests import docs_github
 MERGE_CHECK_FAILED_REASON = "merge_check_failed"
 MERGE_CHECK_ATTEMPTS = 3
 MERGE_CHECK_RETRY_INTERVAL = timedelta(minutes=1)
-MERGE_CHECK_RETRYABLE_ERRORS = (
+GITHUB_READ_ERRORS = (
     requests.RequestException,
     GitHubIntegrationError,
     GitHubRateLimitError,
     GitHubEgressBudgetExhausted,
-    httpx.HTTPError,
-    APIError,
 )
+MERGE_CHECK_RETRYABLE_ERRORS = (*GITHUB_READ_ERRORS, httpx.HTTPError, APIError)
+
+
+LEGACY_MERGE_CHECK_REPOSITORY = "PostHog/posthog"  # inputs started before pushes named the repository
 
 
 @dataclass(frozen=True)
 class MergeCheckInputs:
     commit_sha: str
     team_id: int
-    repository: str | None = None
+    repository: str = LEGACY_MERGE_CHECK_REPOSITORY
 
 
 def record_merge_check_failed(inputs: MergeCheckInputs) -> None:
@@ -56,9 +58,6 @@ def record_merge_check_failed(inputs: MergeCheckInputs) -> None:
 
 
 def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
-    if inputs.repository is None:
-        record_merge_check_failed(inputs)
-        return
     github = docs_github(inputs.team_id, inputs.repository.split("/", 1)[0], priority=Priority.NORMAL)
     if github is None:
         record_merge_check_failed(inputs)

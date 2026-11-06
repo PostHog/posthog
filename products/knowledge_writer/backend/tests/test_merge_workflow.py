@@ -6,9 +6,10 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.core.cache import caches
+from django.core.cache import cache, caches
 from django.test import RequestFactory
 
+import requests
 from temporalio.testing import ActivityEnvironment
 
 from posthog.ingress.dispatch.dedup import INGRESS_DEDUP_CACHE_ALIAS
@@ -23,6 +24,7 @@ from products.knowledge_writer.backend.temporal.client import merge_check_workfl
 from products.knowledge_writer.backend.temporal.reconcile_workflow import (
     COMMITS_PER_PAGE,
     reconcile_merged_pull_requests_activity,
+    reconciled_head_cache_key,
 )
 from products.knowledge_writer.backend.webhook_consumers import WEBHOOK_CONSUMERS
 from products.knowledge_writer.merge_check.sources import LandedChange
@@ -156,16 +158,21 @@ class DefaultBranchCommits:
     def __init__(self, commit_pages_by_repository: dict[str, list[list[dict[str, Any]]]]) -> None:
         self.commit_pages_by_repository = commit_pages_by_repository
         self.requested_pages: list[tuple[str, int]] = []
+        self.listed_since: list[str | None] = []
 
     def api_request(self, method, path, *, endpoint, params=None, headers=None, priority=None):
         response = MagicMock()
         repository = path.removeprefix("/repos/").removesuffix("/commits")
+        if repository not in self.commit_pages_by_repository and not repository.endswith("-js"):
+            response.raise_for_status.side_effect = requests.HTTPError("404 Not Found", response=response)
+            return response
         if not path.endswith("/commits"):
             response.json.return_value = {"default_branch": "main", "private": repository.endswith("-js")}
             return response
         assert params["sha"] == "main"
         page = int(params["page"])
         self.requested_pages.append((repository, page))
+        self.listed_since.append(params.get("since"))
         response.json.return_value = self.commit_pages_by_repository[repository][page - 1]
         return response
 
@@ -178,6 +185,7 @@ def _commit(commit_sha: str, *parent_shas: str) -> dict[str, Any]:
 async def test_the_hourly_reconcile_walks_each_public_default_branch_by_first_parent_on_one_client(
     team, writer_env
 ) -> None:
+    cache.delete(reconciled_head_cache_key("PostHog/posthog"))
     head, merge_commit, older, side_branch, outside_window = ("1" * 40, "2" * 40, "3" * 40, "4" * 40, "5" * 40)
     filler = [_commit("6" * 40, "7" * 40)] * (COMMITS_PER_PAGE - 3)
     github = DefaultBranchCommits(
@@ -196,6 +204,9 @@ async def test_the_hourly_reconcile_walks_each_public_default_branch_by_first_pa
     temporal = MagicMock(start_workflow=AsyncMock())
 
     with (
+        patch.dict(
+            os.environ, {"KNOWLEDGE_WRITER_SOURCE_REPOSITORIES": "PostHog/renamed, PostHog/posthog, PostHog/posthog-js"}
+        ),
         patch(KNOWLEDGE_WRITER_ENABLED, return_value=True),
         patch(f"{RECONCILE_MODULE}.docs_github", return_value=github),
         patch(f"{RECONCILE_MODULE}.async_connect", AsyncMock(return_value=temporal)) as async_connect,
@@ -210,3 +221,27 @@ async def test_the_hourly_reconcile_walks_each_public_default_branch_by_first_pa
         (merge_check_workflow_id(merge_commit), "PostHog/posthog"),
         (merge_check_workflow_id(older), "PostHog/posthog"),
     ]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_next_reconcile_walks_back_to_the_saved_head_whatever_the_commit_dates(team, writer_env) -> None:
+    head, batched, reconciled, ancient = ("1" * 40, "2" * 40, "3" * 40, "4" * 40)
+    cache.set(reconciled_head_cache_key("PostHog/posthog"), reconciled)
+    github = DefaultBranchCommits(
+        {"PostHog/posthog": [[_commit(head, batched), _commit(batched, reconciled), _commit(reconciled, ancient)]]}
+    )
+    temporal = MagicMock(start_workflow=AsyncMock())
+
+    with (
+        patch(KNOWLEDGE_WRITER_ENABLED, return_value=True),
+        patch(f"{RECONCILE_MODULE}.docs_github", return_value=github),
+        patch(f"{RECONCILE_MODULE}.async_connect", AsyncMock(return_value=temporal)),
+    ):
+        await ActivityEnvironment().run(reconcile_merged_pull_requests_activity)
+
+    assert github.listed_since == [None]
+    assert [call.kwargs["id"] for call in temporal.start_workflow.await_args_list] == [
+        merge_check_workflow_id(head),
+        merge_check_workflow_id(batched),
+    ]
+    assert cache.get(reconciled_head_cache_key("PostHog/posthog")) == head
