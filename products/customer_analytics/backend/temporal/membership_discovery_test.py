@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 from django.db import connection
 from django.utils import timezone
 
+from temporalio import activity
 from temporalio.client import ScheduleOverlapPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -153,6 +154,17 @@ async def test_temporal_discovery_preserves_membership(
         assert MembershipCleanupCandidate.objects.for_team(other_team_id).count() == 2
         assert sync_execute("SELECT count() FROM person_group_membership") == [(3,)]
 
+    lost_result = False
+
+    @activity.defn(name="membership_discovery_activity")
+    async def retry_committed_batch(input: MembershipDiscoveryInput) -> MembershipDiscoveryCounts:
+        nonlocal lost_result
+        result = await membership_discovery_activity(input)
+        if not lost_result:
+            lost_result = True
+            raise RuntimeError("Simulated lost activity result after checkpoint commit")
+        return result
+
     await database_sync_to_async(seed_membership)()
     async with await WorkflowEnvironment.start_local() as environment:
         await create_membership_discovery_schedule(environment.client)
@@ -166,7 +178,7 @@ async def test_temporal_discovery_preserves_membership(
             workflows=[MembershipDiscoveryWorkflow, MembershipDiscoveryTeamWorkflow],
             activities=[
                 list_membership_discovery_teams_activity,
-                membership_discovery_activity,
+                retry_committed_batch,
                 record_membership_discovery_team_activity,
             ],
         ):
@@ -177,6 +189,7 @@ async def test_temporal_discovery_preserves_membership(
                 execution_timeout=timedelta(minutes=1),
             )
     await database_sync_to_async(assert_candidates)()
+    assert lost_result
 
 
 @pytest.mark.asyncio

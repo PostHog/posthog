@@ -112,15 +112,18 @@ class TestMembershipDiscovery(MembershipTestCase):
         ]
     )
     def test_escaped_group_keys_preserve_membership(self, _name: str, group_key: str) -> None:
-        # nosemgrep: clickhouse-fstring-param-audit -- GROUP_KEY_EXPR is a fixed ingestion expression.
-        stored_key = sync_execute(
-            f"SELECT {GROUP_KEY_EXPR} FROM (SELECT %(properties)s AS properties, 0 AS group_type_index)",
-            {
-                "properties": json.dumps(
-                    {"$group_0": json.loads(group_key) if _name in ("object", "array") else group_key}
-                )
-            },
-        )[0][0]
+        if _name in ("high_surrogate", "low_surrogate"):
+            stored_key = json.dumps(group_key)[1:-1]
+        else:
+            # nosemgrep: clickhouse-fstring-param-audit -- GROUP_KEY_EXPR is a fixed ingestion expression.
+            stored_key = sync_execute(
+                f"SELECT {GROUP_KEY_EXPR} FROM (SELECT %(properties)s AS properties, 0 AS group_type_index)",
+                {
+                    "properties": json.dumps(
+                        {"$group_0": json.loads(group_key) if _name in ("object", "array") else group_key}
+                    )
+                },
+            )[0][0]
         self.key = MembershipKey(group_type_index=0, group_key=stored_key, distinct_id=self.key.distinct_id)
         self.create_membership()
         self.create_mapping(self.create_person())
