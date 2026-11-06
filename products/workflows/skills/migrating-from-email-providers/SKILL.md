@@ -1,13 +1,13 @@
 ---
 name: migrating-from-email-providers
-description: 'Move a team from an email API provider such as Resend to PostHog: import the suppression list, unsubscribes, topics, templates and automations with the provider-imports tools, then walk through DNS, template review and the cutover. Use when asked to migrate, move, switch, copy or import from Resend to PostHog, or to bring suppressions, unsubscribes or email templates from another provider. For Customer.io automations use migrating-from-customer-io.'
+description: 'Move a team from an email API provider such as Resend or SendGrid to PostHog: import the suppression list, unsubscribes, topics or unsubscribe groups, templates and Resend automations with the provider-imports tools, then walk through DNS, template review and the cutover. Use when asked to migrate, move, switch, copy or import from Resend or SendGrid to PostHog, or to bring suppressions, unsubscribes or email templates from another provider. For Customer.io automations use migrating-from-customer-io.'
 ---
 
 # Moving from another email provider
 
 PostHog copies a team's data in one background import. The team then sets up DNS, reviews what the import flagged, and moves its sending one email at a time.
 
-Call `provider-imports-providers` first. It lists the tools this project can import from, the steps of each, and the next steps to read out at the end. If Resend isn't listed, the import isn't turned on for this project, so stop and say so.
+Call `provider-imports-providers` first. It lists the tools this project can import from, the steps of each, and the next steps to read out at the end. If the tool the user names isn't listed, the import isn't turned on for this project, so stop and say so.
 
 ## What moves
 
@@ -34,9 +34,30 @@ API keys, webhooks, send history and stats stay with the old provider. Contacts 
 8. **Report the notes.** Go through `items` with the user: each template and workflow with its link and notes. Say plainly how many spam complaints imported, because PostHog still sends them transactional email while Resend doesn't.
 9. **Walk through the switch.** See below. Then tell the user to delete the key in Resend.
 
+## SendGrid
+
+SendGrid differs from the Resend steps above in these ways.
+
+- **Key.** SendGrid has read-only scopes, so ask for a restricted key with read access to the chosen steps. Each step's description in `provider-imports-providers` names its scopes. A key without them is refused before the run starts, with the missing scopes named. `marketing.read` is the exception: SendGrid says it also grants write access, so `single_sends` and `lists` are the steps to skip for a user who minds. Keys are created at https://app.sendgrid.com/settings/api_keys.
+- **Subusers.** A key sees one account. To move subusers, run one import per subuser with its own key, one after another. PostHog finds out by itself whether a key belongs to SendGrid's EU host.
+
+| Data                                      | In PostHog                                       | What the team does                                  |
+| ----------------------------------------- | ------------------------------------------------ | --------------------------------------------------- |
+| Bounces and invalid addresses             | Suppression list, blocks all email               | Reads the summary                                   |
+| Spam reports                              | Suppression list, blocks marketing email only    | Reads the summary. SendGrid blocks all email.       |
+| Global unsubscribes                       | Opted out of all marketing email                 | Reads the summary. SendGrid blocks all email.       |
+| Unsubscribe groups and group unsubscribes | Marketing categories and opt-outs                | Passes the category when sending                    |
+| Dynamic and legacy templates              | Library templates, keyed by SendGrid template ID | Fixes what the notes mention, then sends a test     |
+| Design Library, Single Sends              | Library templates                                | Fixes the notes, cancels what's still scheduled     |
+| Lists, verified senders, domains          | A list only                                      | Rebuilds lists as cohorts, adds senders and domains |
+
+**Stays behind:** automations, because SendGrid's API only shares their stats, so they're rebuilt by hand as workflows. Blocks, because SendGrid doesn't keep suppressing those addresses either. Also inactive template versions, contacts as people, webhooks, API keys, stats and send history.
+
+**Templates.** Only each template's active version comes across. Handlebars becomes Liquid and app data goes in `variables`, so `{{order.id}}` is sent the same way as before. The team has to choose a sender on each template, because SendGrid sets it per send. Say plainly how many global unsubscribes and spam reports imported, because PostHog still sends them transactional email while SendGrid doesn't.
+
 ## Importing again never undoes a change
 
-An address someone removed from the suppression list, a person opted back in, an edited or deleted category, and an edited or deleted template all stay as they are. So a template or automation imported before does not pick up changes from Resend. To re-import one, change its alias in Resend, or copy the change by hand.
+An address someone removed from the suppression list, a person opted back in, an edited or deleted category, and an edited or deleted template all stay as they are. So a template or automation imported before does not pick up changes from Resend. To re-import one from Resend, change its alias there. Otherwise copy the change by hand.
 
 ## The switch
 

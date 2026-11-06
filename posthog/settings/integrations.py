@@ -24,6 +24,8 @@ INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
 RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
 MESSAGING_RESEND_API_URL = get_from_env("MESSAGING_RESEND_API_URL", "https://api.resend.com")
+MESSAGING_SENDGRID_API_URL = get_from_env("MESSAGING_SENDGRID_API_URL", "https://api.sendgrid.com")
+MESSAGING_SENDGRID_EU_API_URL = get_from_env("MESSAGING_SENDGRID_EU_API_URL", "https://api.eu.sendgrid.com")
 
 # Apple Ads service provider OAuth. Apple issues no static client secret: the client secret is an
 # ES256 JWT this app signs per token request with the private key whose public half was registered

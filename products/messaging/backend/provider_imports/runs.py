@@ -79,6 +79,7 @@ def start_run(
         raise ProviderImportAlreadyRunning(f"A {provider.label} import is already running.")
 
     credentials = provider.check_credentials(team_id, api_key)
+    provider.check_step_access(team_id, credentials, ordered_steps)
     progress = {step: _new_step_progress() for step in ordered_steps}
     if provider.resumes_after_failure:
         _continue_failed_steps(team_id, provider.key, progress)
