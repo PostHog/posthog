@@ -13,7 +13,7 @@ import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyState
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { HOGQLX_TAGS_NO_ATTRIBUTES, parseHogQLX } from '~/queries/nodes/HogQLX/render'
-import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { AnyResponseType, VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { LoadNext } from '../../DataNode/LoadNext'
@@ -65,6 +65,12 @@ function getDisplayedColumnTitle(
 
 function isDateColumn(type: ColumnScalar | undefined): boolean {
     return type === 'DATE' || type === 'DATETIME'
+}
+
+function getColumnFormat(response: AnyResponseType | null, sourceColumnName: string): string | null | undefined {
+    return response && 'column_formats' in response
+        ? response.column_formats?.[response.columns.indexOf(sourceColumnName)]
+        : undefined
 }
 
 // Numbers sort numerically, dates chronologically by epoch, everything else by a
@@ -479,10 +485,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 }
 
                 const sourceColumnName = cell.sourceColumnName ?? column.name
-                const columnFormat =
-                    response && 'column_formats' in response
-                        ? response.column_formats?.[response.columns.indexOf(sourceColumnName)]
-                        : undefined
+                const columnFormat = getColumnFormat(response, sourceColumnName)
 
                 return (
                     <div className="truncate" title={getCellTitle(cell)}>
