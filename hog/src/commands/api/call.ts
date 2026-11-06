@@ -80,16 +80,16 @@ export default defineCommand({
         if (result.ok) {
             return result.value
         }
-        // PostHog names one missing scope per refusal, so look up the key to name all of them.
-        const loginCanAdd = canStepUp(await ctx.credentials())
-        if (result.error.code === 'permission_denied') {
-            const granted = await grantedScopes(ctx, library)
-            const missing = granted ? library.missingScopes(granted, tool.requiredScopes) : []
-            if (missing.length > 0) {
-                throw missingScopesError(tool.name, missing, loginCanAdd)
-            }
+        if (result.error.code !== 'permission_denied') {
+            throw toHogError(result.error, tool.name)
         }
-        throw toHogError(result.error, tool.name, loginCanAdd)
+        const loginCanAdd = canStepUp(await ctx.credentials())
+        // PostHog names one missing scope per refusal, so look up the key to name all of them.
+        const granted = await grantedScopes(ctx, library)
+        const missing = granted ? library.missingScopes(granted, tool.requiredScopes) : []
+        throw missing.length > 0
+            ? missingScopesError(tool.name, missing, loginCanAdd)
+            : toHogError(result.error, tool.name, loginCanAdd)
     },
 
     telemetry: ({ args, options }) => ({ tool: args.tool, confirm: options.confirm === true }),

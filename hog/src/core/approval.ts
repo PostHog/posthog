@@ -263,7 +263,7 @@ export async function resumeApproval<Pending extends PendingApproval, Value>(
 }
 
 // What a person sees when an agent or a script started the request.
-export function printPending(out: Output, result: Extract<ApprovalResult<unknown>, { status: 'pending' }>): void {
+export function printPending(out: Output, result: PendingResult): void {
     out.line(
         result.code
             ? `Open this link to approve, and check that it shows the code ${out.style(escapeControls(result.code), 'bold')}:`
