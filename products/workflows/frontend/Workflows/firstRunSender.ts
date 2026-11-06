@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
@@ -58,10 +58,18 @@ async function loadEveryIntegrationPage(): Promise<IntegrationType[]> {
     return integrations
 }
 
-async function provisionSandboxSender(): Promise<number> {
-    const sandbox = await integrationsEmailSandboxSenderCreate(String(ApiConfig.getCurrentTeamId()))
-    await integrationsLogic.findMounted()?.asyncActions.loadIntegrations()
-    return sandbox.id
+async function provisionSandboxSender(): Promise<number | null> {
+    try {
+        const sandbox = await integrationsEmailSandboxSenderCreate(String(ApiConfig.getCurrentTeamId()))
+        await integrationsLogic.findMounted()?.asyncActions.loadIntegrations()
+        return sandbox.id
+    } catch (error) {
+        // 404 means the sandbox sender is switched off for this project, 403 that this person can't set it up.
+        if (error instanceof ApiError && (error.status === 404 || error.status === 403)) {
+            return null
+        }
+        throw error
+    }
 }
 
 function teamDefaultSenderId(): number | null | undefined {
@@ -79,8 +87,8 @@ async function resolveFirstRunSender(allowSandbox: boolean): Promise<DefaultEmai
         if (!sandboxApplies(integrations, allowSandbox)) {
             return resolveDefaultEmailSender(integrations, teamDefaultSenderId())
         }
-        const sandbox = integrations.find(isSandboxEmailSender)
-        return { integrationId: sandbox?.id ?? (await provisionSandboxSender()), reason: 'sandbox_sender' }
+        const sandboxId = integrations.find(isSandboxEmailSender)?.id ?? (await provisionSandboxSender())
+        return sandboxId === null ? null : { integrationId: sandboxId, reason: 'sandbox_sender' }
     } catch (error) {
         posthog.captureException(error, { feature: 'workflows-sandbox-sender', step: 'first-run sender' })
         throw error
