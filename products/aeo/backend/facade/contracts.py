@@ -68,6 +68,8 @@ class PromptEngineCheck:
     engine: str
     cited: bool
     check_failed: bool
+    # 1-based rank of the first target URL among the answer's cited URLs. Null when not cited.
+    position: int | None
     checked_at: dt.datetime
 
 
@@ -127,6 +129,8 @@ class PromptEngineStats:
     # Answers that name the brand, cited ones included: the same definition the citation gaps use.
     mentioned: int
     failed: int
+    # Mean rank of the first target URL over the cited checks. Null when no check cited it.
+    avg_position: float | None
     first_checked_at: dt.datetime
     last_checked_at: dt.datetime
 
@@ -149,6 +153,7 @@ class PromptDailyEngineStats:
     cited: int
     mentioned: int
     failed: int
+    avg_position: float | None
 
 
 @frozen
@@ -208,6 +213,8 @@ class PromptSetCounts:
     # Distinct prompts that ran at least once in the window, and how many of them were cited at least once.
     prompts: int
     prompts_cited: int
+    # Mean rank of the first target URL over the cited checks. Null when no check cited it.
+    avg_position: float | None
 
     @property
     def citation_rate(self) -> float | None:

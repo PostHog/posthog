@@ -93,6 +93,9 @@ class AEOPromptEngineCheckSerializer(DataclassSerializer):
             "check_failed": {
                 "help_text": "The engine did not answer. When true, 'cited' is false and says nothing about citations."
             },
+            "position": {
+                "help_text": "1-based rank of the first target-domain URL among the answer's cited URLs. Null when the answer did not cite one."
+            },
             "checked_at": {"help_text": "When the check ran."},
         }
 
@@ -221,6 +224,9 @@ MENTIONED_HELP = (
 )
 
 
+AVG_POSITION_HELP = "Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain."
+
+
 class AEOPromptEngineStatsSerializer(DataclassSerializer):
     citation_rate = serializers.FloatField(
         read_only=True,
@@ -242,6 +248,7 @@ class AEOPromptEngineStatsSerializer(DataclassSerializer):
             "cited": {"help_text": "Checks whose answer cited a target domain."},
             "mentioned": {"help_text": MENTIONED_HELP},
             "failed": {"help_text": "Checks where the engine did not answer."},
+            "avg_position": {"help_text": AVG_POSITION_HELP},
             "first_checked_at": {"help_text": "When the engine first ran the prompt."},
             "last_checked_at": {"help_text": "When the engine last ran the prompt."},
         }
@@ -258,6 +265,7 @@ class AEOPromptDailyEngineStatsSerializer(DataclassSerializer):
             "cited": {"help_text": "Checks that day whose answer cited a target domain."},
             "mentioned": {"help_text": "Checks that day whose answer names the brand. " + MENTIONED_HELP},
             "failed": {"help_text": "Checks that day where the engine did not answer."},
+            "avg_position": {"help_text": AVG_POSITION_HELP},
         }
 
 
@@ -344,6 +352,7 @@ SET_COUNTS_HELP = {
     "prompts_cited": {
         "help_text": "Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited."
     },
+    "avg_position": {"help_text": AVG_POSITION_HELP},
 }
 
 

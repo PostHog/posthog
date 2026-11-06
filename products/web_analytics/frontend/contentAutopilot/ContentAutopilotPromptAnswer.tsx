@@ -44,6 +44,7 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                         <ContentAutopilotCheckResultTag
                             cited={shownCheck.cited}
                             checkFailed={shownCheck.check_failed}
+                            position={shownCheck.target_best_position}
                         />
                         <span>
                             {selectedCheck ? 'Older answer' : 'Latest answer'} from {engineLabel(shownCheck.engine)},{' '}

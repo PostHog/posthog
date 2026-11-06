@@ -14,6 +14,7 @@ import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabl
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
+import { POSITION_DESCRIPTION } from './promptReport'
 import { promptSourcesContext } from './promptReportColumns'
 import { engineLabel } from './utils'
 
@@ -81,7 +82,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 <h4 className="m-0">Last {OVERVIEW_DAYS} days, all engines</h4>
                 <p className="m-0 text-xs text-muted">Each number is compared with the {OVERVIEW_DAYS} days before.</p>
             </div>
-            <div className="grid grid-cols-2 @3xl/prompts-overview:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 @3xl/prompts-overview:grid-cols-3 @7xl/prompts-overview:grid-cols-5 gap-3">
                 <ContentAutopilotPromptKpiCard
                     label="Prompts tracked"
                     description="Prompts that are on and not archived. The next daily run checks them."
@@ -105,6 +106,12 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     description="Share of answers that link to a page on your site as a source, so people can click through to it."
                     {...overviewKpis.citationRate}
                     data-attr="content-autopilot-prompts-overview-kpi-cited"
+                />
+                <ContentAutopilotPromptKpiCard
+                    label="Average position"
+                    description={POSITION_DESCRIPTION}
+                    {...overviewKpis.position}
+                    data-attr="content-autopilot-prompts-overview-kpi-position"
                 />
             </div>
 

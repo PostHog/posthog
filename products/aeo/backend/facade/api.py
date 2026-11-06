@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Aggregate, Count, Exists, Max, Min, OuterRef, Q, QuerySet
+from django.db.models import Aggregate, Avg, Count, Exists, Max, Min, OuterRef, Q, QuerySet
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
@@ -222,6 +222,8 @@ def _check_counts(target_domains: list[str], *, prompts: bool = False) -> dict[s
         counts["prompts_cited"] = Count("prompt_id", distinct=True, filter=Q(cited=True))
     counts["cited"] = Count("id", filter=Q(cited=True))
     counts["failed"] = Count("id", filter=Q(check_failed=True))
+    # The position is null unless the answer cited the brand, so the mean covers cited answers only.
+    counts["avg_position"] = Avg("target_best_position")
     if prompts:
         counts["prompts"] = Count("prompt_id", distinct=True)
     return counts
@@ -241,6 +243,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
             cited=row["cited"],
             mentioned=row["mentioned"],
             failed=row["failed"],
+            avg_position=row["avg_position"],
             first_checked_at=row["first_checked_at"],
             last_checked_at=row["last_checked_at"],
         )
@@ -252,6 +255,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
             mentioned=Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
             cited=Count("id", filter=Q(cited=True)),
             failed=Count("id", filter=Q(check_failed=True)),
+            avg_position=Avg("target_best_position"),
             first_checked_at=Min("created_at"),
             last_checked_at=Max("created_at"),
         )
@@ -271,6 +275,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
             cited=row["cited"],
             mentioned=row["mentioned"],
             failed=row["failed"],
+            avg_position=row["avg_position"],
         )
         for row in in_window.annotate(date=TruncDate("created_at", tzinfo=tz))
         .values("date", "engine")
@@ -279,6 +284,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
             mentioned=Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
             cited=Count("id", filter=Q(cited=True)),
             failed=Count("id", filter=Q(check_failed=True)),
+            avg_position=Avg("target_best_position"),
         )
         .order_by("date", "engine")
     )
@@ -315,8 +321,11 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
     )
 
 
-def _set_counts(row: Mapping[str, Any]) -> dict[str, int]:
-    return {key: row[key] for key in ("checks", "failed", "cited", "mentioned", "prompts", "prompts_cited")}
+_SET_COUNT_KEYS = ("checks", "failed", "cited", "mentioned", "prompts", "prompts_cited", "avg_position")
+
+
+def _set_counts(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: row[key] for key in _SET_COUNT_KEYS}
 
 
 def _top_domains(
@@ -383,7 +392,7 @@ def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> P
     topic_checks = {
         row["prompt_topic"]: row for row in current.values("prompt_topic").annotate(**counts).order_by("prompt_topic")
     }
-    no_checks = dict.fromkeys(("checks", "failed", "cited", "mentioned", "prompts", "prompts_cited"), 0)
+    no_checks: dict[str, Any] = {**dict.fromkeys(_SET_COUNT_KEYS, 0), "avg_position": None}
     topics = tuple(
         PromptSetTopicCounts(
             topic=topic,
@@ -659,7 +668,7 @@ def _latest_checks(team_id: int, prompt_ids: list[uuid.UUID]) -> dict[uuid.UUID,
         .filter(prompt_id__in=prompt_ids)
         .order_by("prompt_id", "engine", "-created_at")
         .distinct("prompt_id", "engine")
-        .values("prompt_id", "engine", "cited", "check_failed", "created_at")
+        .values("prompt_id", "engine", "cited", "check_failed", "target_best_position", "created_at")
     )
     checks: dict[uuid.UUID, list[PromptEngineCheck]] = defaultdict(list)
     for row in rows:
@@ -668,6 +677,7 @@ def _latest_checks(team_id: int, prompt_ids: list[uuid.UUID]) -> dict[uuid.UUID,
                 engine=row["engine"],
                 cited=row["cited"],
                 check_failed=row["check_failed"],
+                position=row["target_best_position"],
                 checked_at=row["created_at"],
             )
         )
