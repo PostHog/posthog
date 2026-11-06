@@ -154,15 +154,15 @@ export interface extensionPanelLogicActions {
         toolbarAccess: ToolbarAccessResult | null
         payload?: any
     }
+    openAuthorizedUrl: (url: string) => {
+        url: string
+    }
     openFeature: (
         feature: ExtensionFeatureKey,
         path: string
     ) => {
         feature: ExtensionFeatureKey
         path: string
-    }
-    openAuthorizedUrl: (url: string) => {
-        url: string
     }
     openPostHogPath: (path: string) => {
         path: string
