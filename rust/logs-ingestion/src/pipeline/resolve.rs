@@ -240,7 +240,12 @@ pub async fn resolve_log_buffer(
     if let Some(stage) = transform_stage {
         stages.push(stage);
     }
-    let internal_attributes_stage_at = stages.len();
+    // After transformations, which can write the prefix too. Internal logs only reach the logs product.
+    if context.identity.app_source == AppSource::Logs {
+        stages.push(PipelineStage::Mutate(Box::new(InternalAttributesStage::new(
+            message.internal_logs.clone(),
+        ))));
+    }
     let mut shortest_retention_days = if message.internal_logs.is_some() {
         INTERNAL_LOGS_MIN_RETENTION_DAYS
     } else {
@@ -290,19 +295,6 @@ pub async fn resolve_log_buffer(
         stages.push(PipelineStage::Mutate(Box::new(PatternMaskingStage {
             message_keys,
         })));
-    }
-
-    // After transformations, which can write the prefix too. Passthrough batches skip it, so readers also check `internal_source`.
-    if message.internal_logs.is_some()
-        || buffer_processing_mode(settings, stages.len(), visitor.is_some())
-            == BufferProcessingMode::DecodeAndReencode
-    {
-        stages.insert(
-            internal_attributes_stage_at,
-            PipelineStage::Mutate(Box::new(InternalAttributesStage::new(
-                message.internal_logs.clone(),
-            ))),
-        );
     }
 
     let buffer = message.message.value.as_deref().unwrap_or_default();
