@@ -14,7 +14,12 @@ from posthog.models import User
 from posthog.schema_enums import IntervalType
 
 from ..facade import api
-from ..facade.api import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
+from ..facade.api import (
+    DESCRIPTION_TOO_LONG_MESSAGE,
+    MAX_DESCRIPTION_LENGTH,
+    MAX_METRIC_RUN_PAGES,
+    METRIC_NAME_MAX_LENGTH,
+)
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
 
@@ -81,8 +86,15 @@ class MetricRunResponseSerializer(serializers.Serializer):
     )
     next_offset = serializers.IntegerField(
         allow_null=True,
-        help_text="Offset that returns the next page of rows. Null when has_more is false. Pages follow the "
-        "definition's ORDER BY, so rows that tie on every ORDER BY column can move between pages.",
+        help_text="Offset that returns the next page of rows. Null when has_more is false, or when the run "
+        "reached the page limit (see paging_stopped_reason). Pages follow the definition's ORDER BY, so rows that "
+        "tie on every ORDER BY column can move between pages.",
+    )
+    paging_stopped_reason = serializers.CharField(
+        allow_null=True,
+        help_text=f"Why paging stopped while has_more is still true: a metric run returns at most "
+        f"{MAX_METRIC_RUN_PAGES} pages. Report the result as partial. Null when paging can continue or the rows "
+        "are complete.",
     )
     posthog_url = serializers.CharField(
         allow_null=True, help_text="Deep link to open the query in the app (SQL editor or insight)."

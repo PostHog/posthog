@@ -19,7 +19,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, t
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.data_catalog.backend.logic.execution import prepare_execution_query, run_metric
+from products.data_catalog.backend.logic.execution import MAX_METRIC_RUN_PAGES, prepare_execution_query, run_metric
 from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.models import Metric
 
@@ -80,12 +80,13 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("under_the_limit", 400, 400, False),
-            ("over_the_limit", 1500, DEFAULT_DATA_CATALOG_RETURNED_ROWS, True),
+            ("one_page", 400, False),
+            ("two_pages", 1500, False),
+            ("past_the_page_limit", MAX_METRIC_RUN_PAGES * DEFAULT_DATA_CATALOG_RETURNED_ROWS + 500, True),
         ]
     )
-    def test_long_series_continues_past_the_row_limit_with_offset(
-        self, _name: str, row_count: int, expected_rows: int, expected_has_more: bool
+    def test_long_series_pages_with_offset_up_to_the_page_limit(
+        self, _name: str, row_count: int, expect_page_limit: bool
     ) -> None:
         metric = upsert_metric(
             team=self.team,
@@ -95,24 +96,24 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
             definition={"kind": "HogQLQuery", "query": f"select number from numbers({row_count}) order by number"},
         )
 
-        envelope = run_metric(team=self.team, metric=metric, user=self.user)
-
-        assert envelope["results"] is not None
-        assert len(envelope["results"]) == expected_rows
-        assert envelope["has_more"] is expected_has_more
-        assert envelope["row_limit"] == DEFAULT_DATA_CATALOG_RETURNED_ROWS
-
-        rows = list(envelope["results"])
-        if envelope["next_offset"] is not None:
-            next_page = self.client.post(
+        page = run_metric(team=self.team, metric=metric, user=self.user)
+        assert page["row_limit"] == DEFAULT_DATA_CATALOG_RETURNED_ROWS
+        rows = list(page["results"])
+        for _ in range(MAX_METRIC_RUN_PAGES):
+            if page["next_offset"] is None:
+                break
+            page = self.client.post(
                 f"/api/projects/{self.team.id}/data_catalog/metrics/long_series/run/",
-                {"offset": envelope["next_offset"]},
+                {"offset": page["next_offset"]},
                 format="json",
             ).json()
-            assert next_page["has_more"] is False
-            assert next_page["next_offset"] is None
-            rows += next_page["results"]
-        assert [row[0] for row in rows] == list(range(row_count))
+            rows += page["results"]
+
+        reachable_rows = min(row_count, MAX_METRIC_RUN_PAGES * DEFAULT_DATA_CATALOG_RETURNED_ROWS)
+        assert [row[0] for row in rows] == list(range(reachable_rows))
+        assert page["next_offset"] is None
+        assert page["has_more"] is expect_page_limit
+        assert (page["paging_stopped_reason"] is not None) is expect_page_limit
 
     def test_run_events_node_executes_as_trends(self) -> None:
         # A bare EventsNode has no query runner; the run must still return the number by executing
@@ -240,6 +241,12 @@ class TestMetricRunPreparation(APIBaseTest):
             ("date_to", _HOGQL, {"date_to": "-1d"}, "date_to"),
             ("interval", _HOGQL, {"interval": "week"}, "interval"),
             ("offset_on_trends", _EVENTS_NODE, {"offset": 1000}, "offset"),
+            (
+                "offset_past_page_limit",
+                _HOGQL,
+                {"offset": MAX_METRIC_RUN_PAGES * DEFAULT_DATA_CATALOG_RETURNED_ROWS},
+                "offset",
+            ),
         ]
     )
     def test_rejected_override_names_the_provided_field(

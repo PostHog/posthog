@@ -18,7 +18,7 @@ from ..logic.certifications import (
     revoke_certification,
 )
 from ..logic.drift import compute_drift
-from ..logic.execution import run_metric
+from ..logic.execution import MAX_METRIC_RUN_PAGES, run_metric
 from ..logic.metric_reads import (
     get_metric_summary,
     live_metric_ids,
@@ -53,6 +53,7 @@ __all__ = [
     "BULK_SKIP_NOT_FOUND",
     "DESCRIPTION_TOO_LONG_MESSAGE",
     "MAX_DESCRIPTION_LENGTH",
+    "MAX_METRIC_RUN_PAGES",
     "METRIC_BULK_MAX",
     "METRIC_NAME_MAX_LENGTH",
     "HogQLMetricDefinition",

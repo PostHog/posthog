@@ -567,10 +567,15 @@ export interface DataCatalogMetricRunApi {
      */
     row_limit: number | null
     /**
-     * Offset that returns the next page of rows. Null when has_more is false. Pages follow the definition's ORDER BY, so rows that tie on every ORDER BY column can move between pages.
+     * Offset that returns the next page of rows. Null when has_more is false, or when the run reached the page limit (see paging_stopped_reason). Pages follow the definition's ORDER BY, so rows that tie on every ORDER BY column can move between pages.
      * @nullable
      */
     next_offset: number | null
+    /**
+     * Why paging stopped while has_more is still true: a metric run returns at most 10 pages. Report the result as partial. Null when paging can continue or the rows are complete.
+     * @nullable
+     */
+    paging_stopped_reason: string | null
     /**
      * Deep link to open the query in the app (SQL editor or insight).
      * @nullable
