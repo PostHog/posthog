@@ -175,7 +175,7 @@ class TestMembershipDiscovery(MembershipTestCase):
             lease = redis.return_value.lock.return_value
             if failure == "deadline":
                 self.store.deadline = monotonic() - 1
-                error_type = TimeoutError
+                error_type: type[Exception] = TimeoutError
             else:
                 lease.extend.side_effect = RuntimeError("lease lost")
                 error_type = RuntimeError
