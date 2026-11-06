@@ -1,7 +1,17 @@
+import type { ReactNode } from 'react'
+
 import { HomeTabChartCard } from './HomeTabChartCard'
 import type { HomeTabViewRows } from './homeTabViewCharts'
 
-export function HomeTabView({ rows, label }: { rows: HomeTabViewRows; label: string }): JSX.Element {
+export function HomeTabView({
+    rows,
+    label,
+    note,
+}: {
+    rows: HomeTabViewRows
+    label: string
+    note?: ReactNode
+}): JSX.Element {
     return (
         <section className="flex flex-col gap-3" aria-label={label}>
             {rows.map((row, rowIndex) => (
@@ -24,6 +34,7 @@ export function HomeTabView({ rows, label }: { rows: HomeTabViewRows; label: str
                     ))}
                 </div>
             ))}
+            {note && <p className="m-0 text-xs text-secondary">{note}</p>}
         </section>
     )
 }

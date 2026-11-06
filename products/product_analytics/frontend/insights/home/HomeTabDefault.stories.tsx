@@ -8,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { mswDecorator } from '~/mocks/browser'
+import funnelTopToBottom from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
 import lifecycle from '~/mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
 import stickiness from '~/mocks/fixtures/api/projects/team_id/insights/stickiness.json'
 import trendsBarBreakdown from '~/mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
@@ -54,7 +55,11 @@ function rankedResults(names: string[], counts: number[]): unknown[] {
     }))
 }
 
-async function homeQueryMock({ request }: { request: Request }): Promise<[number, { results: unknown[] }]> {
+async function homeQueryMock({
+    request,
+}: {
+    request: Request
+}): Promise<[number, { results: unknown[]; columns?: string[]; types?: string[][] }]> {
     const body = (await request.json()) as { query?: StoryQuery }
     const query = body.query?.source ?? body.query
 
@@ -66,6 +71,28 @@ async function homeQueryMock({ request }: { request: Request }): Promise<[number
     }
     if (query?.kind === NodeKind.StickinessQuery) {
         return [200, { results: stickiness.result }]
+    }
+    if (query?.kind === NodeKind.FunnelsQuery) {
+        return [200, { results: funnelTopToBottom.result }]
+    }
+    if (query?.kind === NodeKind.HogQLQuery) {
+        return [
+            200,
+            {
+                columns: ['event', 'people', 'share'],
+                types: [
+                    ['event', 'String'],
+                    ['people', 'UInt64'],
+                    ['share', 'Float64'],
+                ],
+                results: [
+                    ['downloaded_file', 1793, 0.42],
+                    ['uploaded_file', 1152, 0.27],
+                    ['signed_up', 768, 0.18],
+                    ['shared_file', 384, 0.09],
+                ],
+            },
+        ]
     }
 
     if (query?.trendsFilter?.display === ChartDisplayType.BoldNumber) {
@@ -191,9 +218,9 @@ function viewStory(tabLabel: string): Story {
     }
 }
 
-export const OnboardingView: Story = viewStory('Onboarding')
+export const NewUsersView: Story = viewStory('New users')
 
-export const FeatureEngagementView: Story = viewStory('Feature engagement')
+export const EngagementView: Story = viewStory('Engagement')
 
 export const RetentionView: Story = viewStory('Retention')
 

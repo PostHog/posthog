@@ -5,8 +5,10 @@ import { BUCKET_FORMAT, lastBucketIsInProgress, normalizeBucket } from 'lib/util
 import { urls } from 'scenes/urls'
 
 import {
+    DataVisualizationNode,
     DateRange,
     EventsNode,
+    FunnelsQuery,
     GroupNode,
     InsightVizNode,
     LifecycleQuery,
@@ -57,7 +59,21 @@ export interface HomeTabChartOption {
     query: InsightVizNode<HomeTabChartSource>
 }
 
-export type HomeTabChartSource = TrendsQuery | RetentionQuery | LifecycleQuery | StickinessQuery
+export type HomeTabChartSource = TrendsQuery | RetentionQuery | LifecycleQuery | StickinessQuery | FunnelsQuery
+
+/** A chart that an insight query cannot express, such as a share of all active people. */
+export interface HomeTabSqlChartOption {
+    key: string
+    title: string
+    description: string
+    query: DataVisualizationNode
+}
+
+export type HomeTabAnyChartOption = HomeTabChartOption | HomeTabSqlChartOption
+
+export function isHomeTabInsightChart(option: HomeTabAnyChartOption): option is HomeTabChartOption {
+    return option.query.kind === NodeKind.InsightVizNode
+}
 
 // $pageview covers web, $screen covers mobile apps — combined so the tile works day one
 // regardless of platform, without asking the customer to pick one first.
@@ -111,7 +127,20 @@ export function getHomeTabInterval(dateRange: DateRange): IntervalType {
     return 'day'
 }
 
-export function getHomeTabRetentionIntervals(dateRange: DateRange): number {
+const MIN_RETENTION_INTERVALS = 8
+const MAX_RETENTION_INTERVALS = 12
+
+export interface HomeTabRetentionRange {
+    dateRange: DateRange
+    totalIntervals: number
+}
+
+// Cohorts need time to come back, and the current period is incomplete. A short Home range widens so that
+// most cohorts have complete periods, otherwise the mean row shows 0% for the only finished cohort.
+export function getHomeTabRetentionRange(
+    dateRange: DateRange,
+    period: RetentionPeriod.Day | RetentionPeriod.Week
+): HomeTabRetentionRange {
     const dateFrom = dateRange.date_from
     const relative = dateFrom?.match(/^-(\d+)([hdwm])$/)
     const unitDays: Record<string, number> = { h: 1 / 24, d: 1, w: 7, m: 30 }
@@ -120,8 +149,24 @@ export function getHomeTabRetentionIntervals(dateRange: DateRange): number {
         : dateFrom && /^\d{4}-\d{2}-\d{2}/.test(dateFrom)
           ? (Date.parse(dateRange.date_to ?? new Date().toISOString()) - Date.parse(dateFrom)) / 86_400_000
           : 30
+    const unit = period === RetentionPeriod.Week ? 'week' : 'day'
+    const intervals = Math.ceil(rangeDays / (unit === 'week' ? 7 : 1)) + 1
 
-    return Math.min(12, Math.max(2, Math.ceil(rangeDays / 7) + 1))
+    if (intervals >= MIN_RETENTION_INTERVALS) {
+        return { dateRange, totalIntervals: Math.min(MAX_RETENTION_INTERVALS, intervals) }
+    }
+    const dateTo = dateRange.date_to
+    return {
+        dateRange:
+            dateTo && /^\d{4}-\d{2}-\d{2}/.test(dateTo)
+                ? {
+                      date_from: dayjs(dateTo).subtract(MIN_RETENTION_INTERVALS, unit).format('YYYY-MM-DD'),
+                      date_to: dateTo,
+                      explicitDate: dateRange.explicitDate,
+                  }
+                : { date_from: `-${MIN_RETENTION_INTERVALS}${unit[0]}`, date_to: null },
+        totalIntervals: MIN_RETENTION_INTERVALS,
+    }
 }
 
 export function trendsQuery(series: GroupNode | EventsNode, dateRange: DateRange, compare: boolean): TrendsQuery {
@@ -324,10 +369,9 @@ export function getHomeTabChartOptions(dateRange: DateRange, compare: boolean): 
         retentionChartOption(
             'retention',
             'New user retention',
-            'Compare weekly cohorts of first-time visitors and see when they return.',
+            'Compare weekly cohorts of first-time visitors and see when they return. Shows at least 8 weeks.',
             dateRange,
             RetentionPeriod.Week,
-            getHomeTabRetentionIntervals(dateRange),
             RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS
         ),
     ]
@@ -390,11 +434,12 @@ export function retentionChartOption(
     key: string,
     title: string,
     description: string,
-    dateRange: DateRange,
-    period: RetentionPeriod,
-    totalIntervals: number,
-    retentionType: RetentionType
+    homeDateRange: DateRange,
+    period: RetentionPeriod.Day | RetentionPeriod.Week,
+    retentionType: RetentionType,
+    display: 'table' | 'curve' = 'table'
 ): HomeTabChartOption {
+    const { dateRange, totalIntervals } = getHomeTabRetentionRange(homeDateRange, period)
     return {
         key,
         title,
@@ -408,7 +453,13 @@ export function retentionChartOption(
                 retentionFilter: {
                     period,
                     totalIntervals,
-                    dashboardDisplay: RetentionDashboardDisplayType.TableOnly,
+                    ...(display === 'curve'
+                        ? {
+                              display: ChartDisplayType.ActionsLineGraph,
+                              dashboardDisplay: RetentionDashboardDisplayType.GraphOnly,
+                              meanRetentionCalculation: 'weighted',
+                          }
+                        : { dashboardDisplay: RetentionDashboardDisplayType.TableOnly }),
                     retentionType,
                     targetEntity: { type: 'events', properties: [PAGE_OR_SCREEN_EVENT_FILTER] },
                     returningEntity: { type: 'events', properties: [PAGE_OR_SCREEN_EVENT_FILTER] },
@@ -501,7 +552,10 @@ export function getHomeTabStatInsightQuery(stat: HomeTabStatQuery): InsightVizNo
     }
 }
 
-export function getHomeTabExploreUrl(query: HomeTabChartOption['query']): string {
+export function getHomeTabExploreUrl(query: HomeTabAnyChartOption['query']): string {
+    if (query.kind === NodeKind.DataVisualizationNode) {
+        return urls.sqlEditor({ query })
+    }
     const insightQuery: HomeTabChartOption['query'] = { ...query, embedded: undefined }
     return urls.insightNew({ query: insightQuery })
 }

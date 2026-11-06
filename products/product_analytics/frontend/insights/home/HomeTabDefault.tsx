@@ -7,11 +7,13 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Link } from 'lib/lemon-ui/Link'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { CUSTOM_OPTION_KEY, dateMapping } from 'lib/utils/dateFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 
@@ -35,10 +37,12 @@ const HOME_DATE_OPTIONS = dateMapping.filter((option) => option.key !== CUSTOM_O
 
 const HOME_VIEW_TABS: { key: HomeTabViewKey; label: string }[] = [
     { key: 'overview', label: 'Overview' },
-    { key: 'onboarding', label: 'Onboarding' },
-    { key: 'feature_engagement', label: 'Feature engagement' },
+    { key: 'new_users', label: 'New users' },
+    { key: 'engagement', label: 'Engagement' },
     { key: 'retention', label: 'Retention' },
 ]
+
+const VIEWS_WITH_COMPARE: HomeTabViewKey[] = ['overview', 'new_users']
 
 export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactNode }): JSX.Element {
     useAttachedLogic(homeTabDefaultLogic(), savedInsightsLogic)
@@ -47,6 +51,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
     const { setDates, setCompare, setSelectedMetric, setSelectedContentKey, setSelectedView } =
         useActions(homeTabDefaultLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const showCompare = !showViews || VIEWS_WITH_COMPARE.includes(selectedView)
 
     const metricCharts = getHomeTabChartOptions(dateRange, compare)
     const audienceCharts = getHomeTabAudienceOptions(dateRange)
@@ -106,7 +111,12 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                         {dashboardActions}
                     </div>
                 </div>
-                <div className="home-tab-date-controls grid w-full min-w-0 grid-cols-[1fr_1fr_auto] gap-2 [&_.LemonButton]:h-full [&_.LemonButton__content]:truncate @max-[32rem]/home-overview:[&_.LemonButton__content]:text-xs @min-[48rem]/home-overview:flex @min-[48rem]/home-overview:w-auto @min-[48rem]/home-overview:flex-wrap">
+                <div
+                    className={cn(
+                        'home-tab-date-controls grid w-full min-w-0 gap-2 [&_.LemonButton]:h-full [&_.LemonButton__content]:truncate @max-[32rem]/home-overview:[&_.LemonButton__content]:text-xs @min-[48rem]/home-overview:flex @min-[48rem]/home-overview:w-auto @min-[48rem]/home-overview:flex-wrap',
+                        showCompare ? 'grid-cols-[1fr_1fr_auto]' : 'grid-cols-[1fr_auto]'
+                    )}
+                >
                     <div className="min-w-0 [&_.LemonButton]:w-full @min-[48rem]/home-overview:[&_.LemonButton]:w-auto">
                         <DateFilter
                             showCustom
@@ -124,13 +134,15 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                             )}
                         />
                     </div>
-                    <div className="min-w-0 [&_.LemonSelect]:w-full [&_.LemonButton]:w-full @min-[48rem]/home-overview:[&_.LemonSelect]:w-auto @min-[48rem]/home-overview:[&_.LemonButton]:w-auto">
-                        <CompareFilter
-                            compareFilter={{ compare }}
-                            updateCompareFilter={(filter) => setCompare(!!filter.compare)}
-                            allowCustomComparison={false}
-                        />
-                    </div>
+                    {showCompare && (
+                        <div className="min-w-0 [&_.LemonSelect]:w-full [&_.LemonButton]:w-full @min-[48rem]/home-overview:[&_.LemonSelect]:w-auto @min-[48rem]/home-overview:[&_.LemonButton]:w-auto">
+                            <CompareFilter
+                                compareFilter={{ compare }}
+                                updateCompareFilter={(filter) => setCompare(!!filter.compare)}
+                                allowCustomComparison={false}
+                            />
+                        </div>
+                    )}
                     <HomeTabReloadButton />
                 </div>
             </div>
@@ -140,6 +152,17 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                     key={selectedView}
                     rows={getHomeTabViewRows(selectedView, dateRange, compare)}
                     label={HOME_VIEW_TABS.find(({ key }) => key === selectedView)?.label ?? ''}
+                    note={
+                        selectedView === 'new_users' ? (
+                            <>
+                                Landing pages and referrers for new visitors are in{' '}
+                                <Link to={urls.webAnalytics()} data-attr="home-tab-new-users-web-analytics">
+                                    Web analytics
+                                </Link>
+                                .
+                            </>
+                        ) : undefined
+                    }
                 />
             ) : (
                 <>
@@ -214,7 +237,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                         <HomeTabChartCard
                             option={retentionChart}
                             size="supporting"
-                            source="Pageviews"
+                            source="Pageviews and screen views"
                             loadPriority={4}
                         />
                         <HomeTabExplore />
