@@ -262,6 +262,11 @@ class TestFiltersMatchChangeValues(SimpleTestCase):
             ("nested_after", {"detail_filters": {"changes[].after.plan": {"value": "x"}}}, True),
             ("whole_changes", {"detail_filters": {"changes[]": {"operation": "contains", "value": "x"}}}, True),
             ("change_field", {"detail_filters": {"changes[].field": {"operation": "contains", "value": "x"}}}, True),
+            (
+                "array_without_dot",
+                {"detail_filters": {"changes[]before": {"operation": "contains", "value": "x"}}},
+                True,
+            ),
             ("name", {"detail_filters": {"name": {"value": "x"}}}, False),
             ("unset_value", {"detail_filters": {"changes[].after": {"value": None}}}, False),
         ]

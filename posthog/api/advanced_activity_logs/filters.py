@@ -106,7 +106,7 @@ def filters_match_change_values(filters: dict[str, Any]) -> bool:
 
 def _field_path_reaches_change_values(field_path: str) -> bool:
     # Array filters on `changes[]` search the whole serialized array, so any `changes` path can match values.
-    return field_path.replace("[]", "").split(".")[0] == "changes"
+    return field_path.split("[]")[0].split(".")[0] == "changes"
 
 
 class AdvancedActivityLogFilterManager:
