@@ -1,4 +1,3 @@
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 from django import forms
@@ -159,7 +158,7 @@ class OperationForm:
 
     kind: ClassVar[str] = "operation_form"
     operation: ToolOperation
-    initial: Mapping[str, Any] | None = None
+    initial: dict[str, Any] | None = None
     pending_label: str = ""
     form: forms.Form | None = None
 
