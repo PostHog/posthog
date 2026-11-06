@@ -882,6 +882,12 @@ describe('hog auth login', () => {
         ],
         ['a scope PostHog does not have', ['insight:admin'], {}, { code: 'unknown_scope' }],
         [
+            'a scope this hog does not know',
+            ['newthing:read'],
+            {},
+            { code: 'unknown_scope', hint: expect.stringContaining('update hog') },
+        ],
+        [
             'a personal API key',
             ['insight:write'],
             { HOG_PERSONAL_API_KEY: 'phx_secret', HOG_PROJECT_ID: '42' },
@@ -947,8 +953,8 @@ describe('hog auth login', () => {
         expect(result.error()).toMatchObject({
             code: 'step_up_required',
             scopes: ['query:read', 'dashboard:write'],
-            command: 'hog auth add query:read dashboard:write',
-            hint: expect.stringContaining('hog auth add query:read dashboard:write'),
+            command: `hog auth add --host ${EU} query:read dashboard:write`,
+            hint: expect.stringContaining(`hog auth add --host ${EU} query:read dashboard:write`),
         })
         expect(result.requests.map((request) => request.url)).toEqual([`${EU}/api/environments/42/query`])
     })
@@ -988,13 +994,13 @@ describe('hog auth login', () => {
     })
 
     test.each([
-        ['an endpoint', 'name: daily\nquery: SELECT 1\n', 'hog auth add endpoint:write'],
+        ['an endpoint', 'name: daily\nquery: SELECT 1\n', 'endpoint:write'],
         [
             'an endpoint with a variable PostHog lacks',
             'name: daily\nquery: SELECT {variables.day}\nvariables:\n  - name: day\n    type: String\n',
-            'hog auth add endpoint:write insight_variable:write',
+            'endpoint:write insight_variable:write',
         ],
-    ])('push checks the login can create %s before it writes anything', async (_name, yaml, command) => {
+    ])('push checks the login can create %s before it writes anything', async (_name, yaml, scopes) => {
         const result = await runHog(['endpoints', 'push', 'daily.yaml', '--yes'], {
             env: { CLAUDECODE: '1' },
             files: { ...OAUTH_LOGIN.files, '/work/daily.yaml': yaml },
@@ -1005,7 +1011,42 @@ describe('hog auth login', () => {
                     : { status: 404, body: { detail: 'Not found.' } },
         })
 
-        expect(result.error()).toMatchObject({ code: 'step_up_required', command })
+        expect(result.error()).toMatchObject({
+            code: 'step_up_required',
+            command: `hog auth add --host ${EU} ${scopes}`,
+        })
         expect(result.requests.filter((request) => request.method !== 'GET')).toEqual([])
+    })
+
+    test('push stops when the approved step-up drops a scope the login already had', async () => {
+        const flow = deviceFlow(0, {
+            status: 200,
+            body: {
+                ...APPROVED,
+                access_token: STEPPED_UP_ACCESS,
+                refresh_token: STEPPED_UP_REFRESH,
+                scope: 'openid insight_variable:write',
+            },
+        })
+        const result = await runHog(['endpoints', 'push', 'daily.yaml', '--yes'], {
+            stdoutIsTTY: true,
+            answers: ['yes'],
+            files: {
+                ...OAUTH_LOGIN.files,
+                [SETTINGS_FILE]: OAUTH_LOGIN.files[SETTINGS_FILE].replace('"insight:read"', '"endpoint:write"'),
+                '/work/daily.yaml':
+                    'name: daily\nquery: SELECT {variables.day}\nvariables:\n  - name: day\n    type: String\n',
+            },
+            keychain: OAUTH_LOGIN.keychain,
+            respond: (url) =>
+                /\/(endpoints|insight_variables)\/(\?.*)?$/.test(url)
+                    ? { status: 200, body: { results: [] } }
+                    : flow(url),
+        })
+
+        expect(result.exitCode).toBe(1)
+        expect(
+            result.requests.filter((request) => request.method === 'POST' && !request.url.includes('/oauth/'))
+        ).toEqual([])
     })
 })

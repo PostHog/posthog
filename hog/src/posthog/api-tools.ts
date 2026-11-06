@@ -12,8 +12,9 @@ import { HogError } from '@/core/errors'
 import { VERSION } from '@/version'
 
 import { ApiError, stepUpRequired } from './api'
+import type { Credentials } from './credentials'
 import type { OrganizationId, ProjectId } from './ids'
-import { addToKeyHint, isScopeName } from './scope-challenge'
+import { addToKeyHint, canStepUp, isScopeName } from './scope-challenge'
 
 export interface ToolGroup {
     slug: string
@@ -136,19 +137,24 @@ export async function withApiConnection<T>(
     )
 }
 
-export function missingScopesError(tool: string, scopes: readonly string[], loginCanAdd: boolean): HogError {
+export function missingScopesError(
+    tool: string,
+    scopes: readonly string[],
+    credentials: Credentials | undefined
+): HogError {
     const message = `Your credentials need ${scopes.join(', ')} to call ${tool}.`
+    const loginCanAdd = canStepUp(credentials)
     if (loginCanAdd && scopes.every(isScopeName)) {
-        return stepUpRequired(scopes, message)
+        return stepUpRequired(scopes, { message, host: credentials?.key.host })
     }
     return new HogError('missing_scopes', message, loginCanAdd ? SCOPES_HINT : addToKeyHint(scopes))
 }
 
-export function toHogError(error: ApiToolError, tool?: string, loginCanAdd = false): HogError {
+export function toHogError(error: ApiToolError, tool?: string, credentials?: Credentials): HogError {
     switch (error.code) {
         case 'permission_denied':
             return error.missingScope && tool
-                ? missingScopesError(tool, [error.missingScope], loginCanAdd)
+                ? missingScopesError(tool, [error.missingScope], credentials)
                 : new ApiError(403, undefined, 'permission_denied', error.message, SCOPES_HINT)
         case 'validation_error':
         case 'invalid_input':

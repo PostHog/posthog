@@ -14,8 +14,13 @@ export function fewestScopes(scopes: readonly string[]): string[] {
     return scopes.filter((scope) => !(scope.endsWith(':read') && scopes.includes(scope.replace(/:read$/, ':write'))))
 }
 
-export function stepUpCommand(scopes: readonly string[]): string {
-    return `hog auth add ${scopes.join(' ')}`
+// The command names the host, because `--host` or posthog.json can pick a login that isn't the
+// default. Only a host made of URL characters goes in, so the command stays safe to run.
+const SHELL_SAFE_HOST = /^https?:\/\/[\w.:-]+(\/[\w./-]*)?$/
+
+export function stepUpCommand(scopes: readonly string[], host?: string): string {
+    const hostFlag = host !== undefined && SHELL_SAFE_HOST.test(host) ? ` --host ${host}` : ''
+    return `hog auth add${hostFlag} ${scopes.join(' ')}`
 }
 
 // A personal API key, or any key from the environment, keeps the scopes it has.

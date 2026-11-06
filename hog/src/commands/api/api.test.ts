@@ -256,7 +256,7 @@ describe('hog api', () => {
             {
                 code: 'step_up_required',
                 scopes: ['insight:write', 'query:read'],
-                command: 'hog auth add insight:write query:read',
+                command: 'hog auth add --host https://eu.posthog.com insight:write query:read',
             },
             0,
         ],

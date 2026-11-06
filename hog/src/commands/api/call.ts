@@ -5,7 +5,6 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 import { parseJson } from '@/core/json'
 import { findTool, grantedScopes, missingScopesError, toHogError, withApiConnection } from '@/posthog/api-tools'
 import { parseOrganizationId, parseProjectId } from '@/posthog/ids'
-import { canStepUp } from '@/posthog/scope-challenge'
 
 const ToolInput = z.record(z.string(), z.unknown(), { error: 'The input must be a JSON object.' })
 
@@ -83,13 +82,13 @@ export default defineCommand({
         if (result.error.code !== 'permission_denied') {
             throw toHogError(result.error, tool.name)
         }
-        const loginCanAdd = canStepUp(await ctx.credentials())
+        const credentials = await ctx.credentials()
         // PostHog names one missing scope per refusal, so look up the key to name all of them.
         const granted = await grantedScopes(ctx, library)
         const missing = granted ? library.missingScopes(granted, tool.requiredScopes) : []
         throw missing.length > 0
-            ? missingScopesError(tool.name, missing, loginCanAdd)
-            : toHogError(result.error, tool.name, loginCanAdd)
+            ? missingScopesError(tool.name, missing, credentials)
+            : toHogError(result.error, tool.name, credentials)
     },
 
     telemetry: ({ args, options }) => ({ tool: args.tool, confirm: options.confirm === true }),

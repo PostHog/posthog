@@ -47,8 +47,13 @@ export async function promptStepUp(ctx: Context, scopes: readonly string[]): Pro
     if (!prompts || !canStepUp(await ctx.credentials())) {
         return false
     }
-    const question = `This needs ${scopes.join(', ')}, which your login doesn't have. Add these scopes now?`
-    if (!(await prompts.confirm(question, { initialValue: true })) || (await stepUp(ctx, scopes)).status !== 'added') {
+    // An earlier step-up in this command can have added them already.
+    const missing = (await loginScopes(ctx, await ctx.credentials(), scopes))?.missing ?? []
+    if (missing.length === 0) {
+        return true
+    }
+    const question = `This needs ${missing.join(', ')}, which your login doesn't have. Add these scopes now?`
+    if (!(await prompts.confirm(question, { initialValue: true })) || (await stepUp(ctx, missing)).status !== 'added') {
         return false
     }
     await (await ctx.session()).reload()
@@ -102,11 +107,17 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
 // Only a login knows its scopes without asking PostHog, so a personal API key meets the 403 instead.
 export async function ensureScopes(ctx: Context, scopes: readonly string[], action = 'for this'): Promise<void> {
     const credentials = await ctx.credentials().catch(() => undefined)
-    const missing = (await loginScopes(ctx, credentials, scopes))?.missing ?? []
-    if (missing.length === 0 || !missing.every(isScopeName)) {
+    let login = await loginScopes(ctx, credentials, scopes)
+    if (!login?.missing.length || !login.missing.every(isScopeName)) {
         return
     }
-    if (!(await ctx.stepUp(missing))) {
-        throw stepUpRequired(missing, `Your login needs ${missing.join(', ')} ${action}.`)
+    // The person can untick scopes the login already had, so the whole set is checked again after.
+    if (await ctx.stepUp(login.missing)) {
+        login = await loginScopes(ctx, credentials, scopes)
+        if (!login?.missing.length) {
+            return
+        }
     }
+    const { missing, key } = login
+    throw stepUpRequired(missing, { host: key.host, message: `Your login needs ${missing.join(', ')} ${action}.` })
 }

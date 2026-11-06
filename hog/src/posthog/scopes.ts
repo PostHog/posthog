@@ -16,13 +16,18 @@ export function parseScope(raw: string): Scope {
     if (parsed.success) {
         return parsed.data
     }
-    throw new HogError(
-        'unknown_scope',
-        `PostHog has no scope named "${raw}".`,
-        ScopeSchema.safeParse(`${raw}:read`).success
-            ? `Add the access level, as in \`hog auth add ${raw}:write\`.`
-            : 'A scope is an object and an access level, such as insight:read or insight:write.'
-    )
+    if (ScopeSchema.safeParse(`${raw}:read`).success) {
+        throw new HogError(
+            'unknown_scope',
+            `"${raw}" has no access level.`,
+            `Add one, as in \`hog auth add ${raw}:write\`.`
+        )
+    }
+    // A newer PostHog can ask for a scope this hog build doesn't list yet.
+    const hint = /^[a-z][a-z0-9_]*:(read|write)$/.test(raw)
+        ? 'Check the name. If PostHog asked for it, update hog to a version that knows it.'
+        : 'A scope is an object and an access level, such as insight:read or insight:write.'
+    throw new HogError('unknown_scope', `hog doesn't know the scope "${raw}".`, hint)
 }
 
 // Checked like `hasScope` in services/mcp/src/lib/api.ts (`*`, write grants read, legacy scopes),

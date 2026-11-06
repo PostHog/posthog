@@ -92,10 +92,10 @@ export type StepUp = (scopes: readonly string[]) => Promise<boolean>
 // A 403, so callers that treat a missing scope as a missing detail keep working.
 export function stepUpRequired(
     scopes: readonly string[],
-    message = `Your login needs ${scopes.join(', ')} for this.`
+    { host, message = `Your login needs ${scopes.join(', ')} for this.` }: { host?: string; message?: string } = {}
 ): ApiError {
     const named = scopes.filter(isScopeName)
-    const command = stepUpCommand(named)
+    const command = stepUpCommand(named, host)
     return new ApiError(
         403,
         undefined,
@@ -170,7 +170,7 @@ export class PostHogApi {
             missing = await this.missingScopes(response)
         }
         if (missing) {
-            throw stepUpRequired(missing)
+            throw stepUpRequired(missing, { host: this.session.current.host })
         }
         if (response.text && response.json === undefined) {
             throw new HogError(

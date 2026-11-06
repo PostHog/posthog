@@ -116,7 +116,7 @@ async function withScopeHint(error: unknown, scopes: readonly string[] | undefin
     const missing = scopesNotCovered(credentials?.key.status().scopes ?? [], scopes)
     return error.withHint(
         missing.length > 0
-            ? `Run \`${stepUpCommand(missing)}\` to add the scopes to your login, and check that you can access this project.`
+            ? `Run \`${stepUpCommand(missing, credentials?.key.host)}\` to add the scopes to your login, and check that you can access this project.`
             : 'Check that you can access this project.'
     )
 }

@@ -57,14 +57,17 @@ export class Context {
         await ensureScopes(this, scopes, action)
     }
 
-    // Requests sent at once can all hit a missing scope, and they share one prompt.
+    // Requests sent at once can each hit a missing scope. They step up one at a time, and each one
+    // checks its own scopes again once the step-up before it finishes.
     stepUp(scopes: readonly string[]): Promise<boolean> {
-        this.stepUpRunning ??= import('@/posthog/login/step-up')
-            .then(({ promptStepUp }) => promptStepUp(this, scopes))
-            .finally(() => {
-                this.stepUpRunning = undefined
+        const run = (this.stepUpRunning ?? Promise.resolve(false))
+            .catch(() => false)
+            .then(async () => {
+                const { promptStepUp } = await import('@/posthog/login/step-up')
+                return promptStepUp(this, scopes)
             })
-        return this.stepUpRunning
+        this.stepUpRunning = run
+        return run
     }
 
     // The nearest posthog.json, or undefined when there is none. Throws `invalid_config` when it
