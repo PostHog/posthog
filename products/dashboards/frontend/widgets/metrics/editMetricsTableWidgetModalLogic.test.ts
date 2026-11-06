@@ -2,7 +2,10 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { editMetricsTableWidgetModalLogic } from './editMetricsTableWidgetModalLogic'
+import {
+    editMetricsTableWidgetModalLogic,
+    metricsTableAggregationDisabledReason,
+} from './editMetricsTableWidgetModalLogic'
 
 const REQUESTS = { label: 'Requests/s', metricName: 'http_requests_total', aggregation: 'rate' as const }
 const LATENCY = {
@@ -84,5 +87,66 @@ describe('editMetricsTableWidgetModalLogic', () => {
 
         expect(logic.values.columns).toEqual([REQUESTS])
         expect(logic.values.orderByColumn).toEqual(0)
+    })
+
+    it('switches a column to a percentile when the user picks a histogram metric', () => {
+        const { logic } = mountLogic({ groupBy: 'http.route' })
+
+        logic.actions.addColumn()
+        logic.actions.selectColumnMetric(0, 'http_request_duration_seconds', 'histogram')
+
+        expect(logic.values.columns[0]).toEqual({
+            label: 'Value',
+            metricName: 'http_request_duration_seconds',
+            aggregation: 'histogram_quantile',
+            quantile: 0.95,
+        })
+        expect(logic.values.columnMetricTypes).toEqual(['histogram'])
+    })
+
+    it.each([
+        ['sum', 'rate'],
+        ['gauge', 'avg'],
+    ])('switches a percentile column to a fitting calculation when the user picks a %s metric', (type, expected) => {
+        const { logic } = mountLogic({ groupBy: 'http.route', columns: [LATENCY] })
+
+        logic.actions.selectColumnMetric(0, 'other_metric', type)
+
+        expect(logic.values.columns[0]).toEqual({ label: 'p95', metricName: 'other_metric', aggregation: expected })
+    })
+
+    it('keeps the calculation when the picked metric has no known type', () => {
+        const { logic } = mountLogic({ groupBy: 'http.route', columns: [LATENCY] })
+
+        logic.actions.selectColumnMetric(0, 'metric_from_last_week')
+
+        expect(logic.values.columns[0]).toEqual({ ...LATENCY, metricName: 'metric_from_last_week' })
+        expect(logic.values.columnMetricTypes).toEqual([null])
+    })
+
+    it('keeps each metric type with its column when a column is removed', () => {
+        const { logic } = mountLogic({ groupBy: 'http.route', columns: [REQUESTS, LATENCY] })
+
+        expect(logic.values.columnMetricTypes).toEqual([null, null])
+        logic.actions.selectColumnMetric(0, REQUESTS.metricName, 'sum')
+        logic.actions.selectColumnMetric(1, LATENCY.metricName, 'histogram')
+        logic.actions.removeColumn(0)
+        logic.actions.addColumn()
+
+        expect(logic.values.columnMetricTypes).toEqual(['histogram', null])
+    })
+
+    it.each([
+        ['histogram', 'avg', true],
+        ['histogram', 'rate', true],
+        ['histogram', 'histogram_quantile', false],
+        ['sum', 'histogram_quantile', true],
+        ['gauge', 'histogram_quantile', true],
+        ['sum', 'rate', false],
+        ['gauge', 'avg', false],
+        [null, 'avg', false],
+        [null, 'histogram_quantile', false],
+    ] as const)('for a %s metric, the %s calculation is disabled: %s', (type, aggregation, disabled) => {
+        expect(Boolean(metricsTableAggregationDisabledReason(type, aggregation))).toBe(disabled)
     })
 })

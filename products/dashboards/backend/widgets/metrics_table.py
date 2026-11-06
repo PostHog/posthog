@@ -17,6 +17,7 @@ from products.dashboards.backend.feature_flags import widget_flag_enabled
 from products.dashboards.backend.widget_specs.configs import METRICS_TABLE_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.metrics.backend.facade.api import (
+    MAX_SERIES_PER_CLAUSE,
     metric_query_concurrency_slots,
     pick_metric_query_interval,
     run_metric_query,
@@ -74,6 +75,33 @@ def _sparkline(series: MetricSeries) -> list[float | None]:
         _mean([value for value in values[start : start + size] if value is not None])
         for start in range(0, len(values), size)
     ]
+
+
+def _fill_counter_zeros(
+    rows: list[dict[str, Any]], columns: list[dict[str, Any]], present: set[tuple[str, int]], series_counts: list[int]
+) -> None:
+    # A counter series for a label set starts with its first event, so a counter column has no series for a row
+    # that counted nothing. When another column shows that the row reports the same metric, the count is 0.
+    # A column that matched no row may filter on a wrong label, and a column at the series cap may have dropped
+    # the row, so both stay empty.
+    for index, column in enumerate(columns):
+        if column["aggregation"] not in _COUNTER_FUNCTIONS or not 0 < series_counts[index] < MAX_SERIES_PER_CLAUSE:
+            continue
+        siblings = [
+            other
+            for other, candidate in enumerate(columns)
+            if other != index and candidate["metricName"] == column["metricName"]
+        ]
+        for row in rows:
+            if (row["key"], index) in present:
+                continue
+            sibling_lines = [row["sparklines"][other] for other in siblings if (row["key"], other) in present]
+            if not sibling_lines:
+                continue
+            row["values"][index] = 0.0
+            row["sparklines"][index] = [
+                None if all(value is None for value in points) else 0.0 for points in zip(*sibling_lines)
+            ]
 
 
 def _order_rows(rows: list[dict[str, Any]], column: int, descending: bool) -> list[dict[str, Any]]:
@@ -146,12 +174,16 @@ def run_metrics_table_widget(
 
     rows_by_key: dict[str, dict[str, Any]] = {}
     units: list[str | None] = [None] * len(columns)
+    present: set[tuple[str, int]] = set()
+    series_counts = [0] * len(columns)
     for item in series:
         key = item.labels.get(group_by)
         if key is None or item.clause is None:
             continue
         index = int(item.clause.removeprefix("c"))
         units[index] = units[index] or item.unit
+        present.add((key, index))
+        series_counts[index] += 1
         row = rows_by_key.setdefault(
             key, {"key": key, "values": [None] * len(columns), "sparklines": [[] for _ in columns]}
         )
@@ -160,6 +192,7 @@ def run_metrics_table_widget(
         # the bucket size. Every other calculation is a level per bucket, so its mean does not either.
         row["values"][index] = _sum(values) if columns[index]["aggregation"] == "increase" else _mean(values)
         row["sparklines"][index] = _sparkline(item)
+    _fill_counter_zeros(list(rows_by_key.values()), columns, present, series_counts)
 
     ordered = _order_rows(
         list(rows_by_key.values()), typed_config["orderByColumn"], typed_config["orderDirection"] == "DESC"
