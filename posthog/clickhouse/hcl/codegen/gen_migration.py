@@ -53,7 +53,20 @@ HCLEXP = os.path.join(HCL_DIR, "bin", "hclexp")
 # Canonical role order for emitted node_roles (mirrors ALL_ROLES in migration 0273).
 # Only roles present in the manifest appear; the rest are listed for stable ordering
 # if/when they are uncommented there.
-ROLE_ORDER = ["data", "endpoints", "aux", "ai_events", "sessions", "logs", "ops", "events", "small", "medium"]
+ROLE_ORDER = [
+    "data",
+    "endpoints",
+    "aux",
+    "ai_events",
+    "sessions",
+    "logs",
+    "metrics",
+    "ops",
+    "events",
+    "small",
+    "medium",
+    "ingestion_metrics",
+]
 
 # Manifest roles are named after the hostClusterRole macro, which is the NodeRole *value*.
 # For most roles the member name is that value uppercased; the ingestion members are not.

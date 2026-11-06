@@ -90,6 +90,8 @@ class NodeRole(StrEnum):
     AI_EVENTS = "ai_events"
     AUX = "aux"
     BATCH_EXPORTS = "batch_exports"
+    INGESTION_METRICS = "ingestion_metrics"
+    METRICS = "metrics"
     OPS = "ops"
     SESSIONS = "sessions"
 
@@ -104,13 +106,14 @@ DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
         NodeRole.AUX,
         NodeRole.BATCH_EXPORTS,
         NodeRole.LOGS,
+        NodeRole.METRICS,
         NodeRole.OPS,
         NodeRole.SESSIONS,
     }
 )
 # Single-shard data clusters: ALTER runs on one host, replication propagates.
 SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.BATCH_EXPORTS, NodeRole.OPS, NodeRole.SESSIONS}
+    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.BATCH_EXPORTS, NodeRole.METRICS, NodeRole.OPS, NodeRole.SESSIONS}
 )
 
 

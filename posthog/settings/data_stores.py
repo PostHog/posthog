@@ -384,6 +384,7 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
+CLICKHOUSE_METRICS_CLUSTER: str = os.getenv("CLICKHOUSE_METRICS_CLUSTER", "metrics")
 CLICKHOUSE_LOGS_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER", "posthog_single_shard")
 # The name the logs cluster answers to from the ingestion-events nodes, which host the logs Kafka
 # table and the Distributed front that writes into it. Cloud names it the same from both sides, so it

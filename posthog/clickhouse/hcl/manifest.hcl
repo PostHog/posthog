@@ -52,6 +52,22 @@ role "apm" {
   env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest", "roles/apm/shared"] }
 }
 
+# Dedicated metrics storage, split off the logs cluster. Holds the metrics4 tables, which the
+# logs role keeps composing until reads cut over, so one declaration reaches both clusters.
+role "metrics" {
+  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/metrics/shared", "roles/metrics/dev"] }
+  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/metrics/shared"] }
+  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/metrics/shared"] }
+}
+
+# The ingestion-metrics nodes run the same metrics4 ingest chain as apm, patched to write to the
+# metrics cluster under their own consumer group. Both chains run while the topic is dual-written.
+role "ingestion_metrics" {
+  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared", "roles/ingestion_metrics/shared", "roles/ingestion_metrics/dev"] }
+  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared", "roles/ingestion_metrics/shared"] }
+  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared", "roles/ingestion_metrics/shared"] }
+}
+
 # AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant
 # (kafka_ai_events_json + ai_events_json_mv) with a sharded_ai_events data table
 # + distributed ai_events reader; US/EU run the WarpStream variant
@@ -174,6 +190,8 @@ role "all" {
 cluster "ops" { roles = ["ops"] }
 
 cluster "logs" { roles = ["logs"] }
+
+cluster "metrics" { roles = ["metrics"] }
 
 cluster "aux" { roles = ["aux"] }
 
