@@ -1,9 +1,4 @@
-"""Read the check attestations that the repository's policy trusts, for the poll that wakes a WAIT.
-
-An attestation is a CI check that lifts named deny categories for the files it lists (the engine's
-``attestations.py`` holds the model). The engine reads it from the head commit's check runs, and
-this module answers the one question the server asks between reviews: has it reported yet?
-"""
+"""Whether the check attestations a WAIT waits on have reported, for the poll that wakes it."""
 
 import yaml
 

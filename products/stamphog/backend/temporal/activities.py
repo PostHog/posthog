@@ -1723,9 +1723,7 @@ def rereview_after_external_review_finished(input: StamphogReviewInput) -> dict:
 def poll_pending_attestations(input: StamphogReviewInput) -> dict:
     """Whether the workflow can stop polling for the attestations that this run's WAIT waits on.
 
-    Polling stops when this run is no longer the PR's latest, when the PR closed or moved its head,
-    and when every pending attestation has reported. In the last case it queues the re-review. A
-    dispatch error raises, so Temporal retries it, because a lost dispatch leaves the PR at WAIT
+    A dispatch error raises, so Temporal retries it, because a lost dispatch leaves the PR at WAIT
     until the next push. The rules come from the default-branch policy that the run read, never
     from the sandbox's report, which only names the attestations that are pending.
     """
