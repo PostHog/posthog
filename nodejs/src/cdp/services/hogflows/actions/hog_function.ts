@@ -1,15 +1,7 @@
 import { DateTime, Duration } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
-import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
-
-import { HogFlowAction } from '~/cdp/schema/hogflow'
-import {
-    buildWorkflowStepDispatchKey,
-    workflowStepDispatchKeyFromInvocation,
-} from '~/cdp/utils/workflow-step-dispatch-key'
-import { capWorkflowStepResult } from '~/cdp/utils/workflow-step-result'
-
+import { HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
@@ -17,7 +9,15 @@ import {
     HogFlowInvocationContext,
     MessageOptOutRecord,
     MinimalLogEntry,
-} from '../../../types'
+} from '@posthog/hog-engine/cdp/types'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+
+import {
+    buildWorkflowStepDispatchKey,
+    workflowStepDispatchKeyFromInvocation,
+} from '~/cdp/utils/workflow-step-dispatch-key'
+import { capWorkflowStepResult } from '~/cdp/utils/workflow-step-result'
+
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 import { EmailSkipReason, EmailStatusService } from '../../messaging/email-status.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'

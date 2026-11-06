@@ -5,6 +5,7 @@
 // all produce "row queued but never lands".
 import { KafkaProducerObserver } from '@posthog/node-common/testing/mocks/producer.spy'
 
+import { createHogTransformerService } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
 import {
     KAFKA_CLICKHOUSE_FLAG_EVALUATIONS,
     KAFKA_REALTIME_ONLY_EVENTS_JSON,
@@ -16,7 +17,6 @@ import { fetchPostgresPersons } from '@posthog/node-common/testing/sql'
 import { parseRawClickHouseEvent } from '@posthog/node-common/utils/event'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
-import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { createFlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
 import { getDefaultIngestionConsumerConfig, getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'

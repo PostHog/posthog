@@ -1,6 +1,5 @@
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
-
-import { compileHog } from '~/cdp/templates/compiler'
 
 import type { LogRecord } from '../log-record-avro'
 import {

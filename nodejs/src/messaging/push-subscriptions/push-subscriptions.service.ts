@@ -1,10 +1,12 @@
 import { createHmac } from 'crypto'
 import { LRUCache } from 'lru-cache'
 
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
+import {
+    DEVICE_SUBSCRIPTION_PREFIX,
+    deviceSubscriptionKey,
+} from '@posthog/hog-engine/cdp/utils/push-subscription-utils'
 import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
-
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
-import { DEVICE_SUBSCRIPTION_PREFIX, deviceSubscriptionKey } from '~/cdp/utils/push-subscription-utils'
 
 import { verifyPushIdentityToken } from './identity-token'
 import { ProjectTokenLookup } from './project-token-lookup'

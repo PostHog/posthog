@@ -8,6 +8,7 @@ import {
     KAFKA_LOGS_CLICKHOUSE,
     KAFKA_LOGS_INGESTION_DLQ,
 } from '@posthog/node-common/config/kafka-topics'
+import { INTERNAL_LOGS_HEADER, signInternalLogs } from '@posthog/node-common/logs/internal-logs'
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
@@ -19,7 +20,6 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub, Team } from '~/types'
 
 import { getDefaultTracesIngestionConsumerConfig } from '../config'
-import { INTERNAL_LOGS_HEADER, signInternalLogs } from '../internal-logs'
 import { LogRecord, encodeLogRecords } from '../log-record-avro'
 import { DEFAULT_LOGS_RETENTION_DAYS, LogsIngestionConsumer, logMessageDlqCounter } from '../logs-ingestion-consumer'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from '../outputs/outputs'

@@ -1,7 +1,8 @@
+import { HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow } from '@posthog/hog-engine/cdp/types'
+
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
-import { HogFlowAction } from '~/cdp/schema/hogflow'
-import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 
 import { findActionById, findActionByType } from '../hogflow-utils'
 import { getRandomCohort } from './random_cohort_branch'

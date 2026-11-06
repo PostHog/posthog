@@ -1,9 +1,10 @@
 import { randomUUID } from 'crypto'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFunction, HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
 import { delay } from '@posthog/node-common/utils/utils'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub } from '~/types'
 
@@ -11,7 +12,6 @@ import { HOG_FLOW_MASK_EXAMPLES, HOG_MASK_EXAMPLES } from '../../_tests/examples
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { createCdpValkeyShadowPools } from '../../cdp-services'
-import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../types'
 import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')

@@ -1,4 +1,4 @@
-import { LogEntryLevel } from '../../types'
+import { LogEntryLevel } from '@posthog/hog-engine/cdp/types'
 
 export type PushPlatform = 'fcm' | 'apns'
 

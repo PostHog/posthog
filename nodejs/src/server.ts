@@ -1,3 +1,6 @@
+import { CdpProducerName } from '@posthog/hog-engine/cdp/outputs/producers'
+import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { initializePrometheusLabels } from '@posthog/node-common/api/router'
 import {
     createIngestionRedisConnectionConfig,
@@ -21,7 +24,6 @@ import { logger } from '@posthog/node-common/utils/logger'
 import { PubSub } from '@posthog/node-common/utils/pubsub'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
-import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { defaultConfig } from '~/common/config/config'
 
 import { startEvaluationScheduler } from './ai-observability/evaluation-scheduler/evaluation-scheduler'
@@ -43,7 +45,6 @@ import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consum
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
-import { CdpProducerName } from './cdp/outputs/producers'
 import { createCdpOutputsRegistry } from './cdp/outputs/registry'
 import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from './cdp/services/cyclotron-v2'
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
@@ -58,7 +59,6 @@ import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-co
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
-import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 

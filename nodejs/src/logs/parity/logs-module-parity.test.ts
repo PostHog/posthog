@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
+import { InternalLogsVerifier, signInternalLogs } from '@posthog/node-common/logs/internal-logs'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { decodeLogAttributeValue, encodeLogAttributeValue } from '../attribute-value'
-import { InternalLogsVerifier, signInternalLogs } from '../internal-logs'
 import { parseLogBodyForIngestion } from '../log-body-parse'
 import { MESSAGE_KEYS, buildLogPattern } from '../log-pattern-mask'
 import { scrubPlainStringWithStats } from '../log-pii-scrub'

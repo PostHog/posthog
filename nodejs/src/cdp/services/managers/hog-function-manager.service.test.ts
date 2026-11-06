@@ -1,16 +1,16 @@
 import { DateTime } from 'luxon'
 
+import { HogFunctionManagerService } from '@posthog/hog-engine/cdp/services/managers/hog-function-manager.service'
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import { forSnapshot } from '@posthog/node-common/testing/snapshots'
 import { createTeam, createTestTeamFixture } from '@posthog/node-common/testing/sql'
 import { INVALID_TEAM_ID_KEYS } from '@posthog/node-common/testing/team'
 import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 
-import { HogFunctionType } from '~/cdp/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub } from '~/types'
 
 import { insertHogFunction } from '../../_tests/fixtures'
-import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
     jest.setTimeout(2000)

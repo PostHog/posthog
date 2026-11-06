@@ -1,13 +1,16 @@
 import { DateTime } from 'luxon'
 import { Counter, Summary } from 'prom-client'
 
+import { HogFlow, HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import {
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+    HogFunctionFilterGlobals,
+} from '@posthog/hog-engine/cdp/types'
+import { execHog } from '@posthog/hog-engine/cdp/utils/hog-exec'
+import { filterFunctionInstrumented } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
 import { logger } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
-
-import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
-import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, HogFunctionFilterGlobals } from '~/cdp/types'
-import { execHog } from '~/cdp/utils/hog-exec'
-import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
 // The run's position (or the edge it needs next) no longer exists in the flow's graph - the
 // workflow was edited underneath an in-flight run. This is a user action, not a defect: the

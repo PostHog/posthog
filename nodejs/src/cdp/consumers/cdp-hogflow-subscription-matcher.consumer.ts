@@ -2,6 +2,20 @@ import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import { CdpInternalEventSchema } from '@posthog/hog-engine/cdp/schema'
+import { HogFlow, HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import {
+    CyclotronPerson,
+    HogFlowInvocationContext,
+    HogFunctionInvocationGlobals,
+    PinnedConversionGoal,
+} from '@posthog/hog-engine/cdp/types'
+import {
+    convertInternalEventToHogFunctionInvocationGlobals,
+    convertToHogFunctionInvocationGlobals,
+    getPersonDisplayName,
+} from '@posthog/hog-engine/cdp/utils'
+import { convertToHogFunctionFilterGlobal } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
 import {
     KAFKA_CDP_INTERNAL_EVENTS,
     KAFKA_COHORT_MEMBERSHIP_CHANGED,
@@ -17,7 +31,6 @@ import { captureException } from '@posthog/node-common/utils/posthog'
 import { isValidTeamId } from '@posthog/node-common/utils/team-manager'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import {
     StepResume,
     WorkflowStepResumeSchema,
@@ -34,20 +47,12 @@ import {
     RawClickHouseEvent,
     Team,
 } from '../../types'
-import { CdpInternalEventSchema } from '../schema'
 import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
 import {
     hasEventOrActionTarget,
     matchesWaitUntilCondition,
     runFilterBytecode,
 } from '../services/hogflows/hogflow-utils'
-import { CyclotronPerson, HogFlowInvocationContext, HogFunctionInvocationGlobals, PinnedConversionGoal } from '../types'
-import {
-    convertInternalEventToHogFunctionInvocationGlobals,
-    convertToHogFunctionInvocationGlobals,
-    getPersonDisplayName,
-} from '../utils'
-import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { convertCohortMembershipChangeToGlobals } from './cdp-cohort-membership-trigger.consumer'
 import { CohortMembershipChangeSchema } from './cdp-cohort-membership.consumer'

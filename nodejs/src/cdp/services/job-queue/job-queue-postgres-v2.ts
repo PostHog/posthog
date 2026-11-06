@@ -1,13 +1,17 @@
 import { chunk } from 'lodash'
 import { Gauge, Histogram } from 'prom-client'
 
+import { CdpConfig } from '@posthog/hog-engine/cdp/config'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationResult,
+    CyclotronJobQueueKind,
+} from '@posthog/hog-engine/cdp/types'
 import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
-import { CdpConfig } from '../../config'
-import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
 import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { JobQueue } from './job-queue.interface'

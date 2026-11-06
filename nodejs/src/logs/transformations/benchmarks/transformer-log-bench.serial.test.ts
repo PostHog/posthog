@@ -1,5 +1,5 @@
 // Serial: concurrent workers invalidate this CPU-performance threshold.
-import { compileHog } from '~/cdp/templates/compiler'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
 
 import type { LogRecord } from '../../log-record-avro'
 import { buildLogRecordGlobals, executeLogTransformation } from '../hog-log-exec'

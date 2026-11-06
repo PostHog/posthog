@@ -1,5 +1,3 @@
-import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
-
 import {
     WAREHOUSE_PRODUCER,
     WAREHOUSE_PRODUCER_CONFIG_MAP,
@@ -7,7 +5,8 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER_CONFIG_MAP,
     WARPSTREAM_INGESTION_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER_CONFIG_MAP,
-} from './producers'
+} from '@posthog/hog-engine/cdp/outputs/producers'
+import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
 
 /**
  * Producers used by the CDP deployments.

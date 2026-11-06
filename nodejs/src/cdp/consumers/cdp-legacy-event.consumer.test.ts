@@ -5,6 +5,9 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
+import { DESTINATION_PLUGINS_BY_ID } from '@posthog/hog-engine/cdp/legacy-plugins/index'
+import { LegacyPluginExecutorService } from '@posthog/hog-engine/cdp/services/legacy-plugin-executor.service'
+import { HogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/types'
 import { forSnapshot } from '@posthog/node-common/testing/snapshots'
 import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 import { INVALID_TEAM_ID_KEYS } from '@posthog/node-common/testing/team'
@@ -20,9 +23,6 @@ import {
     createKafkaMessage,
     insertHogFunction,
 } from '../_tests/fixtures'
-import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
-import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import { HogFunctionInvocationGlobals } from '../types'
 import { CdpLegacyEventsConsumer, LightweightPluginConfig } from './cdp-legacy-event.consumer'
 
 jest.setTimeout(5000)

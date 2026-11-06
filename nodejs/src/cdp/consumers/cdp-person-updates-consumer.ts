@@ -1,5 +1,12 @@
 import { Message } from 'node-rdkafka'
 
+import {
+    CyclotronJobInvocation,
+    CyclotronPerson,
+    HogFunctionInvocationGlobals,
+    HogFunctionTypeType,
+} from '@posthog/hog-engine/cdp/types'
+import { getPersonDisplayName } from '@posthog/hog-engine/cdp/utils'
 import { KAFKA_PERSON } from '@posthog/node-common/config/kafka-topics'
 import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import { instrumentFn, instrumented } from '@posthog/node-common/tracing/tracing-utils'
@@ -11,8 +18,6 @@ import { UUIDT } from '@posthog/node-common/utils/utils'
 import { ClickHousePerson, HealthCheckResult, PluginsServerConfig, Team } from '../../types'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { CyclotronJobInvocation, CyclotronPerson, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
-import { getPersonDisplayName } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { parseBatch } from './message-parsing'
 

@@ -1,8 +1,8 @@
 import jwt from 'jsonwebtoken'
 
+import { CyclotronInvocationQueueParametersFetchType } from '@posthog/hog-engine/cdp/schema/cyclotron'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
-import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
 import { isNonFailureStatus } from '~/cdp/utils/non-failure-status-codes'
 
 import { TemplateTester } from '../../test/test-helpers'

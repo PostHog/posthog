@@ -1,15 +1,19 @@
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 
+import { HogInputsService } from '@posthog/hog-engine/cdp/services/hog-inputs.service'
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
+import { MAX_LOG_LENGTH } from '@posthog/hog-engine/cdp/utils'
+import { currentRuntimeContractHash } from '@posthog/hog-engine/cdp/utils/filter-runtime'
+import {
+    buildHogFunctionInvocations,
+    cloneInvocation,
+    createInvocation,
+} from '@posthog/hog-engine/cdp/utils/invocation-utils'
 import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
 
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { HogInputsService } from '../services/hog-inputs.service'
-import { HogFunctionType } from '../types'
-import { MAX_LOG_LENGTH } from '../utils'
-import { currentRuntimeContractHash } from './filter-runtime'
-import { buildHogFunctionInvocations, cloneInvocation, createInvocation } from './invocation-utils'
 
 describe('Invocation utils', () => {
     describe('buildHogFunctionInvocations', () => {

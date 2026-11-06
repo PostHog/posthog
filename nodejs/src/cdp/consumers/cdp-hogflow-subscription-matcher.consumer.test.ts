@@ -1,5 +1,8 @@
 import '@posthog/node-common/testing/mocks/consumer.mock'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/types'
+import * as hogExec from '@posthog/hog-engine/cdp/utils/hog-exec'
 import { KAFKA_CDP_INTERNAL_EVENTS, KAFKA_EVENTS_JSON } from '@posthog/node-common/config/kafka-topics'
 import { createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
@@ -7,10 +10,6 @@ import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
 import * as posthogUtils from '@posthog/node-common/utils/posthog'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
-
-import { HogFunctionInvocationGlobals } from '../types'
-import * as hogExec from '../utils/hog-exec'
 import {
     CdpHogflowSubscriptionMatcherConsumer,
     counterHogflowMatcherEventSkipped,

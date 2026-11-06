@@ -1,19 +1,23 @@
 import { Message } from 'node-rdkafka'
 
+import {
+    CyclotronJobInvocation,
+    HogFunctionInvocationGlobals,
+    HogFunctionTypeType,
+} from '@posthog/hog-engine/cdp/types'
+import { convertToHogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/utils'
 import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import { instrumentFn, instrumented } from '@posthog/node-common/tracing/tracing-utils'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 
-import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent, Team } from '../../types'
 import { CDP_EVENTS_DLQ_OUTPUT } from '../outputs/outputs'
 import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.service'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { EventNameGate, buildEventNameGate, runsOnEvents, triggersOnEvents } from './event-name-gate'
 import { parseBatch, readEventNameHeader, readTeamIdHeader } from './message-parsing'

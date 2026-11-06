@@ -1,11 +1,15 @@
 import { Counter } from 'prom-client'
 import { setTimeout as delay } from 'timers/promises'
 
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+} from '@posthog/hog-engine/cdp/types'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { logger } from '@posthog/node-common/utils/logger'
 
 import { EMAIL_STATUS_OUTPUT, EmailStatusOutput } from '../../outputs/outputs'
-import { CyclotronJobInvocation, CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { classifyError } from '../monitoring/hog-invocation-results.service'
 

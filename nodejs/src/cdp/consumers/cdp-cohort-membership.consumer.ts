@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
+import type { CdpConfig } from '@posthog/hog-engine/cdp/config'
 import {
     KAFKA_COHORT_MEMBERSHIP_CHANGED,
     KAFKA_COHORT_RECONCILE_MARKERS,
@@ -14,7 +15,6 @@ import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
 
 import { HealthCheckResult } from '../../types'
-import type { CdpConfig } from '../config'
 import {
     CohortMembershipSweeper,
     MembershipWatermarks,

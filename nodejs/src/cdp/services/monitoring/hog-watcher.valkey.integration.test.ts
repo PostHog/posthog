@@ -1,13 +1,13 @@
 import Redis from 'ioredis'
 
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
+import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
 import { defineLuaTokenBucketV2 } from '@posthog/node-common/redis/redis-token-bucket-v2.lua'
 import { defineLuaTokenBucketV3 } from '@posthog/node-common/redis/redis-token-bucket-v3.lua'
 import { RedisClient, RedisClientPipeline, RedisV2 } from '@posthog/node-common/redis/redis-v2'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
 import { createExampleInvocation } from '../../_tests/fixtures'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'
-import { createInvocationResult } from '../../utils/invocation-utils'
 import { BASE_REDIS_KEY, HogWatcherConfig, HogWatcherService } from './hog-watcher.service'
 
 const host = process.env.CDP_VALKEY_HOST ?? '127.0.0.1'

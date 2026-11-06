@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { cdpTrackedFetch } from '@posthog/hog-engine/cdp/utils/cdp-fetch'
 import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { mutatePostIngestionEventWithElementsList } from '@posthog/node-common/utils/event'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
@@ -12,7 +13,6 @@ import { Action, Hook, HookPayload, PostIngestionEvent, RawClickHouseEvent, RawK
 import { assertTeamId, skipIfMalformed } from '../consumers/message-parsing'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
-import { cdpTrackedFetch } from '../utils/cdp-fetch'
 
 export class LegacyWebhookService {
     protected actionManager: ActionManager

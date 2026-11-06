@@ -2,6 +2,9 @@ import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/types'
+import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/utils'
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '@posthog/node-common/config/kafka-topics'
 import { KafkaConsumerInterface, START_AT_LATEST, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import { instrumentFn, instrumented } from '@posthog/node-common/tracing/tracing-utils'
@@ -10,7 +13,6 @@ import { logger } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
-import { HogFlow } from '../schema/hogflow'
 import { PRODUCER_VERSION_FORMAT } from '../services/cohort-membership/sweeper.service'
 import {
     COHORT_MEMBERSHIP_CHANGED_EVENT,
@@ -18,8 +20,6 @@ import {
 } from '../services/cohorts/cohort-membership-repository'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
-import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CohortMembershipChange, CohortMembershipChangeSchema } from './cdp-cohort-membership.consumer'
 import { assertTeamId, skipIfMalformed } from './message-parsing'

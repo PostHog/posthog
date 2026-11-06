@@ -2,6 +2,12 @@ import { promisify } from 'node:util'
 import { gunzip, gzip } from 'node:zlib'
 import { Counter, Gauge } from 'prom-client'
 
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+} from '@posthog/hog-engine/cdp/types'
 import { HOG_INVOCATION_RESULTS_OUTPUT, HogInvocationResultsOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { safeClickhouseString } from '@posthog/node-common/utils/db/utils'
@@ -11,12 +17,6 @@ import { captureException } from '@posthog/node-common/utils/posthog'
 
 import type { CdpOutput } from '../../cdp-services'
 import { RerunFilter, RerunFunctionKind, rerunWrapperKindFor } from '../../rerun/rerun-job.types'
-import {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFlow,
-    CyclotronJobInvocationHogFunction,
-    CyclotronJobInvocationResult,
-} from '../../types'
 import { TRANSACTIONAL_EMAIL_EVENT, hasSensitiveMessageStep } from '../hogflows/hogflow-sensitivity'
 
 const counterHogInvocationResultRowsProduced = new Counter({

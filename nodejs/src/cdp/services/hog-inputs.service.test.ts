@@ -3,18 +3,23 @@ import '@posthog/node-common/testing/mocks/date.mock'
 import { DateTime } from 'luxon'
 import { inspect } from 'util'
 
+import {
+    HogInputsService,
+    formatHogInput,
+    formatLiquidInput,
+    getAppIdentifierForPush,
+} from '@posthog/hog-engine/cdp/services/hog-inputs.service'
+import { RecipientTokensService } from '@posthog/hog-engine/cdp/services/messaging/recipient-tokens.service'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '@posthog/hog-engine/cdp/types'
+import { classifyHogError } from '@posthog/hog-engine/cdp/utils/hog-error-classification'
+import { NATIVE_PUSH_TEMPLATE_ID } from '@posthog/hog-engine/cdp/utils/push-subscription-utils'
 import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub, Team } from '~/types'
 
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
-import { compileHog } from '../templates/compiler'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { classifyHogError } from '../utils/hog-error-classification'
-import { NATIVE_PUSH_TEMPLATE_ID } from '../utils/push-subscription-utils'
-import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
-import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 describe('getAppIdentifierForPush', () => {
     it('returns null when no integration inputs are present', () => {

@@ -13,11 +13,11 @@
  */
 import { DateTime } from 'luxon'
 
+import { createHogTransformerService } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
 import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { PersonBatchWritingDbWriteMode } from '~/ingestion/config'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
 import {

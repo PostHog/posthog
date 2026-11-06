@@ -1,22 +1,22 @@
 import { DateTime } from 'luxon'
 
-import { instrumented } from '@posthog/node-common/tracing/tracing-utils'
-import { logger } from '@posthog/node-common/utils/logger'
-
-import { HogFlow } from '~/cdp/schema/hogflow'
-import { hasPushActions } from '~/cdp/services/hogflows/hogflow-utils'
-import { PluginsServerConfig } from '~/types'
-
-import { isRowScopedTrigger } from '../schema/hogflow'
-import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { isRowScopedTrigger } from '@posthog/hog-engine/cdp/schema/hogflow'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
     CyclotronPerson,
-} from '../types'
-import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
-import { createInvocationResult } from '../utils/invocation-utils'
+} from '@posthog/hog-engine/cdp/types'
+import { convertToHogFunctionFilterGlobal } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
+import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import { instrumented } from '@posthog/node-common/tracing/tracing-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+
+import { hasPushActions } from '~/cdp/services/hogflows/hogflow-utils'
+import { PluginsServerConfig } from '~/types'
+
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 

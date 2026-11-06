@@ -1,7 +1,7 @@
-import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
+import { CyclotronInvocationQueueParametersFetchType } from '@posthog/hog-engine/cdp/schema/cyclotron'
+import { CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
 
 import { getAsyncFunctionHandler } from '../async-function-registry'
-import { CyclotronJobInvocationResult } from '../types'
 import './fetch-handler'
 
 describe('fetch handler', () => {

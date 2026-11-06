@@ -1,5 +1,5 @@
-import { HogFunctionInputSchemaType } from '~/cdp/types'
-import { HogFunctionTemplate } from '~/cdp/types'
+import { HogFunctionInputSchemaType } from '@posthog/hog-engine/cdp/types'
+import { HogFunctionTemplate } from '@posthog/hog-engine/cdp/types'
 
 const build_inputs = (eventName: string, customData: Record<string, any>): HogFunctionInputSchemaType[] => {
     return [

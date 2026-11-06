@@ -1,4 +1,20 @@
+import type { CdpConfig } from '@posthog/hog-engine/cdp/config'
+import { CdpProducerName } from '@posthog/hog-engine/cdp/outputs/producers'
+import { HogExecutorService } from '@posthog/hog-engine/cdp/services/hog-executor.service'
+import { HogInputsService } from '@posthog/hog-engine/cdp/services/hog-inputs.service'
+import { HogFunctionManagerService } from '@posthog/hog-engine/cdp/services/managers/hog-function-manager.service'
+import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { RecipientsManagerService } from '@posthog/hog-engine/cdp/services/managers/recipients-manager.service'
+import { RecipientTokensService } from '@posthog/hog-engine/cdp/services/messaging/recipient-tokens.service'
+import {
+    HogFunctionMonitoringService,
+    parseInternalLogsSources,
+} from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
+import { MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from '@posthog/hog-engine/cdp/utils/cdp-fetch'
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
+import { PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
 import type { CommonConfig } from '@posthog/node-common/config'
+import { InternalLogsProducer, InternalLogsProducerConfig } from '@posthog/node-common/logs/internal-logs-producer'
 import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
@@ -16,29 +32,20 @@ import { logger } from '@posthog/node-common/utils/logger'
 import { PubSub } from '@posthog/node-common/utils/pubsub'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
-import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/internal-logs-producer'
-
-import type { CdpConfig } from './config'
 import { CdpEventsDlqOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
-import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
 import { CohortMembershipRepository } from './services/cohorts/cohort-membership-repository'
 import { PostgresCohortMembershipRepository } from './services/cohorts/postgres-cohort-membership-repository'
 import { ConversionWatchersService } from './services/conversion-watchers/conversion-watchers.service'
 import { HogExecutorAsyncService } from './services/hog-executor-async.service'
-import { HogExecutorService } from './services/hog-executor.service'
-import { HogInputsService } from './services/hog-inputs.service'
 import { HogFlowDuplicateObserverService } from './services/hogflows/hogflow-duplicate-observer.service'
 import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { InvocationResultsService } from './services/invocation-results.service'
-import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
-import { IntegrationManagerService } from './services/managers/integration-manager.service'
 import { PersonsManagerService } from './services/managers/persons-manager.service'
-import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import {
     EMAIL_ATTACHMENTS_MAX_CONNECTIONS,
@@ -52,11 +59,6 @@ import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-c
 import { MessageAssetsService } from './services/messaging/message-assets.service'
 import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
-import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
-import {
-    HogFunctionMonitoringService,
-    parseInternalLogsSources,
-} from './services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { WorkflowsActivationReporter } from './services/monitoring/workflows-activation-reporter'
@@ -65,10 +67,7 @@ import { RateLimiterService } from './services/rate-limiter/rate-limiter.service
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { CdpUsageReporterService } from './services/usage/cdp-usage-reporter.service'
 import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
-import { MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from './utils/cdp-fetch'
 import { configureValkeyReads } from './utils/dual-store'
-import { EncryptedFields } from './utils/encryption-utils'
-import { PosthogJwtAudience } from './utils/jwt-utils'
 import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
 /** Union of every output name resolved by `createCdpOutputsRegistry()`. */

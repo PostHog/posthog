@@ -10,13 +10,13 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { createHogTransformerService } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
 import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
 import { createUserTeamAndOrganization, fetchPostgresPersons, uniqueTestId } from '@posthog/node-common/testing/sql'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
 import {
     IngestionTestInfra,

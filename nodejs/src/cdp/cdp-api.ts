@@ -2,6 +2,44 @@ import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 import { z } from 'zod'
 
+import {
+    HogTransformerService,
+    createHogTransformerService,
+} from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
+import { HogFlow, HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { MAX_ASYNC_STEPS } from '@posthog/hog-engine/cdp/services/hog-executor.service'
+import { HogInputsService } from '@posthog/hog-engine/cdp/services/hog-inputs.service'
+import {
+    AcceptedSend,
+    AcceptedSendRequestSchema,
+    CODE_SEND_TOKEN_CLAIMS,
+    QueuedSend,
+    TEMPLATE_SEND_TOKEN_CLAIMS,
+    TransactionalEmailOutcome,
+    TransactionalEmailRequest,
+    TransactionalEmailRequestSchema,
+    TransactionalEmailStageTimer,
+    decodeAttachments,
+    fieldNotAcceptedError,
+    isRecipientFormatIssue,
+    queuedSend,
+    transactionalEmailRecipients,
+    transactionalEmailRequestsTotal,
+} from '@posthog/hog-engine/cdp/services/hogflows/transactional-email'
+import { HogFunctionManagerService } from '@posthog/hog-engine/cdp/services/managers/hog-function-manager.service'
+import { RecipientTokensService } from '@posthog/hog-engine/cdp/services/messaging/recipient-tokens.service'
+import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from '@posthog/hog-engine/cdp/types'
+import {
+    convertToHogFunctionInvocationGlobals,
+    isConvertibleClickHouseEvent,
+    isNativeHogFunction,
+    isSegmentPluginHogFunction,
+    sanitizeLogMessage,
+} from '@posthog/hog-engine/cdp/utils'
+import { recordRequestOrigins } from '@posthog/hog-engine/cdp/utils/cdp-fetch'
+import { convertToHogFunctionFilterGlobal } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
+import { buildHogFunctionInvocations } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import { PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
 import { ModifiedRequest } from '@posthog/node-common/api/router'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 import type { RedisV2 } from '@posthog/node-common/redis/redis-v2'
@@ -32,15 +70,11 @@ import {
     HogFunctionWebhookResult,
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
-import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
-import { HogFlow, HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
-import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
-import { HogInputsService } from './services/hog-inputs.service'
 import { counterBatchResolverParked } from './services/hogflows/batch-resolver-resume'
 import {
     BatchResolverState,
@@ -54,27 +88,9 @@ import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivi
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
-import {
-    AcceptedSend,
-    AcceptedSendRequestSchema,
-    CODE_SEND_TOKEN_CLAIMS,
-    QueuedSend,
-    TEMPLATE_SEND_TOKEN_CLAIMS,
-    TransactionalEmailOutcome,
-    TransactionalEmailRequest,
-    TransactionalEmailRequestSchema,
-    TransactionalEmailStageTimer,
-    decodeAttachments,
-    fieldNotAcceptedError,
-    isRecipientFormatIssue,
-    queuedSend,
-    transactionalEmailRecipients,
-    transactionalEmailRequestsTotal,
-} from './services/hogflows/transactional-email'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
-import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailAttachmentsService } from './services/messaging/email-attachments.service'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
@@ -83,7 +99,6 @@ import { EmailSuppressionService } from './services/messaging/email-suppression.
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
-import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
     HogWatcherService,
     HogWatcherState,
@@ -93,19 +108,7 @@ import {
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
-import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
-import {
-    convertToHogFunctionInvocationGlobals,
-    isConvertibleClickHouseEvent,
-    isNativeHogFunction,
-    isSegmentPluginHogFunction,
-    sanitizeLogMessage,
-} from './utils'
-import { recordRequestOrigins } from './utils/cdp-fetch'
 import { dualRead, dualWrite } from './utils/dual-store'
-import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
-import { buildHogFunctionInvocations } from './utils/invocation-utils'
-import { PosthogJwtAudience } from './utils/jwt-utils'
 import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 import { parseWorkflowStepDispatchKey } from './utils/workflow-step-dispatch-key'
 

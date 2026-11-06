@@ -1,10 +1,9 @@
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
+import { HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
 import { logger } from '@posthog/node-common/utils/logger'
-
-import { HogFlowAction } from '~/cdp/schema/hogflow'
-import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
 
 import { actionIdForLogging } from './hogflow-utils'
 

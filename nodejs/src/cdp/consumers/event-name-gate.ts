@@ -1,6 +1,6 @@
-import { HogFlow } from '../schema/hogflow'
-import { HogFunctionType, MinimalAppMetric } from '../types'
-import { filteredMetric, rejectsEventName } from '../utils/hog-function-filtering'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionType, MinimalAppMetric } from '@posthog/hog-engine/cdp/types'
+import { filteredMetric, rejectsEventName } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
 
 export const runsOnEvents = (fn: HogFunctionType): boolean => (fn.filters?.source ?? 'events') === 'events'
 

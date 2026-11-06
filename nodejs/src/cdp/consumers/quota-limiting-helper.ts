@@ -1,9 +1,8 @@
 import { Counter } from 'prom-client'
 
+import { HogFunctionMonitoringService } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
+import { CyclotronJobInvocationHogFunction } from '@posthog/hog-engine/cdp/types'
 import { QuotaResource } from '@posthog/node-common/services/quota-limiting.service'
-
-import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
-import { CyclotronJobInvocationHogFunction } from '../types'
 
 const counterQuotaLimited = new Counter({
     name: 'cdp_function_quota_limited',

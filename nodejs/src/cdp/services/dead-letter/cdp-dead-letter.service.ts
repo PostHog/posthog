@@ -1,12 +1,16 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import type {
+    DeadLetterStep,
+    HogFunctionInvocationGlobals,
+    InvocationBuildFailure,
+} from '@posthog/hog-engine/cdp/types'
+import type { HogErrorClass } from '@posthog/hog-engine/cdp/utils/hog-error-classification'
 import { logger } from '@posthog/node-common/utils/logger'
 
 import type { CdpOutputs } from '../../cdp-services'
 import type { CdpEventsDlqOutput } from '../../outputs/outputs'
-import type { DeadLetterStep, HogFunctionInvocationGlobals, InvocationBuildFailure } from '../../types'
-import type { HogErrorClass } from '../../utils/hog-error-classification'
 
 /** In memory only. What leaves is the original event bytes plus string headers. */
 type PendingFailure = {

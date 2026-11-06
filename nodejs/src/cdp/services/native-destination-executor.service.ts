@@ -1,12 +1,11 @@
 import { Histogram } from 'prom-client'
 
-import { parseJSON } from '@posthog/node-common/utils/json-parse'
-import { logger } from '@posthog/node-common/utils/logger'
-import { FetchOptions, FetchResponse } from '@posthog/node-common/utils/request'
-
-import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Response } from '../types'
-import { destinationE2eLagMsSummary } from '../utils'
+import {
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    Response,
+} from '@posthog/hog-engine/cdp/types'
+import { destinationE2eLagMsSummary } from '@posthog/hog-engine/cdp/utils'
 import {
     CDP_TEST_ID,
     createAddLogFunction,
@@ -14,15 +13,20 @@ import {
     isNativeHogFunction,
     redactError,
     redactSensitiveValues,
-} from '../utils'
+} from '@posthog/hog-engine/cdp/utils'
 import {
     CdpFetchConfig,
     cdpTrackedFetch,
     getNextRetryTime,
     isFetchResponseRetriable,
     readFetchResponseText,
-} from '../utils/cdp-fetch'
-import { createInvocationResult } from '../utils/invocation-utils'
+} from '@posthog/hog-engine/cdp/utils/cdp-fetch'
+import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { FetchOptions, FetchResponse } from '@posthog/node-common/utils/request'
+
+import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
 
 const nativeDestinationExecutionDuration = new Histogram({
     name: 'cdp_native_execution_duration_ms',

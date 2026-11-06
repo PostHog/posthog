@@ -1,4 +1,4 @@
-import { HogFunctionInputSchemaType, HogFunctionTemplate } from '~/cdp/types'
+import { HogFunctionInputSchemaType, HogFunctionTemplate } from '@posthog/hog-engine/cdp/types'
 
 // Based on https://learn.microsoft.com/en-us/advertising/guides/uet-conversion-api-integration?view=bingads-13
 // Sends server-to-server conversion events to the Microsoft Advertising Conversions API (CAPI).

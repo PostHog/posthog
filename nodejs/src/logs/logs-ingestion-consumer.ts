@@ -10,6 +10,13 @@ import {
     parseKafkaHeaders,
 } from '@posthog/node-common/kafka/consumer/index'
 import { retryOnDependencyUnavailableError } from '@posthog/node-common/kafka/error-handling'
+import {
+    INTERNAL_LOGS_HEADER,
+    INTERNAL_SOURCE_HEADER,
+    InternalLogsVerifier,
+    type InternalSourcePolicy,
+    withoutInternalLogsHeaders,
+} from '@posthog/node-common/logs/internal-logs'
 import { recordPiiReplacements } from '@posthog/node-common/metrics/otel-metrics'
 import { AppMetricsOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
@@ -36,13 +43,6 @@ import {
     recordLogsDropped,
     recordLogsReceived,
 } from './ingestion-otel-metrics'
-import {
-    INTERNAL_LOGS_HEADER,
-    INTERNAL_SOURCE_HEADER,
-    InternalLogsVerifier,
-    type InternalSourcePolicy,
-    withoutInternalLogsHeaders,
-} from './internal-logs'
 import { MESSAGE_KEYS } from './log-pattern-mask'
 import { logsPatternForcedDecodeCounter, makePatternMaskingStage } from './log-pattern-stage'
 import { type PiiScrubStats } from './log-pii-scrub'

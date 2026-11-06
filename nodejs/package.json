@@ -91,9 +91,10 @@
         "@opentelemetry/sdk-trace-node": "^2.0.1",
         "@opentelemetry/semantic-conventions": "^1.36.0",
         "@posthog/ai-research-v4-native": "workspace:*",
+        "@posthog/hog-engine": "workspace:*",
         "@posthog/hogvm": "workspace:*",
         "@posthog/hogvm-node": "workspace:*",
-        "@posthog/node-common": "file:../ingestion/node/packages/common",
+        "@posthog/node-common": "workspace:*",
         "@posthog/replay-anonymizer": "workspace:*",
         "@posthog/replay-headless": "workspace:*",
         "@posthog/siphash": "1.1.1",
@@ -205,10 +206,5 @@
     },
     "engines": {
         "node": ">=26 <27"
-    },
-    "dependenciesMeta": {
-        "@posthog/node-common": {
-            "injected": true
-        }
     }
 }

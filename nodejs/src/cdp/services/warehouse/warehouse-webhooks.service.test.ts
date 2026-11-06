@@ -1,8 +1,8 @@
+import { CyclotronJobInvocationResult, WarehouseWebhookPayload } from '@posthog/hog-engine/cdp/types'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT, WarehouseSourceWebhooksOutput } from '../../outputs/outputs'
-import { CyclotronJobInvocationResult, WarehouseWebhookPayload } from '../../types'
 import { WarehouseWebhooksService } from './warehouse-webhooks.service'
 
 const buildPayload = (overrides: Partial<WarehouseWebhookPayload> = {}): WarehouseWebhookPayload => ({

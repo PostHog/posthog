@@ -2,6 +2,9 @@ packages:
     - '.'
     - common/esbuilder
     - common/hogvm/typescript
+    - nodejs/packages/hog-engine
+    # Ingestion's shared library, consumed here as a workspace package until it is published.
+    - ingestion/node/packages/common
     - common/plugin_transpiler
     - common/storybook
     - common/replay-shared

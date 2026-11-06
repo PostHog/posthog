@@ -1,4 +1,4 @@
-import { CyclotronJobInvocationHogFunction } from '../types'
+import { CyclotronJobInvocationHogFunction } from '@posthog/hog-engine/cdp/types'
 
 export const buildWorkflowStepDispatchKey = (
     jobId: string,

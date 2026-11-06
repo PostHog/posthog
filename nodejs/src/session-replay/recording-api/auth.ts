@@ -1,8 +1,7 @@
 import { NextFunction, Request, Response } from 'ultimate-express'
 
+import { JWT, PosthogJwtAudience, hasJwtKeys, makeOptionalJwt } from '@posthog/hog-engine/cdp/utils/jwt-utils'
 import { logger } from '@posthog/node-common/utils/logger'
-
-import { JWT, PosthogJwtAudience, hasJwtKeys, makeOptionalJwt } from '~/cdp/utils/jwt-utils'
 
 import { RecordingApiRole } from './types'
 

@@ -1,13 +1,9 @@
 import { Histogram } from 'prom-client'
 import { ReadableStream } from 'stream/web'
 
-import { parseJSON } from '@posthog/node-common/utils/json-parse'
-import { FetchOptions, FetchResponse, Response } from '@posthog/node-common/utils/request'
-
-import { LegacyPluginLogger } from '../legacy-plugins/types'
-import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { destinationE2eLagMsSummary } from '../utils'
+import { LegacyPluginLogger } from '@posthog/hog-engine/cdp/legacy-plugins/types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
+import { destinationE2eLagMsSummary } from '@posthog/hog-engine/cdp/utils'
 import {
     CDP_TEST_ID,
     createAddLogFunction,
@@ -15,15 +11,19 @@ import {
     isSegmentPluginHogFunction,
     redactError,
     redactSensitiveValues,
-} from '../utils'
+} from '@posthog/hog-engine/cdp/utils'
 import {
     CdpFetchConfig,
     cdpTrackedFetch,
     getNextRetryTime,
     isFetchResponseRetriable,
     readFetchResponseText,
-} from '../utils/cdp-fetch'
-import { createInvocationResult } from '../utils/invocation-utils'
+} from '@posthog/hog-engine/cdp/utils/cdp-fetch'
+import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { FetchOptions, FetchResponse, Response } from '@posthog/node-common/utils/request'
+
+import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_segment_execution_duration_ms',

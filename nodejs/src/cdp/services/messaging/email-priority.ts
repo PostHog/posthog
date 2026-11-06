@@ -1,6 +1,6 @@
 import { Counter } from 'prom-client'
 
-import { HogFunctionType } from '../../types'
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
 
 /**
  * Priority classes for the email cyclotron queue.

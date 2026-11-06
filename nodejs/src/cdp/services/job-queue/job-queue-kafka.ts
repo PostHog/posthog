@@ -6,14 +6,18 @@
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
+import { CdpConfig } from '@posthog/hog-engine/cdp/config'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationResult,
+    CyclotronJobQueueKind,
+} from '@posthog/hog-engine/cdp/types'
 import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
 
 import { HealthCheckResult, HealthCheckResultError } from '../../../types'
-import { CdpConfig } from '../../config'
-import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 

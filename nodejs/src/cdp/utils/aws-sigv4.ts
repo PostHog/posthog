@@ -1,8 +1,8 @@
 import { createHash, createHmac } from 'node:crypto'
 
-import { CyclotronInvocationQueueParametersFetchAwsSigV4Type } from '~/cdp/schema/cyclotron'
+import { CyclotronInvocationQueueParametersFetchAwsSigV4Type } from '@posthog/hog-engine/cdp/schema/cyclotron'
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
 
-import { HogFunctionType } from '../types'
 import { resolveHogFunctionInputValue } from './hog-function-inputs'
 
 export type AwsSigV4Credentials = {

@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '~/cdp/types'
+import { HogFunctionTemplate } from '@posthog/hog-engine/cdp/types'
 
 import { ERROR_TRACKING_TICKET_DESCRIPTION, ERROR_TRACKING_TICKET_TITLE } from '../../error-tracking-ticket'
 import { hogErrorTrackingStacktraceFn } from '../../hog-helpers'

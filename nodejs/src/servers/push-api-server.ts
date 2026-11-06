@@ -1,12 +1,12 @@
 import { Server, createServer } from 'http'
 
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { CommonConfig } from '@posthog/node-common/config'
 import { PostgresRouter, PostgresRouterConfig } from '@posthog/node-common/utils/db/postgres'
 import { isProdEnv, isTestEnv } from '@posthog/node-common/utils/env-utils'
 import { GeoIPService } from '@posthog/node-common/utils/geoip'
 import { logger } from '@posthog/node-common/utils/logger'
 
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { capIdleConnections } from '~/messaging/push-subscriptions/idle-connections'
 import { ProjectTokenLookup } from '~/messaging/push-subscriptions/project-token-lookup'

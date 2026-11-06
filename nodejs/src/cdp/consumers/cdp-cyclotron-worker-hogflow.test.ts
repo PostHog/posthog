@@ -3,6 +3,15 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { attachmentMetadata, decodeAttachments } from '@posthog/hog-engine/cdp/services/hogflows/transactional-email'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+    HogFlowInvocationContext,
+} from '@posthog/hog-engine/cdp/types'
+import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
 import {
     InternalPersonWithDistinctId,
     PersonReadRepository,
@@ -11,21 +20,12 @@ import { createTeam, createTestTeamFixture, getTeam } from '@posthog/node-common
 import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, hideHogFlowsFromReplica, insertHogFlow } from '../_tests/fixtures-hogflows'
-import { attachmentMetadata, decodeAttachments } from '../services/hogflows/transactional-email'
-import {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFlow,
-    CyclotronJobInvocationResult,
-    HogFlowInvocationContext,
-} from '../types'
-import { createInvocationResult } from '../utils/invocation-utils'
 import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
 
 jest.setTimeout(1000)

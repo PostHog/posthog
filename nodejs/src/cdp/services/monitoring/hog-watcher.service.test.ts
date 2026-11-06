@@ -1,5 +1,11 @@
 import { randomUUID } from 'crypto'
 
+import {
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    HogFunctionType,
+} from '@posthog/hog-engine/cdp/types'
+import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
 import { deleteKeysWithPrefix } from '@posthog/node-common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
 import { logger } from '@posthog/node-common/utils/logger'
@@ -8,8 +14,6 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { Hub, ProjectId, Team } from '../../../types'
 import { createExampleInvocation, createHogFunction } from '../../_tests/fixtures'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../../types'
-import { createInvocationResult } from '../../utils/invocation-utils'
 import { BASE_REDIS_KEY, HogWatcherConfig, HogWatcherService, HogWatcherState } from './hog-watcher.service'
 
 jest.mock('@posthog/node-common/utils/posthog', () => ({ captureTeamEvent: jest.fn() }))

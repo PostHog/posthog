@@ -1,6 +1,15 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { LegacyPluginExecutorService } from '@posthog/hog-engine/cdp/services/legacy-plugin-executor.service'
+import type {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    HogFunctionInvocationGlobals,
+    HogFunctionType,
+} from '@posthog/hog-engine/cdp/types'
+import { convertToHogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/utils'
+import { createInvocation } from '@posthog/hog-engine/cdp/utils/invocation-utils'
 import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import { instrumentFn, instrumented } from '@posthog/node-common/tracing/tracing-utils'
 import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
@@ -20,15 +29,6 @@ import {
     Team,
 } from '../../types'
 import { LegacyWebhookService } from '../legacy-webhooks/legacy-webhook-service'
-import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import type {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFunction,
-    HogFunctionInvocationGlobals,
-    HogFunctionType,
-} from '../types'
-import { convertToHogFunctionInvocationGlobals } from '../utils'
-import { createInvocation } from '../utils/invocation-utils'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { parseBatch } from './message-parsing'
 

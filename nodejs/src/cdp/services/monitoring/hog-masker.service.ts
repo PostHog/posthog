@@ -1,15 +1,15 @@
 import { createHash } from 'crypto'
 
-import { RedisClientPipeline, RedisV2 } from '@posthog/node-common/redis/redis-v2'
-
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     HogFunctionMasking,
-} from '../../types'
+} from '@posthog/hog-engine/cdp/types'
+import { execHog } from '@posthog/hog-engine/cdp/utils/hog-exec'
+import { RedisClientPipeline, RedisV2 } from '@posthog/node-common/redis/redis-v2'
+
 import { dualRead } from '../../utils/dual-store'
-import { execHog } from '../../utils/hog-exec'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-masker' : '@posthog/hog-masker'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/mask`

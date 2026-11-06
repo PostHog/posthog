@@ -1,5 +1,14 @@
 import { DateTime } from 'luxon'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionMonitoringService } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    HogFunctionInvocationGlobals,
+    LogEntry,
+    MinimalAppMetric,
+} from '@posthog/hog-engine/cdp/types'
 import { RedisV2 } from '@posthog/node-common/redis/redis-v2'
 import {
     KeyedRateLimitRequest,
@@ -10,23 +19,13 @@ import { instrumentFn, instrumented } from '@posthog/node-common/tracing/tracing
 import { logger } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
-
 import { CdpValkeyShadowPools } from '../cdp-services'
 import { counterRateLimited } from '../consumers/metrics'
-import {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFlow,
-    HogFunctionInvocationGlobals,
-    LogEntry,
-    MinimalAppMetric,
-} from '../types'
 import { dualRead } from '../utils/dual-store'
 import { InvocationFailureSink } from './dead-letter/cdp-dead-letter.service'
 import { HogFlowExecutorService } from './hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './hogflows/hogflow-manager.service'
 import { shouldBlockHogFlowDueToQuota } from './hogflows/hogflow-quota-limiting'
-import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
 import { WorkflowsActivationReporter } from './monitoring/workflows-activation-reporter'

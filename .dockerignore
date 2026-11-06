@@ -43,7 +43,6 @@
 !nodejs/package.json
 !nodejs/pnpm-lock.yaml
 !nodejs/src
-!nodejs/assets
 !nodejs/tsconfig.eslint.json
 !nodejs/tsconfig.json
 !services/mcp
@@ -75,9 +74,6 @@ services/agent-*/.next
 !requirements-dev.txt
 !requirements.txt
 !rust
-!ingestion/node/package.json
-!ingestion/node/pnpm-lock.yaml
-!ingestion/node/pnpm-workspace.yaml
 !ingestion/node/packages/common
 !share/GeoLite2-City.mmdb
 !staticfiles
@@ -100,6 +96,9 @@ products/**/node_modules
 # can change the image, so keep the two in step.
 products/desktop/*
 nodejs/node_modules
+nodejs/packages/*/node_modules
+nodejs/packages/*/dist
+nodejs/packages/*/.tmp
 ingestion/node/**/node_modules
 ingestion/node/**/dist
 ingestion/node/**/*.test.ts

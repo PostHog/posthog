@@ -2,13 +2,9 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
-import { ModifiedRequest } from '@posthog/node-common/api/router'
-import { RedisV2 } from '@posthog/node-common/redis/redis-v2'
-import { isDevEnv, isTestEnv } from '@posthog/node-common/utils/env-utils'
-import { parseJSON } from '@posthog/node-common/utils/json-parse'
-import { logger, serializeError } from '@posthog/node-common/utils/logger'
-
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionManagerService } from '@posthog/hog-engine/cdp/services/managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
@@ -16,13 +12,16 @@ import {
     LogEntry,
     LogEntryLevel,
     MinimalAppMetric,
-} from '~/cdp/types'
+} from '@posthog/hog-engine/cdp/types'
+import { ModifiedRequest } from '@posthog/node-common/api/router'
+import { RedisV2 } from '@posthog/node-common/redis/redis-v2'
+import { isDevEnv, isTestEnv } from '@posthog/node-common/utils/env-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger, serializeError } from '@posthog/node-common/utils/logger'
 
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
-import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'

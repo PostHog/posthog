@@ -1,6 +1,12 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import {
+    HogFunctionInvocationGlobals,
+    HogFunctionTypeType,
+    InvocationBuildFailure,
+} from '@posthog/hog-engine/cdp/types'
+import { convertToHogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/utils'
 import type { RdKafkaConsumerConfig } from '@posthog/node-common/kafka/consumer/consumer-v1'
 import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
@@ -20,8 +26,6 @@ import {
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { HogFunctionInvocationGlobals, HogFunctionTypeType, InvocationBuildFailure } from '../types'
-import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { runsOnEvents, triggersOnEvents } from './event-name-gate'
 

@@ -1,7 +1,12 @@
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+} from '@posthog/hog-engine/cdp/types'
+
 import { PluginsServerConfig } from '~/types'
 
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
 

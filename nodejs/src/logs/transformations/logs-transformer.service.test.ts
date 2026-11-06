@@ -1,7 +1,7 @@
-import { HogFunctionManagerService } from '~/cdp/services/managers/hog-function-manager.service'
-import { HogFunctionMonitoringService } from '~/cdp/services/monitoring/hog-function-monitoring.service'
-import { compileHog } from '~/cdp/templates/compiler'
-import { HogFunctionType } from '~/cdp/types'
+import { HogFunctionManagerService } from '@posthog/hog-engine/cdp/services/managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
 
 import type { LogRecord } from '../log-record-avro'
 import { LogsTransformerConfig, LogsTransformerService, TransformationBatchBudget } from './logs-transformer.service'

@@ -1,5 +1,18 @@
 import { Message } from 'node-rdkafka'
 
+import { CdpInternalEventSchema } from '@posthog/hog-engine/cdp/schema'
+import {
+    GITHUB_EVENT_RECEIVED_EVENT,
+    SLACK_MESSAGE_RECEIVED_EVENT,
+    getInternalEventFilterEventIds,
+    hasMatchingInternalEventFilter,
+} from '@posthog/hog-engine/cdp/schema/hogflow'
+import {
+    CyclotronJobInvocation,
+    HogFunctionInvocationGlobals,
+    HogFunctionTypeType,
+} from '@posthog/hog-engine/cdp/types'
+import { convertInternalEventToHogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/utils'
 import { KAFKA_CDP_INTERNAL_EVENTS } from '@posthog/node-common/config/kafka-topics'
 import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import { instrumentFn, instrumented } from '@posthog/node-common/tracing/tracing-utils'
@@ -8,18 +21,9 @@ import { logger } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
-import { CdpInternalEventSchema } from '../schema'
-import {
-    GITHUB_EVENT_RECEIVED_EVENT,
-    SLACK_MESSAGE_RECEIVED_EVENT,
-    getInternalEventFilterEventIds,
-    hasMatchingInternalEventFilter,
-} from '../schema/hogflow'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
-import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { parseBatch } from './message-parsing'
 

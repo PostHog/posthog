@@ -1,6 +1,18 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { CdpDataWarehouseEvent, CdpDataWarehouseEventSchema } from '@posthog/hog-engine/cdp/schema'
+import {
+    DWH_SOURCE_TABLE_PROPERTY,
+    WAREHOUSE_SOURCE_ROW_EVENT,
+    WAREHOUSE_VIEW_ROW_EVENT,
+} from '@posthog/hog-engine/cdp/schema/hogflow'
+import {
+    CyclotronJobInvocation,
+    HogFunctionFilterDataWarehouse,
+    HogFunctionInvocationGlobals,
+    HogFunctionTypeType,
+} from '@posthog/hog-engine/cdp/types'
 import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import { instrumentFn, instrumented } from '@posthog/node-common/tracing/tracing-utils'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
@@ -8,17 +20,9 @@ import { logger } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
-import { CdpDataWarehouseEvent, CdpDataWarehouseEventSchema } from '../schema'
-import { DWH_SOURCE_TABLE_PROPERTY, WAREHOUSE_SOURCE_ROW_EVENT, WAREHOUSE_VIEW_ROW_EVENT } from '../schema/hogflow'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import {
-    CyclotronJobInvocation,
-    HogFunctionFilterDataWarehouse,
-    HogFunctionInvocationGlobals,
-    HogFunctionTypeType,
-} from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { parseBatch } from './message-parsing'
 

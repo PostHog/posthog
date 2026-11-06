@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'ultimate-express'
 
-import { JWT, PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { JWT, PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
 
 import {
     RecordingApiAuthOptions,

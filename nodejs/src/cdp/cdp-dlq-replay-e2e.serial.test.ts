@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto'
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import { KAFKA_CDP_EVENTS_DLQ, KAFKA_EVENTS_JSON } from '@posthog/node-common/config/kafka-topics'
 import { KafkaConsumer } from '@posthog/node-common/kafka/consumer/consumer-v1'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
@@ -29,7 +30,6 @@ import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from './services/job-queue/job-queue.interface'
-import { HogFunctionType } from './types'
 
 const ActualKafkaProducerWrapper = jest.requireActual('@posthog/node-common/kafka/producer').KafkaProducerWrapper
 

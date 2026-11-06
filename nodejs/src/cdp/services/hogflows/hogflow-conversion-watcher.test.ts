@@ -1,9 +1,9 @@
 import { register } from 'prom-client'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow } from '@posthog/hog-engine/cdp/types'
 
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
-import { CyclotronJobInvocationHogFlow } from '../../types'
 import {
     DEFAULT_CONVERSION_WINDOW_MINUTES,
     MAX_CONVERSION_WINDOW_MINUTES,

@@ -1,5 +1,30 @@
 import { DateTime } from 'luxon'
 
+import {
+    HogExecutorExecuteOptions,
+    HogExecutorPreviousResult,
+    HogExecutorService,
+} from '@posthog/hog-engine/cdp/services/hog-executor.service'
+import { HogInputsService } from '@posthog/hog-engine/cdp/services/hog-inputs.service'
+import {
+    RecipientTokensService,
+    preferencesTokenSourceForInvocation,
+} from '@posthog/hog-engine/cdp/services/messaging/recipient-tokens.service'
+import type {
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    HogFunctionType,
+    MinimalAppMetric,
+    MinimalLogEntry,
+} from '@posthog/hog-engine/cdp/types'
+import { createAddLogFunction, destinationE2eLagMsSummary } from '@posthog/hog-engine/cdp/utils'
+import {
+    MAX_FETCH_RESPONSE_BYTES,
+    cdpTrackedFetch,
+    fetchErrorDetail,
+    isFetchResponseRetriable,
+} from '@posthog/hog-engine/cdp/utils/cdp-fetch'
+import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
 import { instrumented } from '@posthog/node-common/tracing/tracing-utils'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
@@ -8,28 +33,11 @@ import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'
-import type {
-    CyclotronJobInvocationHogFunction,
-    CyclotronJobInvocationResult,
-    HogFunctionType,
-    MinimalAppMetric,
-    MinimalLogEntry,
-} from '../types'
-import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
-import {
-    MAX_FETCH_RESPONSE_BYTES,
-    cdpTrackedFetch,
-    fetchErrorDetail,
-    isFetchResponseRetriable,
-} from '../utils/cdp-fetch'
-import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
-import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
-import { HogInputsService } from './hog-inputs.service'
 import {
     EMAIL_QUEUE_PRIORITY,
     cdpEmailQueuedTotal,
@@ -38,7 +46,6 @@ import {
 } from './messaging/email-priority'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
-import { RecipientTokensService, preferencesTokenSourceForInvocation } from './messaging/recipient-tokens.service'
 import {
     SELF_LOOP_MAX_DEPTH,
     getSelfLoopDepth,

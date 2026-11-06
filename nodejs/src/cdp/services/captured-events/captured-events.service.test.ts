@@ -1,8 +1,8 @@
+import { CyclotronJobInvocationResult, HogFunctionCapturedEvent } from '@posthog/hog-engine/cdp/types'
 import { InternalCaptureEvent, InternalCaptureService } from '@posthog/node-common/services/internal-capture'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
 import { Team } from '../../../types'
-import { CyclotronJobInvocationResult, HogFunctionCapturedEvent } from '../../types'
 import { CapturedEventsService } from './captured-events.service'
 
 const buildTeam = (id: number, apiToken: string): Team =>

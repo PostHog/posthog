@@ -2,10 +2,10 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Counter, Gauge } from 'prom-client'
 
+import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '@posthog/hog-engine/cdp/types'
 import { logger } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 
-import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { emailAttachmentOutcomesTotal } from '../messaging/email-attachments.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'

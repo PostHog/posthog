@@ -1,11 +1,10 @@
 import { Gauge } from 'prom-client'
 
+import { CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
 import { InternalCaptureEvent, InternalCaptureService } from '@posthog/node-common/services/internal-capture'
 import { logger } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
-
-import { CyclotronJobInvocationResult } from '../../types'
 
 const capturedEventsPending = new Gauge({
     name: 'cdp_captured_events_pending',

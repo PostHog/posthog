@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
 
+import { HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronPerson } from '@posthog/hog-engine/cdp/types'
+
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
-import { HogFlowAction } from '~/cdp/schema/hogflow'
-import { CyclotronPerson } from '~/cdp/types'
 
 import { findActionByType } from '../hogflow-utils'
 import { resolveTimezone } from './timezone'

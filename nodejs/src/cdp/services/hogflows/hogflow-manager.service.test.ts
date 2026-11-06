@@ -1,5 +1,6 @@
 import '@posthog/node-common/testing/mocks/date.mock'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
 import { forSnapshot } from '@posthog/node-common/testing/snapshots'
 import { createTeam, createTestTeamFixture } from '@posthog/node-common/testing/sql'
@@ -7,7 +8,6 @@ import { INVALID_TEAM_ID_KEYS } from '@posthog/node-common/testing/team'
 import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
-import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub } from '~/types'
 

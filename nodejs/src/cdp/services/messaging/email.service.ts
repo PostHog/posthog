@@ -4,25 +4,35 @@ import { SendMailOptions } from 'nodemailer'
 import * as mimeFuncs from 'nodemailer/lib/mime-funcs'
 import { Counter, Histogram } from 'prom-client'
 
-import { buildIntegerMatcher } from '@posthog/node-common/config/matchers'
-import { logger } from '@posthog/node-common/utils/logger'
-
-import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
-import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
+import { CyclotronInvocationQueueParametersEmailType } from '@posthog/hog-engine/cdp/schema/cyclotron'
+import {
+    HogFlowEmailSendingRateLimit,
+    HogFlowEmailSendingRateLimitSchema,
+} from '@posthog/hog-engine/cdp/schema/hogflow'
+import type { DecodedAttachment } from '@posthog/hog-engine/cdp/services/hogflows/transactional-email'
+import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import {
+    RecipientManagerRecipient,
+    RecipientsManagerService,
+} from '@posthog/hog-engine/cdp/services/managers/recipients-manager.service'
+import {
+    PreferencesTokenSource,
+    RecipientTokensService,
+    preferencesTokenSourceForInvocation,
+} from '@posthog/hog-engine/cdp/services/messaging/recipient-tokens.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionType,
     IntegrationType,
     MessageAssetRow,
-} from '~/cdp/types'
-import { createAddLogFunction, logEntry } from '~/cdp/utils'
-import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+} from '@posthog/hog-engine/cdp/types'
+import { createAddLogFunction, logEntry } from '@posthog/hog-engine/cdp/utils'
+import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import { buildIntegerMatcher } from '@posthog/node-common/config/matchers'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
-import type { DecodedAttachment } from '../hogflows/transactional-email'
-import { IntegrationManagerService } from '../managers/integration-manager.service'
-import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
@@ -47,11 +57,6 @@ import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './help
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
-import {
-    PreferencesTokenSource,
-    RecipientTokensService,
-    preferencesTokenSourceForInvocation,
-} from './recipient-tokens.service'
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',

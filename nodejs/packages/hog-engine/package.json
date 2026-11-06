@@ -1,0 +1,79 @@
+{
+    "name": "@posthog/hog-engine",
+    "version": "0.0.0",
+    "private": true,
+    "description": "The hog transformation engine: hog function execution, legacy plugins, inputs, monitoring and the types behind them.",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/PostHog/posthog.git",
+        "directory": "nodejs/packages/hog-engine"
+    },
+    "license": "MIT",
+    "exports": {
+        "./types": {
+            "types": "./dist/types.d.ts",
+            "default": "./dist/types.js"
+        },
+        "./*": {
+            "types": "./dist/*.d.ts",
+            "default": "./dist/*.js"
+        }
+    },
+    "files": [
+        "dist",
+        "assets"
+    ],
+    "scripts": {
+        "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
+        "typescript:check": "tsc --noEmit -p .",
+        "test": "jest --runInBand --forceExit",
+        "lint": "oxlint -c ../../.oxlintrc.nodejs.json .",
+        "lint:fix": "oxlint -c ../../.oxlintrc.nodejs.json . --fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "prepublishOnly": "pnpm build"
+    },
+    "peerDependencies": {
+        "@posthog/node-common": "*"
+    },
+    "dependencies": {
+        "@google-cloud/pubsub": "4.11.0",
+        "@google-cloud/storage": "5.20.5",
+        "@posthog/hogvm": "workspace:*",
+        "@posthog/hogvm-node": "workspace:*",
+        "detect-browser": "5.3.0",
+        "fernet-nodejs": "1.0.6",
+        "jsonwebtoken": "9.0.2",
+        "liquidjs": "10.29.0",
+        "lru-cache": "11.0.2",
+        "luxon": "3.5.0",
+        "prom-client": "14.2.0",
+        "zod": "4.3.6"
+    },
+    "devDependencies": {
+        "@maxmind/geoip2-node": "3.5.0",
+        "@posthog/node-common": "workspace:*",
+        "@trivago/prettier-plugin-sort-imports": "^5.2.2",
+        "@types/jest": "30.0.0",
+        "@types/jsonwebtoken": "9.0.10",
+        "@types/long": "4.0.2",
+        "@types/luxon": "3.4.2",
+        "@types/node": "26.6.5",
+        "eslint-plugin-no-only-tests": "^3.1.0",
+        "jest": "30.0.5",
+        "jest-junit": "16.0.0",
+        "node-fetch": "2.6.9",
+        "oxlint": "1.72.0",
+        "oxlint-plugin-eslint": "1.72.0",
+        "oxlint-tsgolint": "7.0.2001",
+        "prettier": "~3.6.2",
+        "ts-jest": "29.4.9",
+        "ts-node": "10.9.1",
+        "tsc-alias": "1.8.16",
+        "tsconfig-paths": "4.2.0",
+        "typescript": "6.0.3"
+    },
+    "engines": {
+        "node": ">=26 <27"
+    }
+}

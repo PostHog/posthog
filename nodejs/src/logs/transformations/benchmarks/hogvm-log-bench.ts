@@ -1,4 +1,4 @@
-import { compileHog } from '~/cdp/templates/compiler'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
 
 import { computeBenchStats, printBenchStatsTable } from './bench-stats'
 import { BENCH_LOG_RECORDS, BENCH_PROGRAMS, buildBenchGlobals } from './fixtures'

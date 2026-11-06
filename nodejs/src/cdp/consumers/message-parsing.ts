@@ -1,11 +1,11 @@
 import { Message } from 'node-rdkafka'
 
+import { HogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/types'
 import { EVENT_NAME_HEADER, TEAM_ID_HEADER } from '@posthog/node-common/kafka/headers'
 import { logger } from '@posthog/node-common/utils/logger'
 import { isValidTeamId } from '@posthog/node-common/utils/team-manager'
 
 import { Team } from '../../types'
-import { HogFunctionInvocationGlobals } from '../types'
 import { counterParseError } from './metrics'
 
 // The loaders batch team ids from many messages into one query. One invalid id fails that query for

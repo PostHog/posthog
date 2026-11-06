@@ -2,7 +2,7 @@ import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
 
-import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cyclotron'
+import { CyclotronInvocationQueueParametersFetchSchema } from '@posthog/hog-engine/cdp/schema/cyclotron'
 
 import { registerAsyncFunction } from '../async-function-registry'
 

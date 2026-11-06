@@ -1,5 +1,5 @@
 // Assuming this path is correct from your initial file
-import { HogFunctionTemplate } from '~/cdp/types'
+import { HogFunctionTemplate } from '@posthog/hog-engine/cdp/types'
 
 interface DestinationConfig {
     name: string

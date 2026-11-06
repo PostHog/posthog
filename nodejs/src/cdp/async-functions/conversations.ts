@@ -1,10 +1,10 @@
 import { DateTime } from 'luxon'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
 
 import { AsyncFunctionContext } from '../async-function-registry'
 import { registerAsyncFunction } from '../async-function-registry'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { workflowStepDispatchKeyFromInvocation } from '../utils/workflow-step-dispatch-key'
 import { UUID_RE, callInternalApi } from './internal-api-call'
 

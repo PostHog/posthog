@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import type { InternalLogs } from './internal-logs'
+import type { InternalLogs } from '@posthog/node-common/logs/internal-logs'
 
 export type LogsIngestionMessage = {
     token: string

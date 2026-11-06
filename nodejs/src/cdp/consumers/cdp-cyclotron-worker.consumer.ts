@@ -1,19 +1,23 @@
 import { Histogram } from 'prom-client'
 
-import { instrumented } from '@posthog/node-common/tracing/tracing-utils'
-import { logger } from '@posthog/node-common/utils/logger'
-import { captureException } from '@posthog/node-common/utils/posthog'
-
-import { HealthCheckResult, PluginsServerConfig } from '../../types'
-import { JobQueue } from '../services/job-queue/job-queue.interface'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     CyclotronJobQueueKind,
-} from '../types'
-import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunction } from '../utils'
+} from '@posthog/hog-engine/cdp/types'
+import {
+    isLegacyPluginHogFunction,
+    isNativeHogFunction,
+    isSegmentPluginHogFunction,
+} from '@posthog/hog-engine/cdp/utils'
+import { instrumented } from '@posthog/node-common/tracing/tracing-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
+
+import { HealthCheckResult, PluginsServerConfig } from '../../types'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { dualWrite } from '../utils/dual-store'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 

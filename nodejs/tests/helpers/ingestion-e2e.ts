@@ -2,6 +2,8 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { KAFKA_INGESTION_WARNINGS } from '@posthog/node-common/config/kafka-topics'
 import {
     createCookielessRedisConnectionConfig,
@@ -54,8 +56,6 @@ import {
     getDefaultSessionRecordingConfig,
 } from '~/ingestion/pipelines/sessionreplay/config'
 
-import { IntegrationManagerService } from '../../src/cdp/services/managers/integration-manager.service'
-import { EncryptedFields } from '../../src/cdp/utils/encryption-utils'
 import {
     FlagEvaluationsMode,
     PipelineEvent,

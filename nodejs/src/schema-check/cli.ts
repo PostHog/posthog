@@ -1,9 +1,8 @@
 import { parseArgs } from 'util'
 
+import type { CdpConfig } from '@posthog/hog-engine/cdp/config'
 import { CommonConfig, getDefaultCommonConfig } from '@posthog/node-common/config'
 import { buildBehavioralCohortsDatabaseUrl, buildPosthogDatabaseUrl } from '@posthog/node-common/config/database-url'
-
-import type { CdpConfig } from '~/cdp/config'
 
 import {
     MigrationStore,

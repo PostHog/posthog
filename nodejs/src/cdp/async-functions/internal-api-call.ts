@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
+import { RETRIABLE_STATUS_CODES, fetchErrorDetail, isTimeoutError } from '@posthog/hog-engine/cdp/utils/cdp-fetch'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { internalFetch } from '@posthog/node-common/utils/request'
 
 import { AsyncFunctionContext } from '../async-function-registry'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { RETRIABLE_STATUS_CODES, fetchErrorDetail, isTimeoutError } from '../utils/cdp-fetch'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

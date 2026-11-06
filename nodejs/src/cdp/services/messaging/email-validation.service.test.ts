@@ -1,9 +1,9 @@
 import { register } from 'prom-client'
 
+import { CyclotronJobInvocationHogFunction } from '@posthog/hog-engine/cdp/types'
 import { RedisV2 } from '@posthog/node-common/redis/redis-v2'
 import { logger } from '@posthog/node-common/utils/logger'
 
-import { CyclotronJobInvocationHogFunction } from '../../types'
 import { EmailValidationService, MAX_LOCAL_CACHE_DOMAINS } from './email-validation.service'
 
 const mockResolveMx = jest.fn()

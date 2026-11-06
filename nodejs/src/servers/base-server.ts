@@ -70,7 +70,7 @@ export class ServerLifecycle {
             ...expressAppOptions,
         })
         if (this.config.HTTP_SERVER_DRAIN_TIMEOUT_MS > 0) {
-            ;(this.expressApp as ReturnType<typeof express>).uwsApp.filter((_res: unknown, change: number) => {
+            ;(this.expressApp as ReturnType<typeof express>).uwsApp.filter((_res, change) => {
                 this.openConnections += Number(change)
             })
         }

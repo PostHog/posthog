@@ -1,22 +1,25 @@
 import { Counter, Gauge } from 'prom-client'
 
+import {
+    CyclotronInvocationQueueParametersEmailType,
+    CyclotronInvocationQueueParametersSendPushNotificationType,
+    PushNotificationPayloadType,
+} from '@posthog/hog-engine/cdp/schema/cyclotron'
+import {
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    MessageAssetRow,
+} from '@posthog/hog-engine/cdp/types'
 import { MESSAGE_ASSETS_OUTPUT, MessageAssetsOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { safeClickhouseString } from '@posthog/node-common/utils/db/utils'
 import { logger } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 
-import {
-    CyclotronInvocationQueueParametersEmailType,
-    CyclotronInvocationQueueParametersSendPushNotificationType,
-    PushNotificationPayloadType,
-} from '~/cdp/schema/cyclotron'
-
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, MessageAssetRow } from '../../types'
 import { resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { escapeHtml } from './helpers/escape-html'
 
-export type { MessageAssetRow } from '../../types'
+export type { MessageAssetRow } from '@posthog/hog-engine/cdp/types'
 
 const counterMessageAssetsCaptured = new Counter({
     name: 'cdp_message_assets_captured',

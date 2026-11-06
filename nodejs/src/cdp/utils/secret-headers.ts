@@ -1,4 +1,5 @@
-import { HogFunctionType } from '../types'
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
+
 import { resolveHogFunctionInputValue } from './hog-function-inputs'
 
 export type ResolvedSecretHeaders = { ok: true; headers: Record<string, string> } | { ok: false; error: string }

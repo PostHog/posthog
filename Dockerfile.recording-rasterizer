@@ -43,6 +43,8 @@ COPY ./rust ./rust
 COPY ./common/esbuilder/ ./common/esbuilder/
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
+COPY ./nodejs/packages/hog-engine/ ./nodejs/packages/hog-engine/
+COPY ./ingestion/node/packages/common/ ./ingestion/node/packages/common/
 COPY ./nodejs/package.json ./nodejs/tsconfig.json ./nodejs/
 COPY ./common/replay-shared/package.json ./common/replay-shared/
 COPY ./common/replay-headless/package.json ./common/replay-headless/
@@ -63,7 +65,6 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
 
 COPY ./nodejs/src/ ./nodejs/src/
 COPY ./nodejs/tests/ ./nodejs/tests/
-COPY ./nodejs/assets/ ./nodejs/assets/
 COPY ./nodejs/bin/ ./nodejs/bin/
 COPY ./common/replay-shared/src/ ./common/replay-shared/src/
 COPY ./common/replay-shared/tsconfig.json ./common/replay-shared/
@@ -170,6 +171,13 @@ COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/dist /code/common/hogvm/typescript/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/node_modules /code/common/hogvm/typescript/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/package.json /code/common/hogvm/typescript/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/hog-engine/dist /code/nodejs/packages/hog-engine/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/hog-engine/node_modules /code/nodejs/packages/hog-engine/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/hog-engine/package.json /code/nodejs/packages/hog-engine/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/hog-engine/assets /code/nodejs/packages/hog-engine/assets
+COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/dist /code/ingestion/node/packages/common/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/node_modules /code/ingestion/node/packages/common/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/package.json /code/ingestion/node/packages/common/package.json
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/dist /code/nodejs/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/node_modules /code/nodejs/node_modules

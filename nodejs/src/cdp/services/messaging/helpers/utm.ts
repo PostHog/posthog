@@ -1,5 +1,5 @@
-import { HogFunctionInvocationGlobalsWithInputs } from '~/cdp/types'
-import { LiquidRenderer } from '~/cdp/utils/liquid'
+import { HogFunctionInvocationGlobalsWithInputs } from '@posthog/hog-engine/cdp/types'
+import { LiquidRenderer } from '@posthog/hog-engine/cdp/utils/liquid'
 
 import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
 import { addUtmTagsToEmailLegacy } from './utm-legacy'

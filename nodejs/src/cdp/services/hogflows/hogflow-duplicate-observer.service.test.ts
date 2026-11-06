@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { register } from 'prom-client'
 
+import { CyclotronJobInvocationHogFlow } from '@posthog/hog-engine/cdp/types'
 import { deleteKeysWithPrefix } from '@posthog/node-common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
 
@@ -8,7 +9,6 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub } from '~/types'
 
 import { createCdpValkeyShadowPools } from '../../cdp-services'
-import { CyclotronJobInvocationHogFlow } from '../../types'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 
 const WORKFLOW_ID = randomUUID()

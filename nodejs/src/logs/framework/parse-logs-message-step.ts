@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/index'
+import { INTERNAL_LOGS_HEADER } from '@posthog/node-common/logs/internal-logs'
 import { isDevEnv } from '@posthog/node-common/utils/env-utils'
 import { logger } from '@posthog/node-common/utils/logger'
 
@@ -9,7 +10,6 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import type { Team } from '~/types'
 
 import { recordLogMessageDropped } from '../ingestion-otel-metrics'
-import { INTERNAL_LOGS_HEADER } from '../internal-logs'
 import {
     logMessageDroppedCounter,
     logsRecordsBytesExceedPayloadCounter,

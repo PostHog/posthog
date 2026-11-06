@@ -3,10 +3,10 @@ import { Server } from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
+import { JWT, PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 
-import { JWT, PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { getBlockDecryptor, getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'

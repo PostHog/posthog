@@ -1,6 +1,6 @@
+import { CyclotronJobInvocationHogFunction, HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../types'
 import { createHogFunction } from './fixtures'
 import { SAMPLE_GLOBALS } from './fixtures'
 

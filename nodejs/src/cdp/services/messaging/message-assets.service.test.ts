@@ -1,13 +1,16 @@
-import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
-import { parseJSON } from '@posthog/node-common/utils/json-parse'
-
 import {
     CyclotronInvocationQueueParametersEmailType,
     CyclotronInvocationQueueParametersSendPushNotificationType,
-} from '~/cdp/schema/cyclotron'
+} from '@posthog/hog-engine/cdp/schema/cyclotron'
+import {
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    MessageAssetRow,
+} from '@posthog/hog-engine/cdp/types'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { createExampleInvocation } from '../../_tests/fixtures'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, MessageAssetRow } from '../../types'
 import { MessageAssetsService } from './message-assets.service'
 
 const buildOutputsMock = (): jest.Mocked<IngestionOutputs<'message_assets'>> =>

@@ -5,6 +5,8 @@ import { KafkaProducerObserver } from '@posthog/node-common/testing/mocks/produc
 
 import { createHmac } from 'node:crypto'
 
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '@posthog/node-common/config/kafka-topics'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
@@ -19,7 +21,6 @@ import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from '../../src/cdp/consumers/cdp-data-warehouse-events.consumer'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import {
@@ -31,7 +32,6 @@ import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { template as webhookTemplate } from './templates/_destinations/webhook/webhook.template'
-import { compileHog } from './templates/compiler'
 
 const ActualKafkaProducerWrapper = jest.requireActual('@posthog/node-common/kafka/producer').KafkaProducerWrapper
 

@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto'
 
+import { DBHogFunctionTemplate } from '@posthog/hog-engine/cdp/types'
 import { forSnapshot } from '@posthog/node-common/testing/snapshots'
 
-import { DBHogFunctionTemplate } from '~/cdp/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub } from '~/types'
 

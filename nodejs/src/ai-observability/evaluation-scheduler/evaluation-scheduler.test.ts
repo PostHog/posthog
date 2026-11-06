@@ -28,7 +28,7 @@ jest.mock('~/ai-observability/services/temporal.service', () => {
     }
 })
 jest.mock('~/ai-observability/services/evaluation-manager.service')
-jest.mock('~/cdp/utils/hog-exec')
+jest.mock('@posthog/hog-engine/cdp/utils/hog-exec')
 
 describe('Evaluation Scheduler', () => {
     const teamId = 1
@@ -150,7 +150,7 @@ describe('Evaluation Scheduler', () => {
         let mockExecHog: jest.Mock
 
         beforeEach(() => {
-            mockExecHog = require('~/cdp/utils/hog-exec').execHog as jest.Mock
+            mockExecHog = require('@posthog/hog-engine/cdp/utils/hog-exec').execHog as jest.Mock
         })
 
         it('passes person properties from event to bytecode execution globals', async () => {
@@ -235,7 +235,7 @@ describe('Evaluation Scheduler', () => {
 
         beforeEach(() => {
             matcher = new EvaluationMatcher()
-            mockExecHog = require('~/cdp/utils/hog-exec').execHog as jest.Mock
+            mockExecHog = require('@posthog/hog-engine/cdp/utils/hog-exec').execHog as jest.Mock
         })
 
         it('returns disabled when evaluation is not enabled', async () => {
@@ -485,7 +485,7 @@ describe('Evaluation Scheduler', () => {
         let mockExecHog: jest.Mock
 
         beforeEach(() => {
-            mockExecHog = require('~/cdp/utils/hog-exec').execHog as jest.Mock
+            mockExecHog = require('@posthog/hog-engine/cdp/utils/hog-exec').execHog as jest.Mock
             mockExecHog.mockResolvedValue({ execResult: { result: true } })
         })
 
@@ -520,7 +520,7 @@ describe('Evaluation Scheduler', () => {
             }) as any
 
         beforeEach(() => {
-            mockExecHog = require('~/cdp/utils/hog-exec').execHog as jest.Mock
+            mockExecHog = require('@posthog/hog-engine/cdp/utils/hog-exec').execHog as jest.Mock
             mockExecHog.mockResolvedValue({ execResult: { result: true } })
 
             evaluationManager = {
@@ -799,7 +799,7 @@ describe('Evaluation Scheduler', () => {
             }) as any
 
         beforeEach(() => {
-            mockExecHog = require('~/cdp/utils/hog-exec').execHog as jest.Mock
+            mockExecHog = require('@posthog/hog-engine/cdp/utils/hog-exec').execHog as jest.Mock
             mockExecHog.mockResolvedValue({ execResult: { result: true } })
 
             evaluationManager = {

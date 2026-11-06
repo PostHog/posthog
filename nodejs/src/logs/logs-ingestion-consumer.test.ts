@@ -10,11 +10,14 @@ import {
 import { DateTime } from 'luxon'
 import { CODES, Message } from 'node-rdkafka'
 
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_LOGS_CLICKHOUSE,
     KAFKA_LOGS_INGESTION_DLQ,
 } from '@posthog/node-common/config/kafka-topics'
+import { INTERNAL_LOGS_HEADER, INTERNAL_SOURCE_HEADER, signInternalLogs } from '@posthog/node-common/logs/internal-logs'
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
@@ -25,15 +28,12 @@ import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
 import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
-import { compileHog } from '~/cdp/templates/compiler'
-import { HogFunctionType } from '~/cdp/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub, Team } from '~/types'
 
 import { getDefaultTracesIngestionConsumerConfig } from './config'
 import * as otelMetrics from './ingestion-otel-metrics'
 import { resetLogsIngestionInstrumentsForTests } from './ingestion-otel-metrics'
-import { INTERNAL_LOGS_HEADER, INTERNAL_SOURCE_HEADER, signInternalLogs } from './internal-logs'
 import { logsPatternBodyKindCounter } from './log-pattern-stage'
 import { LogRecord, decodeLogRecords, encodeLogRecords, logsJsonAttributeSniffCounter } from './log-record-avro'
 import {

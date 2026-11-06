@@ -13,6 +13,7 @@ import * as crypto from 'crypto'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { execHog } from '@posthog/hog-engine/cdp/utils/hog-exec'
 import { KAFKA_CLICKHOUSE_AI_EVENTS_JSON, prefix as KAFKA_PREFIX } from '@posthog/node-common/config/kafka-topics'
 import { createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
@@ -31,7 +32,6 @@ import {
     resolveSettleConfig,
 } from '~/ai-observability/services/temporal.service'
 import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '~/ai-observability/types'
-import { execHog } from '~/cdp/utils/hog-exec'
 import { PluginServerService, RawKafkaEvent } from '~/types'
 
 export type EvaluationSchedulerConfig = TemporalServiceConfig &

@@ -2,6 +2,9 @@ import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '@posthog/node-common/testing/mocks/consumer.mock'
 import { mockProducerObserver } from '@posthog/node-common/testing/mocks/producer.mock'
 
+import { CdpDataWarehouseEvent } from '@posthog/hog-engine/cdp/schema'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import {
     createOrganization,
     createTeam,
@@ -10,7 +13,6 @@ import {
     updateOrganizationAvailableFeatures,
 } from '@posthog/node-common/testing/sql'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
@@ -19,9 +21,7 @@ import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { insertHogFunction as _insertHogFunction, createKafkaMessage } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
-import { CdpDataWarehouseEvent } from '../schema'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpDatawarehouseEventsConsumer } from './cdp-data-warehouse-events.consumer'
 
 jest.setTimeout(1000)

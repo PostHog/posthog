@@ -22,6 +22,10 @@ import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/types'
+import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/utils'
+import { convertToHogFunctionFilterGlobal } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
 import { setupExpressApp } from '@posthog/node-common/api/router'
 import {
     KAFKA_APP_METRICS_2,
@@ -49,7 +53,6 @@ import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as createTaskTemplate } from '~/cdp/templates/_destinations/posthog_tasks/posthog-create-task.template'
 import { template as webhookTemplate } from '~/cdp/templates/_destinations/webhook/webhook.template'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -93,9 +96,6 @@ import { JobQueue } from './services/job-queue/job-queue.interface'
 import { createFrequencyCapValkeyPool } from './services/messaging/frequency-cap-valkey-pool'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
-import { HogFunctionInvocationGlobals } from './types'
-import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from './utils'
-import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 const ActualKafkaProducerWrapper = jest.requireActual('@posthog/node-common/kafka/producer').KafkaProducerWrapper
 

@@ -1,6 +1,7 @@
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
-import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { findActionByType } from '../hogflow-utils'
 import { ActionHandlerResult } from './action.interface'

@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import type { InvocationBuildFailure } from '../../types'
+import type { InvocationBuildFailure } from '@posthog/hog-engine/cdp/types'
+
 import {
     partitionReplayFailures,
     readDeadLetterRecord,

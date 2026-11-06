@@ -1,13 +1,13 @@
+import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { IntegrationType } from '@posthog/hog-engine/cdp/types'
 import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
 import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 
-import { IntegrationType } from '~/cdp/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub } from '~/types'
 
 import { insertIntegration } from '../../_tests/fixtures'
-import { IntegrationManagerService } from './integration-manager.service'
 
 describe('IntegrationManager', () => {
     jest.setTimeout(2000)

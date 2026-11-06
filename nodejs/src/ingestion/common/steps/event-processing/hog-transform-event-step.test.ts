@@ -1,8 +1,11 @@
+import {
+    HogTransformerService,
+    TransformationResult,
+} from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 import { createTestPluginEvent } from '@posthog/node-common/testing/plugin-event'
 import { createTestTeam } from '@posthog/node-common/testing/team'
 
-import { HogTransformerService, TransformationResult } from '~/cdp/hog-transformations/hog-transformer.service'
 import { PipelineResultType, isDropResult, isOkResult } from '~/ingestion/framework/results'
 
 import { HogTransformEventInput, createHogTransformEventStep } from './hog-transform-event-step'

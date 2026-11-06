@@ -2,10 +2,10 @@ import avro from 'avsc'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
+import { INTERNAL_LOGS_HEADER, signInternalLogs } from '@posthog/node-common/logs/internal-logs'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsumerConfig } from '../config'
-import { INTERNAL_LOGS_HEADER, signInternalLogs } from '../internal-logs'
 import { encodeLogRecords } from '../log-record-avro'
 import { librdKafkaError } from './parity-harness'
 import type { ParityError, ParityHeader, ParityMessage, ParityScenario, ParityTeam } from './parity-types'

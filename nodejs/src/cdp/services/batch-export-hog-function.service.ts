@@ -1,24 +1,24 @@
 import { z } from 'zod'
 
-import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
-import { TeamManager } from '@posthog/node-common/utils/team-manager'
-import { UUID, UUIDT } from '@posthog/node-common/utils/utils'
-
-import { RawClickHouseEvent, Team } from '../../types'
+import { HogFunctionManagerService } from '@posthog/hog-engine/cdp/services/managers/hog-function-manager.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionInvocationGlobals,
     HogFunctionType,
-} from '../types'
-import { convertToHogFunctionInvocationGlobals } from '../utils'
+} from '@posthog/hog-engine/cdp/types'
+import { convertToHogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/utils'
+import { HogConfigurationError } from '@posthog/hog-engine/cdp/utils/hog-error-classification'
+import { createInputsFailureResult, createInvocation } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+import { UUID, UUIDT } from '@posthog/node-common/utils/utils'
+
+import { RawClickHouseEvent, Team } from '../../types'
 import { dualWrite } from '../utils/dual-store'
-import { HogConfigurationError } from '../utils/hog-error-classification'
-import { createInputsFailureResult, createInvocation } from '../utils/invocation-utils'
 import { HogExecutorAsyncService } from './hog-executor-async.service'
 import { InvocationResultsService } from './invocation-results.service'
 import { GroupsManagerService } from './managers/groups-manager.service'
-import { HogFunctionManagerService } from './managers/hog-function-manager.service'
 import { HogWatcherService } from './monitoring/hog-watcher.service'
 
 // TODO: This might be too strict so we need to validate that it matches well what we would expect to get from batch exports

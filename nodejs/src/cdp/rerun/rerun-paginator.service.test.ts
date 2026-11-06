@@ -3,6 +3,13 @@ import { MockKafkaProducerWrapper } from '@posthog/node-common/testing/mocks/pro
 import { ClickHouseClient } from '@clickhouse/client'
 import { DateTime } from 'luxon'
 
+import { HogFunctionManagerService } from '@posthog/hog-engine/cdp/services/managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
+import {
+    CyclotronJobInvocationHogFunction,
+    HogFunctionInvocationGlobals,
+    HogFunctionType,
+} from '@posthog/hog-engine/cdp/types'
 import { KAFKA_HOG_INVOCATION_RESULTS } from '@posthog/node-common/config/kafka-topics'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
@@ -21,10 +28,7 @@ import { createCdpOutputsRegistry } from '../outputs/registry'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
-import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
-import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { RERUN_MAX_CONSECUTIVE_PAGE_ERRORS, RERUN_PAGE_SIZE, RerunJobState } from './rerun-job.types'
 import { RerunPaginatorService } from './rerun-paginator.service'
 

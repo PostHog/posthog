@@ -1,11 +1,11 @@
 import { Gauge } from 'prom-client'
 
+import { CyclotronJobInvocationResult, WarehouseWebhookPayload } from '@posthog/hog-engine/cdp/types'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { logger } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 
 import { WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT, WarehouseSourceWebhooksOutput } from '../../outputs/outputs'
-import { CyclotronJobInvocationResult, WarehouseWebhookPayload } from '../../types'
 
 const warehouseWebhookPendingPayloads = new Gauge({
     name: 'cdp_warehouse_webhook_pending_payloads',

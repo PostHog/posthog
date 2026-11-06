@@ -1,3 +1,11 @@
+import {
+    HogTransformerService,
+    HogTransformerServiceConfig,
+    HogTransformerServiceDeps,
+    createHogTransformerService,
+} from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
+import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { initializePrometheusLabels } from '@posthog/node-common/api/router'
 import { CommonConfig } from '@posthog/node-common/config'
 import {
@@ -31,7 +39,6 @@ import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
 import { PubSub } from '@posthog/node-common/utils/pubsub'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
-import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
@@ -67,13 +74,6 @@ import {
 } from '~/ingestion/pipelines/analytics/joined-ingestion-pipeline'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 
-import {
-    HogTransformerService,
-    HogTransformerServiceConfig,
-    HogTransformerServiceDeps,
-    createHogTransformerService,
-} from '../cdp/hog-transformations/hog-transformer.service'
-import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { FeedOrderSentinel } from '../ingestion/api/feed-order-sentinel'
 import { WorkerIngestServer } from '../ingestion/api/grpc-server'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'

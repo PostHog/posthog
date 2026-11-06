@@ -3,12 +3,10 @@ import { Resolver } from 'node:dns/promises'
 import { domainToASCII } from 'node:url'
 import { Counter } from 'prom-client'
 
+import { HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFunction } from '@posthog/hog-engine/cdp/types'
 import { RedisV2 } from '@posthog/node-common/redis/redis-v2'
 import { checkOobDomain } from '@posthog/node-common/utils/oob-domains'
-
-import { HogFlowAction } from '~/cdp/schema/hogflow'
-
-import { CyclotronJobInvocationHogFunction } from '../../types'
 
 const cdpEmailMxValidationTotal = new Counter({
     name: 'cdp_email_mx_validation_total',

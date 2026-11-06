@@ -1,7 +1,8 @@
+import { CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
+import { createInvocation } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
-import { CyclotronJobInvocationResult } from '../../types'
-import { createInvocation } from '../../utils/invocation-utils'
 import { createInvocationSanitizer, sanitizeInvocationForPersistence } from './shared'
 
 describe('sanitizeInvocationForPersistence', () => {

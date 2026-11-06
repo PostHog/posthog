@@ -4,6 +4,8 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { DateTime } from 'luxon'
 
+import { DESTINATION_PLUGINS_BY_ID } from '@posthog/hog-engine/cdp/legacy-plugins/index'
+import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import { RetryError } from '@posthog/node-common/plugin-scaffold'
 import { forSnapshot } from '@posthog/node-common/testing/snapshots'
 import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
@@ -17,8 +19,6 @@ import {
     createExampleInvocation,
     createHogExecutionGlobals,
 } from '../_tests/fixtures'
-import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
-import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 jest.setTimeout(1000)

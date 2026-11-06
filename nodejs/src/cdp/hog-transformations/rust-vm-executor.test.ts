@@ -1,8 +1,8 @@
+import { resetHogvmNodeModuleCacheForTests } from '@posthog/hog-engine/cdp/hog-transformations/rust-vm'
+import { MAX_REGISTERED_PROGRAMS, RustVmExecutor } from '@posthog/hog-engine/cdp/hog-transformations/rust-vm-executor'
 import { logger } from '@posthog/node-common/utils/logger'
 
 import { createExampleInvocation } from '../_tests/fixtures'
-import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
-import { MAX_REGISTERED_PROGRAMS, RustVmExecutor } from './rust-vm-executor'
 
 jest.mock('@posthog/hogvm-node', () => ({
     init: jest.fn(),

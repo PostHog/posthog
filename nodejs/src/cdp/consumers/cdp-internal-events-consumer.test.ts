@@ -2,9 +2,10 @@ import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '@posthog/node-common/testing/mocks/consumer.mock'
 import '@posthog/node-common/testing/mocks/producer.mock'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import { createOrganization, createTeam, createTestTeamFixture, getTeam } from '@posthog/node-common/testing/sql'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
@@ -19,7 +20,6 @@ import {
 } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
-import { HogFunctionType } from '../types'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 
 describe('CDP Internal Events Consumer', () => {

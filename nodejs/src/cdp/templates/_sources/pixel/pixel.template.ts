@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '~/cdp/types'
+import { HogFunctionTemplate } from '@posthog/hog-engine/cdp/types'
 
 import { WITHOUT_CREDENTIALS_HOG } from '../without-credentials'
 

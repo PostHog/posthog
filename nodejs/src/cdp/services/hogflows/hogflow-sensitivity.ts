@@ -1,4 +1,4 @@
-import { HogFlow } from '../../schema/hogflow'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
 
 // The trigger event of every transactional email run. Among emails, only transactional templates can be sensitive.
 export const TRANSACTIONAL_EMAIL_EVENT = '$transactional_email'

@@ -1,8 +1,12 @@
 import { Counter } from 'prom-client'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import {
+    ConversionWatcherRow,
+    CyclotronJobInvocationHogFlow,
+    PinnedConversionGoal,
+} from '@posthog/hog-engine/cdp/types'
 
-import { ConversionWatcherRow, CyclotronJobInvocationHogFlow, PinnedConversionGoal } from '../../types'
 import { durationSeconds } from './duration'
 import { hasEventOrActionTarget } from './hogflow-utils'
 

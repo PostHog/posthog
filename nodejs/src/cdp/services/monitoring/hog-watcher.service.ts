@@ -1,19 +1,18 @@
 import { Counter } from 'prom-client'
 
-import { RedisClientPipeline, RedisV2, getRedisPipelineResults } from '@posthog/node-common/redis/redis-v2'
-import { KeyedRateLimiterService } from '@posthog/node-common/services/keyed-rate-limiter.service'
-import { LazyLoader } from '@posthog/node-common/utils/lazy-loader'
-import { logger } from '@posthog/node-common/utils/logger'
-import { captureTeamEvent } from '@posthog/node-common/utils/posthog'
-import { TeamManager } from '@posthog/node-common/utils/team-manager'
-
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionTiming,
     HogFunctionType,
-} from '../../types'
+} from '@posthog/hog-engine/cdp/types'
+import { RedisClientPipeline, RedisV2, getRedisPipelineResults } from '@posthog/node-common/redis/redis-v2'
+import { KeyedRateLimiterService } from '@posthog/node-common/services/keyed-rate-limiter.service'
+import { LazyLoader } from '@posthog/node-common/utils/lazy-loader'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureTeamEvent } from '@posthog/node-common/utils/posthog'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
 export interface HogWatcherConfig {
     hogCostTimingLowerMs: number

@@ -1,13 +1,12 @@
 import { createHash } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
 
+import { EmailAttachmentMetadata } from '@posthog/hog-engine/cdp/schema/cyclotron'
+import type { DecodedAttachment } from '@posthog/hog-engine/cdp/services/hogflows/transactional-email'
 import { logger } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 
-import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { LazyPool } from '~/cdp/utils/lazy-pool'
-
-import type { DecodedAttachment } from '../hogflows/transactional-email'
 
 export const EMAIL_ATTACHMENTS_MAX_CONNECTIONS = 5
 

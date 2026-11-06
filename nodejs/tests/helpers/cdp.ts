@@ -1,5 +1,11 @@
 import { mockProducer } from '@posthog/node-common/testing/mocks/producer.mock'
 
+import {
+    CdpProducerName,
+    WAREHOUSE_PRODUCER,
+    WARPSTREAM_CYCLOTRON_PRODUCER,
+    WARPSTREAM_INGESTION_PRODUCER,
+} from '@posthog/hog-engine/cdp/outputs/producers'
 import { GroupReadRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
@@ -7,12 +13,6 @@ import { PersonReadRepository } from '@posthog/node-common/persons/repositories/
 import { InternalCaptureService } from '@posthog/node-common/services/internal-capture'
 
 import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'
-import {
-    CdpProducerName,
-    WAREHOUSE_PRODUCER,
-    WARPSTREAM_CYCLOTRON_PRODUCER,
-    WARPSTREAM_INGESTION_PRODUCER,
-} from '../../src/cdp/outputs/producers'
 import { createFrequencyCapValkeyPool } from '../../src/cdp/services/messaging/frequency-cap-valkey-pool'
 import { createSesRateLimiterValkeyPool } from '../../src/cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { Hub } from '../../src/types'

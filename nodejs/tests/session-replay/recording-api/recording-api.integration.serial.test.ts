@@ -31,12 +31,12 @@ import snappy from 'snappy'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
+import { JWT, PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
 import { setupExpressApp } from '@posthog/node-common/api/router'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
-import { JWT, PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { DynamoDBKeyStore, MemoryKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { MemoryCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'

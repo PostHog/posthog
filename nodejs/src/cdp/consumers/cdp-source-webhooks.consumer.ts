@@ -1,19 +1,6 @@
 import { DateTime } from 'luxon'
 
-import type { ModifiedRequest } from '@posthog/node-common/api/router'
-import { instrumented } from '@posthog/node-common/tracing/tracing-utils'
-import { logger } from '@posthog/node-common/utils/logger'
-import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
-import { UUID, UUIDT } from '@posthog/node-common/utils/utils'
-
-import { HogFlow } from '~/cdp/schema/hogflow'
-
-import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
-import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
-import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
-import { IdempotencyKeys } from '../services/hogflows/idempotency-keys'
-import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { HogWatcherFunctionState, HogWatcherState, sameWatcherState } from '../services/monitoring/hog-watcher.service'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -22,10 +9,22 @@ import {
     HogFunctionType,
     LogEntryLevel,
     MinimalAppMetric,
-} from '../types'
-import { logEntry } from '../utils'
+} from '@posthog/hog-engine/cdp/types'
+import { logEntry } from '@posthog/hog-engine/cdp/utils'
+import { createInvocation, createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import type { ModifiedRequest } from '@posthog/node-common/api/router'
+import { instrumented } from '@posthog/node-common/tracing/tracing-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { UUID, UUIDT } from '@posthog/node-common/utils/utils'
+
+import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
+import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
+import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
+import { IdempotencyKeys } from '../services/hogflows/idempotency-keys'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { HogWatcherFunctionState, HogWatcherState, sameWatcherState } from '../services/monitoring/hog-watcher.service'
 import { dualRead, dualWrite } from '../utils/dual-store'
-import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 const DISALLOWED_HEADERS = [

@@ -2,12 +2,11 @@ import { createHash } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
 import { setTimeout as delay } from 'timers/promises'
 
+import type { CdpConfig } from '@posthog/hog-engine/cdp/config'
 import type { CommonConfig } from '@posthog/node-common/config'
 import { RedisClient, RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
-
-import type { CdpConfig } from '../../config'
 
 // Covers a caller's timeout and retry. After this a pending key expires, so a crash after the queue
 // write and before the run is recorded can cost a duplicate, but never a send the caller thinks happened.

@@ -1,8 +1,7 @@
+import { DBHogFunctionTemplate } from '@posthog/hog-engine/cdp/types'
 import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { LazyLoader } from '@posthog/node-common/utils/lazy-loader'
 import { logger } from '@posthog/node-common/utils/logger'
-
-import { DBHogFunctionTemplate } from '../../types'
 
 const HOG_FUNCTION_TEMPLATE_FIELDS = ['id', 'template_id', 'sha', 'name', 'inputs_schema', 'bytecode', 'type', 'free']
 

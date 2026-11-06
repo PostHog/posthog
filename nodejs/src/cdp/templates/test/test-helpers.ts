@@ -2,25 +2,14 @@ import Chance from 'chance'
 import { merge as mergeDeep } from 'lodash'
 import { Settings } from 'luxon'
 
-import { GeoIPService, GeoIp } from '@posthog/node-common/utils/geoip'
-
-import { getTransformationFunctions } from '~/cdp/hog-transformations/transformation-functions'
-import { CyclotronInputType } from '~/cdp/schema/cyclotron'
-import { HogFlow } from '~/cdp/schema/hogflow'
-import { formatLiquidInput } from '~/cdp/services/hog-inputs.service'
-import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
-import { isNativeHogFunction } from '~/cdp/utils'
-import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
-import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
-import { defaultConfig } from '~/common/config/config'
-
-import { PluginsServerConfig } from '../../../types'
-import { HogExecutorAsyncService } from '../../services/hog-executor-async.service'
-import { HogExecutorService } from '../../services/hog-executor.service'
-import { HogInputsService } from '../../services/hog-inputs.service'
-import { EmailService } from '../../services/messaging/email.service'
-import { EmailTrackingCodeSigner } from '../../services/messaging/helpers/tracking-code'
-import { RecipientTokensService } from '../../services/messaging/recipient-tokens.service'
+import { getTransformationFunctions } from '@posthog/hog-engine/cdp/hog-transformations/transformation-functions'
+import { CyclotronInputType } from '@posthog/hog-engine/cdp/schema/cyclotron'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogExecutorService } from '@posthog/hog-engine/cdp/services/hog-executor.service'
+import { formatLiquidInput } from '@posthog/hog-engine/cdp/services/hog-inputs.service'
+import { HogInputsService } from '@posthog/hog-engine/cdp/services/hog-inputs.service'
+import { RecipientTokensService } from '@posthog/hog-engine/cdp/services/messaging/recipient-tokens.service'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -32,9 +21,20 @@ import {
     HogFunctionType,
     MinimalLogEntry,
     NativeTemplate,
-} from '../../types'
-import { cloneInvocation, createInvocation } from '../../utils/invocation-utils'
-import { compileHog } from '../compiler'
+} from '@posthog/hog-engine/cdp/types'
+import { isNativeHogFunction } from '@posthog/hog-engine/cdp/utils'
+import { cloneInvocation, createInvocation } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import { PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
+import { GeoIPService, GeoIp } from '@posthog/node-common/utils/geoip'
+
+import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
+import { defaultConfig } from '~/common/config/config'
+
+import { PluginsServerConfig } from '../../../types'
+import { HogExecutorAsyncService } from '../../services/hog-executor-async.service'
+import { EmailService } from '../../services/messaging/email.service'
+import { EmailTrackingCodeSigner } from '../../services/messaging/helpers/tracking-code'
 
 /**
  * Sets templating value of 'hog' or 'liquid' on hog inputs based on the template used.

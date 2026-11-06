@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
+import { InternalLogsVerifier } from '@posthog/node-common/logs/internal-logs'
 import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
 import { AppMetricsAggregator } from '@posthog/node-common/services/app-metrics-aggregator'
 import { QuotaResource } from '@posthog/node-common/services/quota-limiting.service'
@@ -11,7 +12,6 @@ import type { LogsSettings } from '~/types'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
 import { LogsIngestionConsumerConfig } from '../config'
-import { InternalLogsVerifier } from '../internal-logs'
 import {
     DEFAULT_LOGS_RETENTION_DAYS,
     LogsIngestionConsumerDeps,

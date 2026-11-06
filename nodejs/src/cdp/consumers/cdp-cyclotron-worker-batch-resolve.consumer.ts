@@ -1,13 +1,19 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow } from '@posthog/hog-engine/cdp/types'
+import {
+    convertAccountBatchHogFlowRequestToHogFunctionInvocationGlobals,
+    convertBatchHogFlowRequestToHogFunctionInvocationGlobals,
+    logEntry,
+} from '@posthog/hog-engine/cdp/utils'
+import { convertToHogFunctionFilterGlobal } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
 import { InternalFetchService } from '@posthog/node-common/services/internal-fetch'
 import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
 import { logger, serializeError } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 import { UUIDT } from '@posthog/node-common/utils/utils'
-
-import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig, Team } from '../../types'
 import type { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Worker } from '../services/cyclotron-v2'
@@ -24,13 +30,6 @@ import {
 import { hasSensitiveMessageStep } from '../services/hogflows/hogflow-sensitivity'
 import { RealtimeCohortAudienceService } from '../services/hogflows/realtime-cohort-audience.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
-import { CyclotronJobInvocationHogFlow } from '../types'
-import {
-    convertAccountBatchHogFlowRequestToHogFunctionInvocationGlobals,
-    convertBatchHogFlowRequestToHogFunctionInvocationGlobals,
-    logEntry,
-} from '../utils'
-import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterBatchHogFlowTriggerFailed } from './metrics'
 

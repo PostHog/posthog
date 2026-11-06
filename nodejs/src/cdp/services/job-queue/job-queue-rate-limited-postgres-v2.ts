@@ -1,4 +1,5 @@
-import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
+import { CyclotronJobInvocation, CyclotronJobQueueKind } from '@posthog/hog-engine/cdp/types'
+
 import { CyclotronV2BatchLimit, CyclotronV2RateLimitedWorker, CyclotronV2Worker } from '../cyclotron-v2'
 import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'

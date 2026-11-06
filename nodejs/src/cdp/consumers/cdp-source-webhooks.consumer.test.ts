@@ -7,6 +7,13 @@ import { DateTime, Settings } from 'luxon'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
+import {
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    HogFunctionType,
+} from '@posthog/hog-engine/cdp/types'
 import { setupExpressApp } from '@posthog/node-common/api/router'
 import { KAFKA_HOG_INVOCATION_RESULTS } from '@posthog/node-common/config/kafka-topics'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
@@ -16,10 +23,8 @@ import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
-import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.template'
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
 import { defaultConfig } from '~/common/config/config'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -30,7 +35,6 @@ import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { getCustomHttpResponse } from '../consumers/cdp-source-webhooks.consumer'
 import { createIdempotencyValkeyPool } from '../services/hogflows/idempotency-keys'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
-import { compileHog } from '../templates/compiler'
 import { compileInputs } from '../templates/test/test-helpers'
 
 describe('getCustomHttpResponse', () => {

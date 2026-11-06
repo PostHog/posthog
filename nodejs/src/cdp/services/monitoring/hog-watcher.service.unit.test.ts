@@ -1,8 +1,8 @@
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
+import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
 import { RedisClientPipeline, RedisV2 } from '@posthog/node-common/redis/redis-v2'
 
 import { createExampleInvocation } from '../../_tests/fixtures'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'
-import { createInvocationResult } from '../../utils/invocation-utils'
 import {
     HogWatcherConfig,
     HogWatcherService,

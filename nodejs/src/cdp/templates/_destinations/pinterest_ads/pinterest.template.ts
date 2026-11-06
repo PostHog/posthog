@@ -1,4 +1,4 @@
-import { HogFunctionInputSchemaType, HogFunctionTemplate } from '~/cdp/types'
+import { HogFunctionInputSchemaType, HogFunctionTemplate } from '@posthog/hog-engine/cdp/types'
 
 // Based on https://developers.pinterest.com/docs/api/v5/events-create
 

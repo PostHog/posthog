@@ -2,14 +2,8 @@ import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { getTeamMemberUserId, insertRow, uniqueTestId } from '@posthog/node-common/testing/sql'
-import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
-import { UUIDT } from '@posthog/node-common/utils/utils'
-
-import { ClickHousePerson, ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
-import { CohortMembershipChange } from '../consumers/cdp-cohort-membership.consumer'
-import { CdpInternalEvent } from '../schema'
-import { compileHog } from '../templates/compiler'
+import { CdpInternalEvent } from '@posthog/hog-engine/cdp/schema'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobQueueKind,
@@ -19,7 +13,13 @@ import {
     HogFunctionTemplateCompiled,
     HogFunctionType,
     IntegrationType,
-} from '../types'
+} from '@posthog/hog-engine/cdp/types'
+import { getTeamMemberUserId, insertRow, uniqueTestId } from '@posthog/node-common/testing/sql'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
+import { ClickHousePerson, ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
+import { CohortMembershipChange } from '../consumers/cdp-cohort-membership.consumer'
 
 export const SAMPLE_GLOBALS = {
     event: {

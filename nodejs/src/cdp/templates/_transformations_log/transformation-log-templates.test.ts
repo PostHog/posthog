@@ -1,3 +1,4 @@
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import type { LogRecord } from '~/logs/log-record-avro'
@@ -7,7 +8,6 @@ import {
     executeLogTransformation,
 } from '~/logs/transformations/hog-log-exec'
 
-import { compileHog } from '../compiler'
 import { template as logDefaultTemplate } from './default/default.template'
 import { template as logDropBySeverityTemplate } from './drop-by-severity/drop-by-severity.template'
 import { template as logPiiScrubTemplate } from './pii-scrub/pii-scrub.template'

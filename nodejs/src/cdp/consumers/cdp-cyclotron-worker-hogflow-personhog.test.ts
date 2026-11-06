@@ -2,23 +2,23 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { DateTime } from 'luxon'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+    HogFlowInvocationContext,
+} from '@posthog/hog-engine/cdp/types'
 import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
 import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
-import {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFlow,
-    CyclotronJobInvocationResult,
-    HogFlowInvocationContext,
-} from '../types'
 import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
 
 jest.setTimeout(1000)

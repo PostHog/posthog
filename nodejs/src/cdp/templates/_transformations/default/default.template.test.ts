@@ -1,4 +1,4 @@
-import { HogFunctionInvocationGlobals } from '~/cdp/types'
+import { HogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/types'
 
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './default.template'

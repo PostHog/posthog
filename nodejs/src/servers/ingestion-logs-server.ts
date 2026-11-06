@@ -1,3 +1,9 @@
+import { HogFunctionManagerService } from '@posthog/hog-engine/cdp/services/managers/hog-function-manager.service'
+import {
+    TransformationsMonitoringConfig,
+    createTransformationsMonitoringService,
+} from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { CommonConfig } from '@posthog/node-common/config'
 import { createPosthogRedisConnectionConfig } from '@posthog/node-common/config/redis-pools'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
@@ -37,12 +43,6 @@ import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
 import { SamplingRulesCache } from '~/logs/sampling/sampling-rules-cache'
 import { LogsTransformerService } from '~/logs/transformations/logs-transformer.service'
 
-import { HogFunctionManagerService } from '../cdp/services/managers/hog-function-manager.service'
-import {
-    TransformationsMonitoringConfig,
-    createTransformationsMonitoringService,
-} from '../cdp/services/monitoring/hog-function-monitoring.service'
-import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { PluginServerService, RedisPool } from '../types'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'

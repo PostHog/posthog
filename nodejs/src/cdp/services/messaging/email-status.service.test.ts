@@ -1,11 +1,11 @@
 import { register } from 'prom-client'
 
+import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { EmailStatusOutput } from '../../outputs/outputs'
-import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { EmailStatus, EmailStatusService, EmailStatusUpdate, buildEmailStatusRow } from './email-status.service'
 

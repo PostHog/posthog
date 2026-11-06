@@ -1,3 +1,7 @@
+import {
+    RecipientGetArgs,
+    RecipientsManagerService,
+} from '@posthog/hog-engine/cdp/services/managers/recipients-manager.service'
 import { createTeam, createTestTeamFixture, getTeam } from '@posthog/node-common/testing/sql'
 import { INVALID_TEAM_ID_KEYS } from '@posthog/node-common/testing/team'
 import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
@@ -5,8 +9,6 @@ import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub, Team } from '~/types'
-
-import { RecipientGetArgs, RecipientsManagerService } from './recipients-manager.service'
 
 describe('RecipientsManager', () => {
     let hub: Hub

@@ -1,16 +1,19 @@
+import {
+    geoipNoopResult,
+    hogTransformationGeoipNoopSkips,
+} from '@posthog/hog-engine/cdp/hog-transformations/geoip-noop'
+import { RustVmExecutor } from '@posthog/hog-engine/cdp/hog-transformations/rust-vm-executor'
+import { getTransformationFunctions } from '@posthog/hog-engine/cdp/hog-transformations/transformation-functions'
+import { HogExecutorService } from '@posthog/hog-engine/cdp/services/hog-executor.service'
+import { HogInputsService } from '@posthog/hog-engine/cdp/services/hog-inputs.service'
+import { template as geoipTemplate } from '@posthog/hog-engine/cdp/templates/_transformations/geoip/geoip.template'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
+import { CyclotronJobInvocationResult, HogFunctionType } from '@posthog/hog-engine/cdp/types'
+import { createInvocation } from '@posthog/hog-engine/cdp/utils/invocation-utils'
 import { GeoIPService } from '@posthog/node-common/utils/geoip'
 
 import shippedSources from '../../../tests/fixtures/geoip-template-sources.json'
 import { createHogFunction } from '../_tests/fixtures'
-import { HogExecutorService } from '../services/hog-executor.service'
-import { HogInputsService } from '../services/hog-inputs.service'
-import { template as geoipTemplate } from '../templates/_transformations/geoip/geoip.template'
-import { compileHog } from '../templates/compiler'
-import { CyclotronJobInvocationResult, HogFunctionType } from '../types'
-import { createInvocation } from '../utils/invocation-utils'
-import { geoipNoopResult, hogTransformationGeoipNoopSkips } from './geoip-noop'
-import { RustVmExecutor } from './rust-vm-executor'
-import { getTransformationFunctions } from './transformation-functions'
 
 const VALID_IP = '89.160.20.129'
 const NOOP_LOG = 'geoip disabled or no ip.'

@@ -1,3 +1,5 @@
+import { CyclotronJobInvocationHogFunctionContext, MinimalLogEntry } from '@posthog/hog-engine/cdp/types'
+import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import * as requestModule from '@posthog/node-common/utils/request'
 
@@ -5,8 +7,6 @@ import { defaultConfig } from '~/common/config/config'
 
 import { createExampleInvocation } from '../_tests/fixtures'
 import { AsyncFunctionContext, getAsyncFunctionHandler } from '../async-function-registry'
-import { CyclotronJobInvocationHogFunctionContext, MinimalLogEntry } from '../types'
-import { createInvocationResult } from '../utils/invocation-utils'
 import './create-customer-task'
 
 describe('postHogCreateCustomerTask', () => {

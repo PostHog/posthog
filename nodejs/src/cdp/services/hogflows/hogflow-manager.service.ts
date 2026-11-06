@@ -1,5 +1,7 @@
 import { Counter } from 'prom-client'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { DEFAULT_LOADER_RETRY, LazyLoader } from '@posthog/node-common/utils/lazy-loader'
@@ -8,10 +10,7 @@ import { captureException } from '@posthog/node-common/utils/posthog'
 import { PubSub } from '@posthog/node-common/utils/pubsub'
 import { validTeamIds } from '@posthog/node-common/utils/team-manager'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
 import { Team } from '~/types'
-
-import { EncryptedFields } from '../../utils/encryption-utils'
 
 // Nonzero means a flow's encrypted secret inputs couldn't be decrypted (most likely Fernet key skew
 // between Django and the workers, or a corrupt blob). The flow still runs, but its secret-input steps

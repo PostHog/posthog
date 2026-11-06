@@ -2,6 +2,7 @@ import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '@posthog/node-common/testing/mocks/consumer.mock'
 import '@posthog/node-common/testing/mocks/producer.mock'
 
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import { forSnapshot } from '@posthog/node-common/testing/snapshots'
 import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 
@@ -16,7 +17,6 @@ import {
     createHogFunction,
     createKafkaMessage,
 } from '../_tests/fixtures'
-import { HogFunctionType } from '../types'
 import { CdpPersonUpdatesConsumer } from './cdp-person-updates-consumer'
 
 describe('CDP Person Updates Consumer', () => {

@@ -5,6 +5,14 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { register } from 'prom-client'
 
+import {
+    CyclotronInvocationQueueParametersEmailSchema,
+    CyclotronInvocationQueueParametersEmailType,
+} from '@posthog/hog-engine/cdp/schema/cyclotron'
+import { attachmentMetadata, decodeAttachments } from '@posthog/hog-engine/cdp/services/hogflows/transactional-email'
+import { RecipientsManagerService } from '@posthog/hog-engine/cdp/services/managers/recipients-manager.service'
+import { RecipientTokensService } from '@posthog/hog-engine/cdp/services/messaging/recipient-tokens.service'
+import { CyclotronJobInvocationHogFunction } from '@posthog/hog-engine/cdp/types'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
@@ -17,17 +25,10 @@ import { UUIDT } from '@posthog/node-common/utils/utils'
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { EmailStatusOutput } from '~/cdp/outputs/outputs'
-import {
-    CyclotronInvocationQueueParametersEmailSchema,
-    CyclotronInvocationQueueParametersEmailType,
-} from '~/cdp/schema/cyclotron'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
-import { attachmentMetadata, decodeAttachments } from '~/cdp/services/hogflows/transactional-email'
-import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
-import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { EmailAttachmentsService } from './email-attachments.service'
@@ -45,7 +46,6 @@ import {
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
-import { RecipientTokensService } from './recipient-tokens.service'
 
 class ThrottlingException extends Error {
     constructor(message: string) {

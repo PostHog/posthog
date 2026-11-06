@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '~/cdp/types'
+import { HogFunctionTemplate } from '@posthog/hog-engine/cdp/types'
 
 import { hogApiErrorMessageFn } from '../../hog-helpers'
 

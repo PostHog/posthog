@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken'
 
-import { PosthogJwtAudience } from './jwt-utils'
+import { PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
+
 import { ScopedServiceJwt } from './scoped-service-jwt'
 
 const AUDIENCE = PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED

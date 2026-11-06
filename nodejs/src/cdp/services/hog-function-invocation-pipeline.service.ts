@@ -1,3 +1,15 @@
+import { HogInputsService } from '@posthog/hog-engine/cdp/services/hog-inputs.service'
+import { HogFunctionManagerService } from '@posthog/hog-engine/cdp/services/managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    HogFunctionInvocationGlobals,
+    HogFunctionType,
+    HogFunctionTypeType,
+    MinimalAppMetric,
+} from '@posthog/hog-engine/cdp/types'
+import { buildHogFunctionInvocations } from '@posthog/hog-engine/cdp/utils/invocation-utils'
 import { RedisV2 } from '@posthog/node-common/redis/redis-v2'
 import {
     KeyedRateLimitRequest,
@@ -11,20 +23,8 @@ import { captureException } from '@posthog/node-common/utils/posthog'
 import { CdpValkeyShadowPools } from '../cdp-services'
 import { counterHogFunctionStateOnEvent, counterRateLimited } from '../consumers/metrics'
 import { shouldBlockInvocationDueToQuota } from '../consumers/quota-limiting-helper'
-import {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFunction,
-    HogFunctionInvocationGlobals,
-    HogFunctionType,
-    HogFunctionTypeType,
-    MinimalAppMetric,
-} from '../types'
 import { dualRead } from '../utils/dual-store'
-import { buildHogFunctionInvocations } from '../utils/invocation-utils'
 import { InvocationFailureSink } from './dead-letter/cdp-dead-letter.service'
-import { HogInputsService } from './hog-inputs.service'
-import { HogFunctionManagerService } from './managers/hog-function-manager.service'
-import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
 import { CdpUsageReporterService } from './usage/cdp-usage-reporter.service'

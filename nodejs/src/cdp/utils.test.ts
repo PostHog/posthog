@@ -1,9 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { Team } from '../types'
-import { createIncomingEvent } from './_tests/fixtures'
-import { CdpInternalEvent } from './schema'
-import { LogEntry, MinimalLogEntry } from './types'
+import { CdpInternalEvent } from '@posthog/hog-engine/cdp/schema'
+import { LogEntry, MinimalLogEntry } from '@posthog/hog-engine/cdp/types'
 import {
     convertInternalEventToHogFunctionInvocationGlobals,
     convertToHogFunctionInvocationGlobals,
@@ -13,7 +11,10 @@ import {
     gzipObject,
     sanitizeLogMessage,
     unGzipObject,
-} from './utils'
+} from '@posthog/hog-engine/cdp/utils'
+
+import { Team } from '../types'
+import { createIncomingEvent } from './_tests/fixtures'
 
 describe('Utils', () => {
     test.each(['$error_tracking_issue_created', '$error_tracking_issue_reopened', '$error_tracking_issue_spiking'])(

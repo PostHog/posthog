@@ -1,11 +1,11 @@
-import { TeamManager } from '@posthog/node-common/utils/team-manager'
-
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionInvocationGlobalsWithInputs,
     MinimalLogEntry,
-} from './types'
+} from '@posthog/hog-engine/cdp/types'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
 import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
 export type AsyncFunctionContext = {

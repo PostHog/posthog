@@ -3,6 +3,13 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { DateTime } from 'luxon'
 
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
+import {
+    CyclotronJobInvocationHogFunction,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionType,
+} from '@posthog/hog-engine/cdp/types'
+import { destinationE2eLagMsSummary } from '@posthog/hog-engine/cdp/utils'
 import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '@posthog/node-common/utils/event-loop-yield'
 import { UUIDT } from '@posthog/node-common/utils/utils'
@@ -18,9 +25,6 @@ import {
     createHogFunction,
     insertHogFunction,
 } from '../_tests/fixtures'
-import { compileHog } from '../templates/compiler'
-import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
-import { destinationE2eLagMsSummary } from '../utils'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 jest.setTimeout(1000)

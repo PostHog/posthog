@@ -1,11 +1,10 @@
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow, CyclotronPerson, HogFlowInvocationContext } from '@posthog/hog-engine/cdp/types'
+import { convertToHogFunctionFilterGlobal } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
 import { insertRow } from '@posthog/node-common/testing/sql'
 import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
-
-import { CyclotronJobInvocationHogFlow, CyclotronPerson, HogFlowInvocationContext } from '../types'
-import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { createHogExecutionGlobals } from './fixtures'
 
 export const insertHogFlow = async (postgres: PostgresRouter, hogFlow: HogFlow): Promise<HogFlow> => {

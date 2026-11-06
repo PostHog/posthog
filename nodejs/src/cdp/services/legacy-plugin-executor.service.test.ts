@@ -2,6 +2,15 @@ import { mockFetch } from '@posthog/node-common/testing/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
+import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '@posthog/hog-engine/cdp/legacy-plugins/index'
+import { LegacyDestinationPlugin, LegacyTransformationPlugin } from '@posthog/hog-engine/cdp/legacy-plugins/types'
+import { LegacyPluginExecutorService } from '@posthog/hog-engine/cdp/services/legacy-plugin-executor.service'
+import {
+    CyclotronJobInvocationHogFunction,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionType,
+    MinimalLogEntry,
+} from '@posthog/hog-engine/cdp/types'
 import { forSnapshot } from '@posthog/node-common/testing/snapshots'
 import { createTestTeamFixture, uniqueTestId } from '@posthog/node-common/testing/sql'
 import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
@@ -10,15 +19,6 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { Hub, Team } from '../../types'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
-import { LegacyDestinationPlugin, LegacyTransformationPlugin } from '../legacy-plugins/types'
-import {
-    CyclotronJobInvocationHogFunction,
-    HogFunctionInvocationGlobalsWithInputs,
-    HogFunctionType,
-    MinimalLogEntry,
-} from '../types'
-import { LegacyPluginExecutorService } from './legacy-plugin-executor.service'
 
 jest.setTimeout(1000)
 

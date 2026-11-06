@@ -1,4 +1,4 @@
-import { HogFlow, HogFlowAction } from '../schema/hogflow'
+import { HogFlow, HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
 
 // One level only: `output.verdict`, not `output.a.b`. Nested paths still resolve at resume time
 // through `result_path`, but the agent is only asked for top-level fields.

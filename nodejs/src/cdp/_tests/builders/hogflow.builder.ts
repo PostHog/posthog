@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto'
 
+import { HogFlow, HogFlowAction, HogFlowEdge } from '@posthog/hog-engine/cdp/schema/hogflow'
 import { logger } from '@posthog/node-common/utils/logger'
 
-import { HogFlow, HogFlowAction, HogFlowEdge } from '~/cdp/schema/hogflow'
 import { findActionByType } from '~/cdp/services/hogflows/hogflow-utils'
 
 import { HOG_FILTERS_EXAMPLES } from '../examples'

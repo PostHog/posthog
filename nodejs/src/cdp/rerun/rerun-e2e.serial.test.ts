@@ -6,6 +6,8 @@ import { KafkaProducerObserver } from '@posthog/node-common/testing/mocks/produc
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import { KAFKA_HOG_INVOCATION_RESULTS } from '@posthog/node-common/config/kafka-topics'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
@@ -34,8 +36,6 @@ import { CdpEventsConsumer } from '../consumers/cdp-events.consumer'
 import { CdpRerunWorkerConsumer } from '../consumers/cdp-rerun-worker.consumer'
 import { CyclotronJobQueueKafka } from '../services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
-import { compileHog } from '../templates/compiler'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { RerunJobManager } from './rerun-job.manager'
 import { RERUN_QUEUE_NAME } from './rerun-job.types'
 

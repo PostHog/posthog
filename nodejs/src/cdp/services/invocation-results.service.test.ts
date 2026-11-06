@@ -1,10 +1,11 @@
-import { CyclotronJobInvocationResult } from '../types'
+import { HogFunctionMonitoringService } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
+import { CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
+
 import { CapturedEventsService } from './captured-events/captured-events.service'
 import { ConversionWatchersService } from './conversion-watchers/conversion-watchers.service'
 import { InvocationResultsService } from './invocation-results.service'
 import { EmailStatusService } from './messaging/email-status.service'
 import { MessageAssetsService } from './messaging/message-assets.service'
-import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './monitoring/hog-invocation-results.service'
 import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service'
 

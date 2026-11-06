@@ -1,6 +1,6 @@
 import { performance } from 'perf_hooks'
 
-import { compileHog } from '~/cdp/templates/compiler'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
 
 import { encodeLogAttributeValue } from '../../attribute-value'
 import type { LogRecord } from '../../log-record-avro'

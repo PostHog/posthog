@@ -2,21 +2,9 @@ import { ClickHouseClient } from '@clickhouse/client'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { logger } from '@posthog/node-common/utils/logger'
-
-import { HogFunctionInvocationGlobalsSchema } from '../schema/cyclotron'
-import { CyclotronJobConflictError } from '../services/cyclotron-v2'
-import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
-import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
-import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
-import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
-import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
-import {
-    HogInvocationResultsService,
-    SENSITIVE_VARIABLES_OMITTED,
-    decodeInvocationGlobals,
-} from '../services/monitoring/hog-invocation-results.service'
+import { HogFunctionInvocationGlobalsSchema } from '@posthog/hog-engine/cdp/schema/cyclotron'
+import { HogFunctionManagerService } from '@posthog/hog-engine/cdp/services/managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -24,8 +12,20 @@ import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     RERUNNABLE_HOG_FUNCTION_TYPES,
-} from '../types'
-import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
+} from '@posthog/hog-engine/cdp/types'
+import { convertToHogFunctionFilterGlobal } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
+import { logger } from '@posthog/node-common/utils/logger'
+
+import { CyclotronJobConflictError } from '../services/cyclotron-v2'
+import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
+import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
+import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
+import {
+    HogInvocationResultsService,
+    SENSITIVE_VARIABLES_OMITTED,
+    decodeInvocationGlobals,
+} from '../services/monitoring/hog-invocation-results.service'
 import {
     RERUN_MAX_CONSECUTIVE_PAGE_ERRORS,
     RERUN_PAGE_SIZE,

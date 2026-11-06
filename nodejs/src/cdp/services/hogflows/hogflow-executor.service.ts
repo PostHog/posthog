@@ -2,11 +2,7 @@ import { get } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { logger } from '@posthog/node-common/utils/logger'
-import { UUIDT } from '@posthog/node-common/utils/utils'
-
-import { HogFlow, HogFlowAction, isRowScopedTrigger } from '~/cdp/schema/hogflow'
-
+import { HogFlow, HogFlowAction, isRowScopedTrigger } from '@posthog/hog-engine/cdp/schema/hogflow'
 import {
     ConversionWatcherRow,
     CyclotronJobInvocationHogFlow,
@@ -21,9 +17,15 @@ import {
     MinimalAppMetric,
     MinimalLogEntry,
     WarehouseWebhookPayload,
-} from '../../types'
-import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
-import { createInvocationResult } from '../../utils/invocation-utils'
+} from '@posthog/hog-engine/cdp/types'
+import {
+    convertToHogFunctionFilterGlobal,
+    filterFunctionInstrumented,
+} from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
+import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import {
     COHORT_MEMBERSHIP_CHANGED_EVENT,
     COHORT_MEMBERSHIP_VERSION_PROPERTY,

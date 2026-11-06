@@ -1,17 +1,17 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
 import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 
 import { Hub } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
-import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
 import { CdpCyclotronWorkerEmail } from './cdp-cyclotron-worker-email.consumer'
 
 jest.setTimeout(5000)

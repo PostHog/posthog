@@ -1,13 +1,13 @@
-import { getDefaultCommonConfig } from '@posthog/node-common/config'
-import { overrideWithEnv } from '@posthog/node-common/config/config'
-
-import { getDefaultAIObservabilityConfig } from '~/ai-observability/config'
-import { getDefaultCdpConfig } from '~/cdp/config'
+import { getDefaultCdpConfig } from '@posthog/hog-engine/cdp/config'
 import {
     getDefaultKafkaWarehouseProducerEnvConfig,
     getDefaultKafkaWarpstreamCyclotronProducerEnvConfig,
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
-} from '~/cdp/outputs/producers'
+} from '@posthog/hog-engine/cdp/outputs/producers'
+import { getDefaultCommonConfig } from '@posthog/node-common/config'
+import { overrideWithEnv } from '@posthog/node-common/config/config'
+
+import { getDefaultAIObservabilityConfig } from '~/ai-observability/config'
 import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsumerConfig } from '~/logs/config'
 import { PluginsServerConfig } from '~/types'
 

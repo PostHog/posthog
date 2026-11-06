@@ -1,3 +1,10 @@
+import {
+    HogTransformerServiceConfig,
+    HogTransformerServiceDeps,
+    createHogTransformerService,
+} from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
+import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { initializePrometheusLabels } from '@posthog/node-common/api/router'
 import { CommonConfig } from '@posthog/node-common/config'
 import {
@@ -17,7 +24,6 @@ import { logger } from '@posthog/node-common/utils/logger'
 import { PubSub } from '@posthog/node-common/utils/pubsub'
 import { TeamManagerComponent } from '@posthog/node-common/utils/team-manager'
 
-import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { CookielessManagerComponent, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
 import { ingestionConsumerService } from '~/ingestion/common/ingestion-consumer'
@@ -38,12 +44,6 @@ import {
 import { createErrorTrackingConsumer } from '~/ingestion/pipelines/errortracking/consumer'
 import { createOutputsRegistry } from '~/ingestion/pipelines/errortracking/outputs/registry'
 
-import {
-    HogTransformerServiceConfig,
-    HogTransformerServiceDeps,
-    createHogTransformerService,
-} from '../cdp/hog-transformations/hog-transformer.service'
-import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,

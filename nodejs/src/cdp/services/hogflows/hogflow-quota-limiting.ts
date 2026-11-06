@@ -1,11 +1,10 @@
 import { Counter } from 'prom-client'
 
+import { HogFlow, HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionMonitoringService } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
+import { CyclotronJobInvocationHogFlow } from '@posthog/hog-engine/cdp/types'
 import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
 
-import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
-
-import { CyclotronJobInvocationHogFlow } from '../../types'
-import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 
 export const counterHogFlowQuotaLimited = new Counter({

@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 
-import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
 
-import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 
 export interface ActionHandlerResult {

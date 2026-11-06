@@ -1,3 +1,5 @@
+import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import {
     createIngestionRedisConnectionConfig,
     createPosthogRedisConnectionConfig,
@@ -19,8 +21,6 @@ import { logger } from '@posthog/node-common/utils/logger'
 import { PubSub } from '@posthog/node-common/utils/pubsub'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
-import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { Hub, PluginsServerConfig } from '~/types'
 
 import { defaultConfig } from '../../config/config'

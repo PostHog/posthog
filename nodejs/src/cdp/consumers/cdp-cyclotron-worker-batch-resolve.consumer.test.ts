@@ -1,9 +1,10 @@
 import { DateTime } from 'luxon'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow } from '@posthog/hog-engine/cdp/types'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
 import { Team } from '~/types'
 
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
@@ -20,7 +21,6 @@ import {
     HogInvocationResultRow,
     HogInvocationResultsService,
 } from '../services/monitoring/hog-invocation-results.service'
-import { CyclotronJobInvocationHogFlow } from '../types'
 import {
     CdpCyclotronWorkerBatchResolve,
     buildAccountHogFlowInvocation,
