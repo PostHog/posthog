@@ -2,7 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.utils import timezone
 
 import structlog
@@ -117,7 +117,14 @@ def sync_sandbox_tenant_state(provider: SESProvider | None = None) -> None:
         return
     SandboxSenderTenantState.objects.get_or_create(tenant_name=tenant_name)
     with transaction.atomic():
-        state = SandboxSenderTenantState.objects.select_for_update().get(tenant_name=tenant_name)
+        try:
+            # NOWAIT makes an overlapping sync fail at once, and its task retries with backoff. A
+            # waiting sync would hold a Celery worker and a database connection while the lock
+            # holder waits on SES.
+            state = SandboxSenderTenantState.objects.select_for_update(nowait=True).get(tenant_name=tenant_name)
+        except OperationalError:
+            SANDBOX_TENANT_SYNC_FAILURES.labels(kind="busy").inc()
+            raise
         try:
             tenant = (provider or SESProvider()).get_tenant_sending_state(tenant_name)
         except Exception as error:
