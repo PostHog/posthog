@@ -19,6 +19,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import Tag, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.event import MAX_SELECTOR_LENGTH
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
 from products.actions.backend.models.action import Action
@@ -211,6 +212,21 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "attr": "steps",
             },
         )
+        self.assertEqual(Action.objects.count(), count)
+
+    def test_cant_create_action_with_overlong_selector(self, *args):
+        count = Action.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            {
+                "name": "long selector",
+                "steps": [{"event": "$autocapture", "selector": "a" * (MAX_SELECTOR_LENGTH + 1)}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "max_length")
+        self.assertEqual(response.json()["attr"], "steps__0__selector")
         self.assertEqual(Action.objects.count(), count)
 
     def test_cant_create_action_with_whitespace_only_name(self, *args):
@@ -1120,6 +1136,15 @@ class TestActionStepRegexValidation(SimpleTestCase):
         else:
             with self.assertRaisesMessage(ValidationError, "Invalid regular expression"):
                 ActionSerializer().validate_steps(steps)
+
+
+class TestActionStepSelectorLength(SimpleTestCase):
+    @parameterized.expand([("at_limit", MAX_SELECTOR_LENGTH, True), ("over_limit", MAX_SELECTOR_LENGTH + 1, False)])
+    def test_validates_selector_length(self, _name: str, length: int, expect_valid: bool) -> None:
+        serializer = ActionStepJSONSerializer(data={"event": "$autocapture", "selector": "a" * length})
+        self.assertEqual(serializer.is_valid(), expect_valid)
+        if not expect_valid:
+            self.assertEqual(serializer.errors["selector"][0].code, "max_length")
 
 
 class TestSelectorWarning(SimpleTestCase):

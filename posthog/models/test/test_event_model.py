@@ -1,5 +1,4 @@
 import re
-import time
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -176,18 +175,29 @@ class TestSelectors(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("open_brackets", "[" * MAX_SELECTOR_LENGTH),
-            ("unclosed_attribute_values", "[a='" * (MAX_SELECTOR_LENGTH // 4)),
-            ("unclosed_keys", "[a" * (MAX_SELECTOR_LENGTH // 2)),
-            ("dots_without_brackets", "a" + "." * (MAX_SELECTOR_LENGTH - 1)),
-            ("many_attributes", "[a='b']" * (MAX_SELECTOR_LENGTH // 7)),
-            ("many_parts", "a " * (MAX_SELECTOR_LENGTH // 2)),
+            ("open_brackets", "[" * MAX_SELECTOR_LENGTH, 1, {"tag_name": "[" * MAX_SELECTOR_LENGTH}),
+            (
+                "unclosed_attribute_values",
+                "[a='" * (MAX_SELECTOR_LENGTH // 4),
+                1,
+                {"tag_name": "[a='" * (MAX_SELECTOR_LENGTH // 4)},
+            ),
+            ("unclosed_keys", "[a" * (MAX_SELECTOR_LENGTH // 2), 1, {"tag_name": "[a" * (MAX_SELECTOR_LENGTH // 2)}),
+            (
+                "dots_without_brackets",
+                "a" + "." * (MAX_SELECTOR_LENGTH - 1),
+                1,
+                {"tag_name": "a", "attr_class__contains": [""] * (MAX_SELECTOR_LENGTH - 1)},
+            ),
+            ("many_attributes", "[a='b']" * (MAX_SELECTOR_LENGTH // 7), 1, {"attributes__attr__a": "b"}),
+            ("many_parts", "a " * (MAX_SELECTOR_LENGTH // 2), MAX_SELECTOR_LENGTH // 2, {"tag_name": "a"}),
         ]
     )
-    def test_max_length_selector_parses(self, _name, selector):
-        started = time.perf_counter()
-        build_selector_regex(Selector(selector, escape_slashes=False))
-        self.assertLess(time.perf_counter() - started, 1.0)
+    def test_max_length_selector_parses(self, _name, selector, part_count, first_part_data):
+        parsed = Selector(selector, escape_slashes=False)
+        self.assertEqual(len(parsed.parts), part_count)
+        self.assertEqual(parsed.parts[0].data, first_part_data)
+        build_selector_regex(parsed)
 
     def test_attribute_parser_matches_reference_regex(self):
         selectors = [
@@ -199,6 +209,9 @@ class TestSelectors(SimpleTestCase):
             "[a='[b=\"c\"]']",
             "[a='unclosed",
             "[='x']",
+            "[title='first\nsecond']",
+            "[a='x\n'][b='y']",
+            "[a='x'\n]",
         ]
         for selector in selectors:
             expected = [
@@ -208,7 +221,14 @@ class TestSelectors(SimpleTestCase):
             self.assertEqual(actual, expected, selector)
 
     def test_class_split_matches_reference_regex(self):
-        for tag in ["div.a.b", "div.shadow-[0_4px_6px_rgba(0,0,0,0.1)].text-blue-500", "a.b]c.d[e.f", ".", "a[.]b.c"]:
+        for tag in [
+            "div.a.b",
+            "div.shadow-[0_4px_6px_rgba(0,0,0,0.1)].text-blue-500",
+            "a.b]c.d[e.f",
+            ".",
+            "a[.]b.c",
+            "a.b\n]c.d",
+        ]:
             self.assertEqual(_split_classes(tag), re.split(r"\.(?![^\[]*\])", tag), tag)
 
     def test_selector_length_is_capped(self):

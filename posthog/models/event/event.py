@@ -101,6 +101,10 @@ def _find_attribute_selectors(tag: str) -> list[_AttributeMatch]:
             after = next_non_space[j + 1]
             closes[j] = j if tag[j] == quote and after < n and tag[after] == "]" else closes[j + 1]
         next_close[quote] = closes
+    # (.*?) does not match a newline, so the closing quote must come before the next one.
+    next_newline = [n] * (n + 1)
+    for i in range(n - 1, -1, -1):
+        next_newline[i] = i if tag[i] == "\n" else next_newline[i + 1]
 
     matches: list[_AttributeMatch] = []
     i = 0
@@ -123,7 +127,7 @@ def _find_attribute_selectors(tag: str) -> list[_AttributeMatch]:
             continue
         quote = tag[quote_at]
         close = next_close[quote][quote_at + 1]
-        if close >= n:
+        if close >= n or close > next_newline[quote_at + 1]:
             i += 1
             continue
         end = next_non_space[close + 1] + 1

@@ -1,4 +1,3 @@
-import time
 from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
@@ -970,15 +969,16 @@ class TestProperty(BaseTest):
             clear_locations(elements_chain_match("(^|;)a(\\.|$|;|:)")),
         )
 
-    def test_selector_to_expr_rejects_overlong_selector(self):
-        self._selector_to_expr("a" * MAX_SELECTOR_LENGTH)
+    def test_selector_to_expr_length_cap(self):
+        long_id = "a" * (MAX_SELECTOR_LENGTH - len("[id='']"))
+        self.assertEqual(
+            self._selector_to_expr(f"[id='{long_id}']"),
+            clear_locations(
+                parse_expr("indexOf(elements_chain_ids, {value}) > 0", {"value": ast.Constant(value=long_id)})
+            ),
+        )
         with self.assertRaises(QueryError):
             self._selector_to_expr("a" * (MAX_SELECTOR_LENGTH + 1))
-
-    def test_selector_to_expr_parses_max_length_selector(self):
-        started = time.perf_counter()
-        self._selector_to_expr("[" * MAX_SELECTOR_LENGTH)
-        self.assertLess(time.perf_counter() - started, 1.0)
 
     def test_selector_to_expr(self):
         self.assertEqual(

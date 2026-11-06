@@ -42,7 +42,7 @@ from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.models import Team
-from posthog.models.event.event import Selector
+from posthog.models.event.event import MAX_SELECTOR_LENGTH, Selector
 from posthog.models.property.util import build_selector_regex
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
@@ -151,7 +151,8 @@ class ActionStepJSONSerializer(serializers.Serializer):
     selector = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="CSS selector to match the target element (e.g. 'div > button.cta').",
+        max_length=MAX_SELECTOR_LENGTH,
+        help_text=f"CSS selector to match the target element (e.g. 'div > button.cta'). At most {MAX_SELECTOR_LENGTH} characters.",
     )
     selector_regex = serializers.SerializerMethodField(
         help_text="Compiled regex the selector matches against the event elements chain. Null when no selector is set."
