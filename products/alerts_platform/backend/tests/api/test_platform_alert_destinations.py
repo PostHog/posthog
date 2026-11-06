@@ -157,6 +157,28 @@ class TestPlatformAlertDestinations(APIBaseTest):
         assert refused.status_code == status.HTTP_409_CONFLICT, refused.json()
         assert [d["id"] for d in self.client.get(self.url).json()] == [created["id"]]
 
+    def test_a_webhook_secret_is_never_listed(self) -> None:
+        created = self.client.post(
+            self.url,
+            {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/123/secret-token"},
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        assert [d["webhook_url"] for d in self.client.get(self.url).json()] == ["https://discord.com"]
+
+    @parameterized.expand([("duplicate", 1, 0), ("over_the_cap", 5, 5)])
+    def test_a_destination_past_the_alerts_limits_is_refused(self, _name: str, existing: int, next_index: int) -> None:
+        def discord(index: int) -> dict[str, str]:
+            return {"type": "discord", "webhook_url": f"https://discord.com/api/webhooks/{index}/token"}
+
+        for index in range(existing):
+            assert self.client.post(self.url, discord(index), format="json").status_code == status.HTTP_201_CREATED
+
+        response = self.client.post(self.url, discord(next_index), format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
     def test_a_kind_whose_product_owns_its_destinations_is_refused(self) -> None:
         with team_scope(self.team.id):
             logs_alert = PlatformAlertConfiguration.objects.create(
