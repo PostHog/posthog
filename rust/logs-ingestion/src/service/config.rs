@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use crate::js::{JsObject, JsValue};
 use crate::pipeline::LogsIngestionConsumerConfig;
+use crate::transformations::{LogsTransformerConfig, LOG_ENTRIES_OUTPUT};
 
 use super::node_env::{
     determine_node_env, get_bool, get_number, get_string, kafka_topic, override_with_env,
@@ -103,6 +104,13 @@ pub struct ConsumerLoopConfig {
     pub background_task_timeout: Duration,
 }
 
+/// What the logs server passes to `HogFunctionManagerService` and `LogsTransformerService`.
+#[derive(Debug, Clone)]
+pub struct TransformationsConfig {
+    pub encryption_salt_keys: String,
+    pub transformer: LogsTransformerConfig,
+}
+
 #[derive(Debug, Clone)]
 pub struct ServiceConfig {
     pub kind: ConsumerKind,
@@ -127,6 +135,7 @@ pub struct ServiceConfig {
     pub usage: UsageConfig,
     pub http_port: u16,
     pub shutdown_timeout: Duration,
+    pub transformations: TransformationsConfig,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -135,10 +144,6 @@ pub enum ConfigError {
     ConsumerKind(String),
     #[error("{SHADOW_MODE_KEY} must be true or false, got {0:?}")]
     ShadowMode(String),
-    #[error(
-        "{0} is not empty, but hog transformations are not ported, so primary mode refuses it"
-    )]
-    TransformationsNotPorted(&'static str),
     #[error("{0}")]
     Invalid(String),
 }
@@ -206,6 +211,26 @@ fn node_defaults(env: &Env) -> Vec<(String, JsValue)> {
         ("LOGS_BILLING_PRORATE_ENABLED", b(false)),
         ("LOGS_TRANSFORMATIONS_ENABLED_TEAMS", s("")),
         ("LOGS_TRANSFORMATIONS_KILLSWITCH", b(false)),
+        ("LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS", n(10.0)),
+        ("LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS", n(100.0)),
+        ("LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS", n(2000.0)),
+        ("LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION", n(3.0)),
+        (
+            "SITE_URL",
+            s(if node_env == NodeEnv::Development {
+                "http://localhost:8000"
+            } else {
+                ""
+            }),
+        ),
+        (
+            "ENCRYPTION_SALT_KEYS",
+            s(if prod {
+                ""
+            } else {
+                "00beef0000beef0000beef0000beef00"
+            }),
+        ),
         ("REDIS_URL", s("redis://127.0.0.1")),
         (
             "TRACES_INGESTION_CONSUMER_GROUP_ID",
@@ -362,14 +387,8 @@ impl ServiceConfig {
             ConsumerKind::Logs => LogsIngestionConsumerConfig::from_logs_config(&node),
             ConsumerKind::Traces => LogsIngestionConsumerConfig::from_traces_config(&node),
         };
-        // The traces consumer extends the logs one in Node and reads this same key.
-        if mode == RunMode::Primary && !consumer.transformations_enabled_teams.trim().is_empty() {
-            return Err(ConfigError::TransformationsNotPorted(
-                "LOGS_TRANSFORMATIONS_ENABLED_TEAMS",
-            ));
-        }
         let input_topic = get_string(&node, &format!("{p}_INGESTION_CONSUMER_CONSUME_TOPIC"));
-        let production_routes = vec![
+        let mut production_routes = vec![
             OutputRoute {
                 output: crate::pipeline::LOGS_OUTPUT,
                 topic: get_string(&node, &format!("{p}_INGESTION_CONSUMER_CLICKHOUSE_TOPIC")),
@@ -386,6 +405,14 @@ impl ServiceConfig {
                 producer: get_string(&node, "LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER"),
             },
         ];
+        // Only the logs server builds the transformer. Shadow mode has no `log_entries` topic and drops function logs.
+        if kind == ConsumerKind::Logs && mode == RunMode::Primary {
+            production_routes.push(OutputRoute {
+                output: LOG_ENTRIES_OUTPUT,
+                topic: get_string(&node, "LOGS_INGESTION_OUTPUT_LOG_ENTRIES_TOPIC"),
+                producer: get_string(&node, "LOGS_INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER"),
+            });
+        }
         let node_group = get_string(&node, &format!("{p}_INGESTION_CONSUMER_GROUP_ID"));
         let (group_id, routes) = match mode {
             RunMode::Primary => (node_group, production_routes),
@@ -482,6 +509,20 @@ impl ServiceConfig {
             report_teams: get_string(&node, "USAGE_INGESTION_REPORT_TEAMS"),
         };
         let rack = get_string(&node, "KAFKA_CLIENT_RACK");
+        let transformations = TransformationsConfig {
+            encryption_salt_keys: get_string(&node, "ENCRYPTION_SALT_KEYS"),
+            transformer: LogsTransformerConfig {
+                site_url: get_string(&node, "SITE_URL"),
+                hog_timeout_ms: get_number(&node, "LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS"),
+                message_budget_ms: get_number(&node, "LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS"),
+                batch_budget_ms: get_number(&node, "LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS"),
+                max_error_logs_per_function_per_message: get_number(
+                    &node,
+                    "LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION",
+                )
+                .max(0.0) as usize,
+            },
+        };
         Ok(Self {
             kind,
             mode,
@@ -508,6 +549,7 @@ impl ServiceConfig {
             http_port: positive(&node, "HTTP_SERVER_PORT")? as u16,
             kafka_client_rack: (!rack.is_empty()).then_some(rack),
             shutdown_timeout: SHUTDOWN_TIMEOUT,
+            transformations,
             group_id,
             input_topic,
             routes,
@@ -636,16 +678,16 @@ mod tests {
         assert_eq!(c.consumer_loop.max_background_tasks, 1);
         assert_eq!(c.database_writer_url.as_deref(), Some("postgres://x"));
 
-        let transformations = ServiceConfig::from_env(&env(&[
+        let logs = ServiceConfig::from_env(&env(&[
             ("PLUGIN_SERVER_MODE", "ingestion-logs"),
             (SHADOW_MODE_KEY, "false"),
             ("DATABASE_URL", "postgres://x"),
             ("LOGS_TRANSFORMATIONS_ENABLED_TEAMS", "2"),
         ]))
-        .unwrap_err();
-        assert!(transformations
-            .to_string()
-            .contains("LOGS_TRANSFORMATIONS_ENABLED_TEAMS"));
+        .unwrap();
+        assert_eq!(logs.route("log_entries").unwrap().topic, "log_entries");
+        assert_eq!(logs.transformations.transformer.hog_timeout_ms, 10.0);
+        assert!(c.route("log_entries").is_none());
         let no_writer = ServiceConfig::from_env(&env(&[
             ("PLUGIN_SERVER_MODE", "ingestion-logs"),
             (SHADOW_MODE_KEY, "false"),
