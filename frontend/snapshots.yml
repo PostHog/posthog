@@ -6430,6 +6430,8 @@ snapshots:
         hash: v1.k794b7964.b2ceec3c890e9f432bf8a548bea888ee5ecb4fb943a00e914f265b6e1dde37e4.ITfYs9uRttzjpHJkLrKYopYinde_S2_TnmmxWTWfQ3o
     mcp-apps-workflows--data-suggestions-built--light:
         hash: v1.k794b7964.a6a2d5322df9e01bbc25c27899200c465263863b539a328312d45b4c700f3df2.D7UIfg7JMHFk-mo0_Xg3i5H_FtpA_dKVrnUuA0iD-mM
+    mcp-apps-workflows--data-suggestions-sandbox-sender-only--light:
+        hash: v1.k794b7964.dbfaad5f20518ee190a8f948f7769002185aa5b205aa66a5eead9b9f2adc43fc.wBLB2waezb2dOqynoH9PpPnUKq8dXWWwHm7WsZrtW_M
     mcp-apps-workflows--draft-state--light:
         hash: v1.k794b7964.4cbfe20c626f0f7912dbd47b41a152c9c30f92d12a3f599476fb10043d7f7e70.9NI9FaMch59lt8xO3Xhp9ruHKLyDcvupNp20dZrR8_Y
     mcp-apps-workflows--list--light:
@@ -6442,6 +6444,8 @@ snapshots:
         hash: v1.k794b7964.2ecc52194af0bc94be9841afc57128da763075064497948ecd81e2114695bc81.9CDthZ77iyEZATCkKdP_y8cU2nOu9KDWR_uKm-sBvBk
     mcp-apps-workflows--setup-status-in-progress--light:
         hash: v1.k794b7964.7533676e7b7719945434d7ce5ca31b986a2a494cc64643920771d453bb827856.E8hkjoO5HR-nJLQP713GkZugnSbXE46dzlhJLSg4MxM
+    mcp-apps-workflows--setup-status-sandbox-sender-only--light:
+        hash: v1.k794b7964.8d57d91d779a6c40e0c8d95864d6c8ad10bfcd523a53d85d4e7ef7e223a0e02d.OifSm4o-96kulSu9khSQFO-84ddIFavMi8zePsLnh1o
     metrics-group-by--default--dark:
         hash: v1.k794b7964.ce83d5c6298b08ac62a7eeb1365881f3eaad9e77a2ffc762a8683bb5360cf49f.ZybY7nObSqgkgX4qZO0IbHSimFba2tRWMI3lKApT73o
     metrics-group-by--default--light:
