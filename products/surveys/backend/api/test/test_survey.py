@@ -469,6 +469,7 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "base_language" in response.json() or "translation" in response.content.decode().lower()
+        assert response.json()["code"] == "translation_language_matches_base"
 
     @parameterized.expand(
         [

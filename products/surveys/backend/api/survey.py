@@ -1910,7 +1910,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                                 f"'{incoming_base_language}' already exists as a translation key on this survey. "
                                 "Remove the translation first, or pick a different base language."
                             )
-                        }
+                        },
+                        code="translation_language_matches_base",
                     )
 
         self._reconcile_schedule_with_iterations(data)
